@@ -52,7 +52,12 @@ Column {
         visible: fieldRow.heading
         spacing: Style.space(16)
         Rectangle { width: parent.width; height: 1; color: Qt.alpha(Color.popups.text, 0.18) }
-        Text { text: root.tr(fieldRow.modelData.group || ""); color: root.secondary; font.family: "sans-serif"; font.pixelSize: Style.space(12); width: parent.width; wrapMode: Text.WordWrap }
+        Column {
+          width: parent.width
+          spacing: Style.space(5)
+          Text { text: root.tr(fieldRow.modelData.group || ""); color: Color.popups.text; font.family: "sans-serif"; font.pixelSize: Style.space(12); font.weight: Font.DemiBold; width: parent.width; wrapMode: Text.WordWrap }
+          Text { visible: text !== ""; text: root.tr(fieldRow.modelData.description || ""); color: root.secondary; font.family: "sans-serif"; font.pixelSize: Style.space(11); width: parent.width; wrapMode: Text.WordWrap }
+        }
       }
       VitalsDropdown {
         width: parent.width

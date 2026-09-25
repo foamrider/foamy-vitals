@@ -2,12 +2,12 @@
 var fields = [
   {key: "language", type: "enum", label: "Language", defaultValue: "system", options: ["system", "en", "nb"]},
   {key: "barDisplay", type: "enum", label: "Bar display", defaultValue: "adaptive", options: ["adaptive", "cpu", "memory", "gpu"]},
-  {key: "cpuWarning", type: "integer", label: "CPU", group: "Usage warnings", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
+  {key: "cpuWarning", type: "integer", label: "CPU", group: "Usage warnings", description: "Turns red at or above these percentages.", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
   {key: "memoryWarning", type: "integer", label: "RAM", group: "Usage warnings", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
   {key: "gpuWarning", type: "integer", label: "GPU", group: "Usage warnings", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
   {key: "vramWarning", type: "integer", label: "VRAM", group: "Usage warnings", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
-  {key: "cpuTemperatureMargin", type: "integer", label: "CPU", group: "Temperature warnings · below limit", unit: "°C", defaultValue: 15, min: 0, max: 100, step: 1},
-  {key: "gpuTemperatureMargin", type: "integer", label: "GPU", group: "Temperature warnings · below limit", unit: "°C", defaultValue: 15, min: 0, max: 100, step: 1}
+  {key: "cpuTemperatureMargin", type: "integer", label: "CPU", group: "Temperature warning margin", description: "Warn this many °C below the hardware limit.", unit: "°C", defaultValue: 15, min: 0, max: 100, step: 1},
+  {key: "gpuTemperatureMargin", type: "integer", label: "GPU", group: "Temperature warning margin", unit: "°C", defaultValue: 15, min: 0, max: 100, step: 1}
 ]
 function field(key) {
   for (var i = 0; i < fields.length; i++) if (fields[i].key === key) return fields[i]
@@ -32,7 +32,9 @@ function optionLabel(value) {
 var norwegian = {
   "Language": "Språk", "System": "System", "Settings": "Innstillinger", "Back": "Tilbake", "Saving…": "Lagrer…",
   "Bar display": "Visning i linjen", "Adaptive": "Automatisk", "Usage warnings": "Bruksvarsler",
-  "Temperature warnings · below limit": "Temperaturvarsler · under grensen",
+  "Temperature warning margin": "Margin for temperaturvarsel",
+  "Turns red at or above these percentages.": "Blir rødt ved disse prosentene eller høyere.",
+  "Warn this many °C below the hardware limit.": "Varsler så mange °C under maskinvarens temperaturgrense.",
   "Invalid setting.": "Ugyldig innstilling.", "Could not save settings.": "Kunne ikke lagre innstillingene.",
   "Up": "Oppetid", "Load": "Last",
   "CPU TEMP": "CPU-TEMP", "GPU TEMP": "GPU-TEMP", "threads": "tråder", "CPU cores": "CPU-kjerner",

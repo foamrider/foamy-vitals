@@ -314,7 +314,7 @@ Panel {
     }
   }
 
-  // Match tomas.vitals: 2-second active samples and 5-second background samples.
+  // Sample every 2 seconds while open and every 5 seconds in the background.
   Timer {
     interval: root.opened ? 2000 : 5000
     running: true
@@ -549,103 +549,95 @@ Panel {
             readonly property real columnWidth: (width - columnSpacing * (columns - 1)) / columns
             Column {
               width: detailsGrid.columnWidth
-              spacing: Style.space(20)
-              Column {
+              spacing: Style.space(12)
+              SectionHeading { title: root.tr("Resource usage"); detail: "2 min" }
+              Row {
+                spacing: Style.space(14)
+                Legend { text: "CPU"; dotColor: root.cpuColor }
+                Legend { text: "RAM"; dotColor: root.memoryColor; dashed: true }
+                Legend { text: "GPU"; dotColor: root.gpuColor }
+              }
+              HistoryPlot {
+                width: parent.width; height: Style.space(90)
+                topLabel: "100%"; middleLabel: "50%"; bottomLabel: "0%"
+                maximum: 100
+                series: [{points: root.history.cpu, color: root.cpuColor}, {points: root.history.memory, color: root.memoryColor, dashed: true}, {points: root.history.gpu, color: root.gpuColor}]
+              }
+            }
+            ProcessSection { width: detailsGrid.columnWidth; title: root.tr("Top CPU processes"); entries: root.processes }
+            Column {
+              width: detailsGrid.columnWidth
+              spacing: Style.space(12)
+              SectionHeading { title: root.tr("Network traffic"); detail: root.networkInterface }
+              RowLayout {
                 width: parent.width
-                spacing: Style.space(12)
-                SectionHeading { title: root.tr("Resource usage"); detail: "2 min" }
-                Row {
-                  spacing: Style.space(14)
-                  Legend { text: "CPU"; dotColor: root.cpuColor }
-                  Legend { text: "RAM"; dotColor: root.memoryColor; dashed: true }
-                  Legend { text: "GPU"; dotColor: root.gpuColor }
+                spacing: Style.space(16)
+                Column {
+                  Layout.fillWidth: true
+                  Layout.preferredWidth: 1
+                  spacing: Style.space(5)
+                  Legend { text: root.tr("Incoming"); dotColor: root.gpuColor }
+                  Label { width: parent.width; text: root.rate(root.networkDown); font.pixelSize: Style.space(16) }
                 }
-                HistoryPlot {
-                  width: parent.width; height: Style.space(90)
-                  topLabel: "100%"; middleLabel: "50%"; bottomLabel: "0%"
-                  maximum: 100
-                  series: [{points: root.history.cpu, color: root.cpuColor}, {points: root.history.memory, color: root.memoryColor, dashed: true}, {points: root.history.gpu, color: root.gpuColor}]
+                Column {
+                  Layout.fillWidth: true
+                  Layout.preferredWidth: 1
+                  spacing: Style.space(5)
+                  Legend { text: root.tr("Outgoing"); dotColor: root.cpuColor }
+                  Label { width: parent.width; text: root.rate(root.networkUp); font.pixelSize: Style.space(16) }
                 }
               }
-              Column {
-                width: parent.width
-                spacing: Style.space(12)
-                SectionHeading { title: root.tr("CPU cores"); detail: root.hoveredCore >= 0 ? root.hoveredCoreLabel() : "" }
-                Item {
-                  width: parent.width; height: Style.space(18)
-                  Row {
-                    id: coreRow
-                    anchors.fill: parent
-                    spacing: Style.space(3)
-                    Repeater {
-                      model: root.cores
-                      Rectangle {
-                        required property var modelData
-                        required property int index
-                        width: root.cores.length ? Math.max(0, (coreRow.width - coreRow.spacing * (root.cores.length - 1)) / root.cores.length) : 0
-                        height: coreRow.height
-                        radius: Style.space(2)
-                        color: root.coreLoad(modelData) >= root.preference("cpuWarning") ? root.urgent : root.cpuColor
-                        opacity: modelData === null ? 0.08 : root.hoveredCore === index ? 1 : 0.15 + 0.75 * root.coreLoad(modelData) / 100
-                      }
+              HistoryPlot {
+                width: parent.width; height: Style.space(120)
+                topLabel: root.rate(root.networkScale).replace(".0 ", " ")
+                middleLabel: "0"
+                bottomLabel: root.rate(root.networkScale).replace(".0 ", " ")
+                maximum: root.networkScale; centered: true
+                series: [{points: root.history.down, color: root.gpuColor}, {points: root.history.up, color: root.cpuColor, negative: true}]
+              }
+            }
+            ProcessSection { width: detailsGrid.columnWidth; title: root.tr("Top memory processes"); entries: root.memoryProcesses; memoryMode: true }
+            Column {
+              width: detailsGrid.columnWidth
+              spacing: Style.space(12)
+              SectionHeading { title: root.tr("CPU cores"); detail: root.hoveredCore >= 0 ? root.hoveredCoreLabel() : "" }
+              Item {
+                width: parent.width; height: Style.space(18)
+                Row {
+                  id: coreRow
+                  anchors.fill: parent
+                  spacing: Style.space(3)
+                  Repeater {
+                    model: root.cores
+                    Rectangle {
+                      required property var modelData
+                      required property int index
+                      width: root.cores.length ? Math.max(0, (coreRow.width - coreRow.spacing * (root.cores.length - 1)) / root.cores.length) : 0
+                      height: coreRow.height
+                      radius: Style.space(2)
+                      color: root.coreLoad(modelData) >= root.preference("cpuWarning") ? root.urgent : root.cpuColor
+                      opacity: modelData === null ? 0.08 : root.hoveredCore === index ? 1 : 0.15 + 0.75 * root.coreLoad(modelData) / 100
                     }
                   }
-                  MouseArea {
-                    anchors.fill: parent; hoverEnabled: true
-                    onPositionChanged: function(mouse) { root.hoveredCore = Math.min(root.cores.length - 1, Math.floor(mouse.x / Math.max(1, width) * root.cores.length)) }
-                    onExited: root.hoveredCore = -1
-                  }
                 }
-              }
-              Column {
-                width: parent.width
-                spacing: Style.space(12)
-                SectionHeading { title: root.tr("Network traffic"); detail: root.networkInterface }
-                RowLayout {
-                  width: parent.width
-                  spacing: Style.space(16)
-                  Column {
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    spacing: Style.space(5)
-                    Legend { text: root.tr("Incoming"); dotColor: root.gpuColor }
-                    Label { width: parent.width; text: root.rate(root.networkDown); font.pixelSize: Style.space(16) }
-                  }
-                  Column {
-                    Layout.fillWidth: true
-                    Layout.preferredWidth: 1
-                    spacing: Style.space(5)
-                    Legend { text: root.tr("Outgoing"); dotColor: root.cpuColor }
-                    Label { width: parent.width; text: root.rate(root.networkUp); font.pixelSize: Style.space(16) }
-                  }
-                }
-                HistoryPlot {
-                  width: parent.width; height: Style.space(120)
-                  topLabel: root.rate(root.networkScale).replace(".0 ", " ")
-                  middleLabel: "0"
-                  bottomLabel: root.rate(root.networkScale).replace(".0 ", " ")
-                  maximum: root.networkScale; centered: true
-                  series: [{points: root.history.down, color: root.gpuColor}, {points: root.history.up, color: root.cpuColor, negative: true}]
+                MouseArea {
+                  anchors.fill: parent; hoverEnabled: true
+                  onPositionChanged: function(mouse) { root.hoveredCore = Math.min(root.cores.length - 1, Math.floor(mouse.x / Math.max(1, width) * root.cores.length)) }
+                  onExited: root.hoveredCore = -1
                 }
               }
             }
             Column {
-              width: detailsGrid.columnWidth
-              spacing: Style.space(20)
-              ProcessSection { width: parent.width; title: root.tr("Top CPU processes"); entries: root.processes }
-              ProcessSection { width: parent.width; title: root.tr("Top memory processes"); entries: root.memoryProcesses; memoryMode: true }
-              Column {
-                width: parent.width; spacing: Style.space(12)
-                SectionHeading { title: root.tr("Storage") }
-                Caption { width: parent.width; visible: root.diskStatus !== ""; text: root.tr(root.diskStatus) }
-                Repeater {
-                  model: root.disks
-                  Column {
-                    required property var modelData
-                    width: detailsGrid.columnWidth; spacing: Style.space(8)
-                    DataRow { label: parent.modelData.mount === "/" ? root.tr("Root filesystem") : parent.modelData.mount; value: root.diskCapacity(parent.modelData.usedKb, parent.modelData.totalKb) }
-                    Meter { width: parent.width; value: 100 * parent.modelData.usedKb / parent.modelData.totalKb }
-                  }
+              width: detailsGrid.columnWidth; spacing: Style.space(12)
+              SectionHeading { title: root.tr("Storage") }
+              Caption { width: parent.width; visible: root.diskStatus !== ""; text: root.tr(root.diskStatus) }
+              Repeater {
+                model: root.disks
+                Column {
+                  required property var modelData
+                  width: detailsGrid.columnWidth; spacing: Style.space(8)
+                  DataRow { label: parent.modelData.mount === "/" ? root.tr("Root filesystem") : parent.modelData.mount; value: root.diskCapacity(parent.modelData.usedKb, parent.modelData.totalKb) }
+                  Meter { width: parent.width; value: 100 * parent.modelData.usedKb / parent.modelData.totalKb }
                 }
               }
             }
