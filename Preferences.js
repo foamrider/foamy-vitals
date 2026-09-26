@@ -30,6 +30,7 @@ function optionLabel(value) {
   return {system: "System", en: "English", nb: "Norsk bokmål", adaptive: "Adaptive", cpu: "CPU", memory: "RAM", gpu: "GPU"}[value] || value
 }
 var norwegian = {
+  "NVIDIA readings unavailable. Check nvidia-smi.": "NVIDIA-avlesninger er utilgjengelige. Sjekk nvidia-smi.",
   "Language": "Språk", "System": "System", "Settings": "Innstillinger", "Back": "Tilbake", "Saving…": "Lagrer…",
   "Bar display": "Visning i linjen", "Adaptive": "Automatisk", "Usage warnings": "Bruksvarsler",
   "Temperature warning margin": "Margin for temperaturvarsel",

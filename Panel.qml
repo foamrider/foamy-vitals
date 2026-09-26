@@ -530,6 +530,13 @@ Panel {
           width: parent.width
           padding: Style.space(20)
           spacing: Style.space(20)
+          Caption {
+            width: body.width - body.padding * 2
+            visible: typeof root.stats.gpuError === "string" && root.stats.gpuError !== ""
+            text: root.tr("NVIDIA readings unavailable. Check nvidia-smi.")
+            color: Color.urgent
+            wrapMode: Text.WordWrap
+          }
           Grid {
             width: body.width - body.padding * 2
             columns: width >= Style.space(440) ? 3 : 2

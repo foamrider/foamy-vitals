@@ -18,6 +18,14 @@ omarchy plugin add https://github.com/foamrider/foamy-vitals.git --enable
 
 Settings are saved in Omarchy's `shell.json`. Available readings depend on your hardware.
 
+NVIDIA GPUs using the proprietary driver are read through `nvidia-smi` and
+Python 3 (standard library only). Install the NVIDIA driver utilities matching
+your driver if `nvidia-smi` is missing. The lowest PCI-address NVIDIA GPU is used
+when no sysfs GPU load source is available. Load, VRAM and temperature always
+come from that same GPU. Thermal warnings use its reported shutdown threshold;
+unsupported readings and limits remain unknown. Probes time out after 1.5 seconds
+and share the normal two-second sample cache.
+
 ## License
 
 Licensed under [MIT](LICENSE), with [Omarchy](LICENSE-OMARCHY) and

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One JSON object of processor, memory, graphics and thermal readings for the
-# vitals bar plugin. Everything comes from sysfs, so this needs no privileges.
+# vitals bar plugin. Read sysfs and, for proprietary NVIDIA drivers, nvidia-smi.
+# Neither telemetry path needs privileges.
 #
 # Load is a delta against the previous call, so the first call after a reboot
 # reports null and every call after it is a true average over the poll gap.
@@ -464,9 +465,27 @@ network="$(awk '
     else printf "null"
   }
 ' /proc/net/route /proc/net/dev /proc/uptime)"
-# Integrated graphics have no memory of their own to report, so video memory
-# stays unknown here rather than being answered with the system total.
-if [[ $gpu_busy == null ]]; then
+gpu_error='""'
+if [[ $gpu_busy == null && -d /proc/driver/nvidia/gpus ]]; then
+  # The existing two-second cache also bounds NVIDIA polling across bar instances.
+  # Prefer the discrete GPU over an Intel fallback and keep all its readings together.
+  nvidia="$(python3 "$(dirname "$(readlink -f "$0")")/nvidia_stats.py")"
+  if jq -e 'type == "object"' >/dev/null 2>&1 <<<"$nvidia"; then
+    gpu_busy=$(jq -c '.gpuBusy' <<<"$nvidia")
+    vram_used=$(jq -c '.vramUsed' <<<"$nvidia")
+    vram_total=$(jq -c '.vramTotal' <<<"$nvidia")
+    gpu_temp=$(jq -c '.gpuTemp' <<<"$nvidia")
+    gpu_thermals=$(jq -c '.gpuThermals' <<<"$nvidia")
+    gpu_error=$(jq -c '.gpuError' <<<"$nvidia")
+  else
+    vram_used=null
+    vram_total=null
+    gpu_temp=null
+    gpu_thermals='[]'
+    gpu_error='"NVIDIA telemetry helper failed."'
+  fi
+elif [[ $gpu_busy == null ]]; then
+  # Integrated graphics have no dedicated memory; never substitute system RAM.
   measured="$(intel_gpu_busy)"
   [[ -n $measured ]] && gpu_busy="$measured"
 fi
@@ -478,6 +497,7 @@ fi
   printf '"cpuTemp":%s,"gpuTemp":%s,"diskTemp":%s,"fanRpm":%s,' "$cpu_temp" "$gpu_temp" "$disk_temp" "$fan"
   printf '"cpuTempCrit":%s,"gpuThermals":%s,' "$cpu_temp_crit" "$gpu_thermals"
   printf '"gpuBusy":%s,"vramUsed":%s,"vramTotal":%s,' "$gpu_busy" "$vram_used" "$vram_total"
+  printf '"gpuError":%s,' "$gpu_error"
   printf '"processes":%s,"memoryProcesses":%s,' "$procs" "$memory_procs"
   printf '%s' "$network"
   printf '}\n'
