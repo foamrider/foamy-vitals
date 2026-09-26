@@ -328,6 +328,8 @@ Panel {
     id: barLabelMetrics
     font.family: root.fontFamily
     font.pixelSize: Style.font.body
+    // Keep the reading close to its label while reserving a stable three-digit width.
+    font.wordSpacing: -Style.space(4)
     text: "RAM 100%"
   }
 
@@ -357,6 +359,7 @@ Panel {
         color: root.warning ? root.urgent : root.barForeground
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
+        font.wordSpacing: barLabelMetrics.font.wordSpacing
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
         renderType: Text.NativeRendering
