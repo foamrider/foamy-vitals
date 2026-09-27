@@ -146,6 +146,8 @@ Panel {
   readonly property real memory: root.reading("memTotalKb") > 0
     ? 100 * root.reading("memUsedKb") / root.reading("memTotalKb") : NaN
   readonly property real gpu: root.reading("gpuBusy")
+  readonly property bool intelGpu: stats.gpuIntel === true
+  readonly property string gpuClock: isNaN(reading("gpuFrequencyMHz")) ? "" : Math.round(reading("gpuFrequencyMHz")) + " MHz"
   readonly property real vram: root.reading("vramTotal") > 0
     ? 100 * root.reading("vramUsed") / root.reading("vramTotal") : NaN
   readonly property bool showMemory: !isNaN(memory) && (isNaN(cpu) || memory > cpu)
@@ -533,8 +535,15 @@ Panel {
           Caption {
             width: body.width - body.padding * 2
             visible: typeof root.stats.gpuError === "string" && root.stats.gpuError !== ""
-            text: root.tr("NVIDIA readings unavailable. Check nvidia-smi.")
+            text: root.tr(root.stats.gpuError === "Intel GPU readings unavailable. Retrying…"
+              ? root.stats.gpuError : "NVIDIA readings unavailable. Check nvidia-smi.")
             color: Color.urgent
+            wrapMode: Text.WordWrap
+          }
+          Caption {
+            width: body.width - body.padding * 2
+            visible: root.intelGpu
+            text: root.tr("Intel GPU: busiest engine and private allocations from accessible processes for this user.")
             wrapMode: Text.WordWrap
           }
           Grid {
@@ -546,9 +555,9 @@ Panel {
             Overview { glyph: "\uf2db"; width: parent.cellWidth; label: "CPU"; value: root.percent(root.cpu); detail: root.cores.length ? root.cores.length + " " + root.tr("threads") : "--"; meterValue: root.cpu; warning: root.cpuWarning }
             Overview { glyph: "󰍛"; width: parent.cellWidth; label: "RAM"; value: root.percent(root.memory); detail: root.pair(root.gibFromKb(root.reading("memUsedKb")), root.gibFromKb(root.reading("memTotalKb"))); meterValue: root.memory; warning: root.memoryWarning }
             Overview { glyph: "\uf2c9"; width: parent.cellWidth; label: root.tr("CPU TEMP"); value: root.degrees(root.cpuTemp); detail: root.temperatureDetail(root.cpuThermal); meterValue: root.cpuThermal.meter; warning: root.cpuThermal.hot }
-            Overview { glyph: "\uf108"; width: parent.cellWidth; label: "GPU"; value: root.percent(root.gpu); meterValue: root.gpu; warning: root.gpuWarning }
-            Overview { glyph: "󰍛"; width: parent.cellWidth; label: "VRAM"; value: root.percent(root.vram); detail: root.pair(root.gibFromBytes(root.reading("vramUsed")), root.gibFromBytes(root.reading("vramTotal"))); meterValue: root.vram; warning: root.vramWarning }
-            Overview { glyph: "\uf2c9"; width: parent.cellWidth; label: root.tr("GPU TEMP"); value: root.degrees(root.gpuTemp); detail: root.temperatureDetail(root.gpuThermal); meterValue: root.gpuThermal.meter; warning: root.gpuThermal.hot }
+            Overview { glyph: "\uf108"; width: parent.cellWidth; label: "GPU"; value: root.percent(root.gpu); detail: root.intelGpu ? root.gpuClock : ""; meterValue: root.gpu; warning: root.gpuWarning }
+            Overview { glyph: "󰍛"; width: parent.cellWidth; label: root.intelGpu ? root.tr("GPU MEMORY") : "VRAM"; value: root.intelGpu ? root.memoryAmount(root.reading("gpuMemoryPrivate") / 1024) : root.percent(root.vram); detail: root.intelGpu ? root.tr("Private") : root.pair(root.gibFromBytes(root.reading("vramUsed")), root.gibFromBytes(root.reading("vramTotal"))); meterValue: root.vram; warning: root.vramWarning }
+            Overview { glyph: "\uf2c9"; width: parent.cellWidth; label: root.tr("GPU TEMP"); value: root.degrees(root.gpuTemp); detail: root.intelGpu && isNaN(root.gpuTemp) ? root.tr("Not exposed") : root.temperatureDetail(root.gpuThermal); meterValue: root.gpuThermal.meter; warning: root.gpuThermal.hot }
           }
           Grid {
             id: detailsGrid

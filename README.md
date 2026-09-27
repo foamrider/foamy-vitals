@@ -18,6 +18,15 @@ omarchy plugin add https://github.com/foamrider/foamy-vitals.git --enable
 
 Settings are saved in Omarchy's `shell.json`. Available readings depend on your hardware.
 
+Intel (`i915`/`xe`) monitoring uses Python 3 and unprivileged DRM client counters.
+GPU usage is the busiest engine, normalized for its engine count, across accessible
+processes owned by the current user. The first sample has no usage reading.
+GPU memory shows private allocations, excluding shared buffers to avoid counting
+them twice; it is not total VRAM or resident memory. The lowest PCI-address Intel
+GPU is selected when AMD/NVIDIA telemetry is not selected. On `i915`, the clock
+shows the highest current GT frequency. Unexposed temperatures remain unavailable.
+Collection shares the two-second cache and times out after 1.5 seconds.
+
 NVIDIA GPUs using the proprietary driver are read through `nvidia-smi` and
 Python 3 (standard library only). Install the NVIDIA driver utilities matching
 your driver if `nvidia-smi` is missing. The lowest PCI-address NVIDIA GPU is used

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One JSON object of processor, memory, graphics and thermal readings for the
-# vitals bar plugin. Read sysfs and, for proprietary NVIDIA drivers, nvidia-smi.
-# Neither telemetry path needs privileges.
+# vitals bar plugin. Read sysfs, Intel DRM clients, and NVIDIA nvidia-smi.
+# None of the telemetry paths needs privileges.
 #
 # Load is a delta against the previous call, so the first call after a reboot
 # reports null and every call after it is a true average over the poll gap.
@@ -34,7 +34,6 @@ fi
 cpu_state="$state_dir/cpu"
 proc_state="$state_dir/procs"
 cache="$state_dir/cache"
-gpu_state="$state_dir/gpu"
 lock="$state_dir/lock"
 cache_seconds=2
 
@@ -108,36 +107,6 @@ number_or_null() {
   raw="$(cat "$1" 2>/dev/null)" || { printf 'null'; return; }
   [[ $raw =~ ^[0-9]+$ ]] || { printf 'null'; return; }
   printf '%s' "$raw"
-}
-
-# Intel graphics report how long the chip slept rather than how hard it worked,
-# so busy is whatever share of the window that sleep did not account for.
-intel_gpu_busy() {
-  local dir slept now was_slept was_at slept_delta window pct
-  for dir in /sys/class/drm/card*/gt/gt[0-9]*; do
-    [[ -r "$dir/rc6_residency_ms" ]] || continue
-    [[ "$(cat "$dir/rc6_enable" 2>/dev/null || printf 0)" != 0 ]] || continue
-    slept="$(cat "$dir/rc6_residency_ms" 2>/dev/null)" || continue
-    [[ $slept =~ ^[0-9]+$ ]] || continue
-
-    now="$(date +%s%3N)"
-    was_slept=""
-    was_at=""
-    [[ -s $gpu_state ]] && read -r was_slept was_at <"$gpu_state"
-    printf '%s %s\n' "$slept" "$now" >"$gpu_state.$$" && mv -f "$gpu_state.$$" "$gpu_state"
-
-    [[ $was_slept =~ ^[0-9]+$ && $was_at =~ ^[0-9]+$ ]] || return 0
-    slept_delta=$((slept - was_slept))
-    window=$((now - was_at))
-    ((window > 0 && slept_delta >= 0)) || return 0
-
-    pct=$(((100 * (window - slept_delta) + window / 2) / window))
-    ((pct < 0)) && pct=0
-    ((pct > 100)) && pct=100
-    printf '%s' "$pct"
-    return 0
-  done
-  return 0
 }
 
 # Emits "overall <pct|null>", "cores <csv>" and "total <jiffies>", and rewrites
@@ -466,6 +435,7 @@ network="$(awk '
   }
 ' /proc/net/route /proc/net/dev /proc/uptime)"
 gpu_error='""'
+intel='{}'
 if [[ $gpu_busy == null && -d /proc/driver/nvidia/gpus ]]; then
   # The existing two-second cache also bounds NVIDIA polling across bar instances.
   # Prefer the discrete GPU over an Intel fallback and keep all its readings together.
@@ -485,9 +455,19 @@ if [[ $gpu_busy == null && -d /proc/driver/nvidia/gpus ]]; then
     gpu_error='"NVIDIA telemetry helper failed."'
   fi
 elif [[ $gpu_busy == null ]]; then
-  # Integrated graphics have no dedicated memory; never substitute system RAM.
-  measured="$(intel_gpu_busy)"
-  [[ -n $measured ]] && gpu_busy="$measured"
+  # Same-user DRM counters need neither perf privileges nor a resident process.
+  intel="$(timeout --kill-after=0.2s 1.5s python3 "$(dirname "$(readlink -f "$0")")/intel_stats.py" "$state_dir/intel.json")"
+  if jq -e 'type == "object" and (.gpuIntel | type == "boolean")' >/dev/null 2>&1 <<<"$intel"; then
+    gpu_busy=$(jq -c '.gpuBusy' <<<"$intel")
+    gpu_error=$(jq -c '.gpuError' <<<"$intel")
+    if [[ $(jq -r '.gpuIntel' <<<"$intel") == true ]]; then
+      gpu_temp=$(jq -c '.gpuTemp' <<<"$intel")
+      gpu_thermals=$(jq -c '.gpuThermals' <<<"$intel")
+    fi
+  else
+    intel='{}'
+    gpu_error='"Intel GPU readings unavailable. Retrying…"'
+  fi
 fi
 
 {
@@ -498,6 +478,9 @@ fi
   printf '"cpuTempCrit":%s,"gpuThermals":%s,' "$cpu_temp_crit" "$gpu_thermals"
   printf '"gpuBusy":%s,"vramUsed":%s,"vramTotal":%s,' "$gpu_busy" "$vram_used" "$vram_total"
   printf '"gpuError":%s,' "$gpu_error"
+  printf '"gpuIntel":%s,"gpuMemoryPrivate":%s,"gpuFrequencyMHz":%s,"gpuEngines":%s,' \
+    "$(jq -c '.gpuIntel // false' <<<"$intel")" "$(jq -c '.gpuMemoryPrivate' <<<"$intel")" \
+    "$(jq -c '.gpuFrequencyMHz' <<<"$intel")" "$(jq -c '.gpuEngines // {}' <<<"$intel")"
   printf '"processes":%s,"memoryProcesses":%s,' "$procs" "$memory_procs"
   printf '%s' "$network"
   printf '}\n'
