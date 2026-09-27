@@ -2,9 +2,12 @@
 
 System activity and hardware readings.
 
-![Foamy Vitals screenshot](screenshot.png)
+![Foamy Vitals screenshot](preview.png)
 
 ## Install
+
+Requires Omarchy Quattro, Bash, GNU coreutils, `jq`, and Python 3 for GPU
+helpers. `btop` is optional.
 
 ```sh
 omarchy plugin add https://github.com/foamrider/foamy-vitals.git --enable
@@ -34,6 +37,18 @@ when no sysfs GPU load source is available. Load, VRAM and temperature always
 come from that same GPU. Thermal warnings use its reported shutdown threshold;
 unsupported readings and limits remain unknown. Probes time out after 1.5 seconds
 and share the normal two-second sample cache.
+
+## Remove
+
+```sh
+omarchy plugin remove foamy.vitals
+```
+
+Removal stops metric collection. Cached readings and installed monitoring
+tools remain on disk. Hardware and driver settings are not changed.
+
+Omarchy manages the plugin entry in `shell.json`. Packages and data outside
+the plugin directory are retained unless you remove them separately.
 
 ## License
 
