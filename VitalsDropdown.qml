@@ -20,7 +20,7 @@ import qs.Ui as Ui
 Item {
   id: root
 
-  property real cornerRadius: Style.space(7)
+  property real cornerRadius: Style.cornerRadius * 2
 
   property string label: ""
   property string value: ""

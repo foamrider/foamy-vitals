@@ -85,7 +85,7 @@ Column {
           horizontalAlignment: Text.AlignRight
           padding: Style.space(7)
           Accessible.name: root.tr(fieldRow.modelData.group || "") + " " + root.tr(fieldRow.modelData.label)
-          background: Rectangle { radius: Style.space(7); color: Qt.alpha(Color.popups.text, 0.055); border.width: input.activeFocus ? 1 : 0; border.color: Color.accent }
+          background: Rectangle { radius: Style.cornerRadius * 2; color: Qt.alpha(Color.popups.text, 0.055); border.width: input.activeFocus ? 1 : 0; border.color: Color.accent }
           onTextEdited: root.clearError()
           onEditingFinished: {
             if (!fieldRow.visible || fieldRow.modelData.type !== "integer") return

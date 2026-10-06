@@ -480,7 +480,8 @@ Panel {
           height: Style.space(136)
           Rectangle {
             anchors.fill: parent
-            radius: Style.space(13)
+            topLeftRadius: Math.max(0, panel.cornerRadius - Border.top(panel.borderSpec))
+            topRightRadius: topLeftRadius
             gradient: Gradient {
               orientation: Gradient.Horizontal
               GradientStop { position: 0; color: Qt.tint(Color.popups.background, Qt.alpha(root.foreground, 0.06)) }
@@ -509,7 +510,7 @@ Panel {
               VitalsAction {
                 id: settingsButton
                 Layout.preferredWidth: Style.space(32); Layout.preferredHeight: Style.space(32)
-                radius: Style.space(7); iconSize: Style.space(16)
+                radius: Style.cornerRadius * 2; iconSize: Style.space(16)
                 iconName: "settings"; foreground: root.dim; tooltipText: root.tr("Settings")
                 onClicked: root.openSettings()
               }
