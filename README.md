@@ -26,6 +26,12 @@ warnings in the bar, usage and temperature cards, CPU cores, and error messages:
 `#ff6b6b` on dark surfaces and `#c62828` on light surfaces. The bar and popup
 choose their red independently for readability. Warning thresholds stay the same.
 
+Settings clipboard paste uses `wl-paste`, `jq`, and `timeout`, provided by Omarchy.
+It reads clipboard text only on a paste action, accepts at most 16 KiB of plain
+text, and stops reads after two seconds. Oversized, invalid, or unavailable
+clipboard text leaves the current value unchanged and shows an error. Typing,
+selection, undo, and redo remain available.
+
 Intel (`i915`/`xe`) monitoring uses Python 3 and unprivileged DRM client counters.
 GPU usage is the busiest engine, normalized for its engine count, across accessible
 processes owned by the current user. The first sample has no usage reading.

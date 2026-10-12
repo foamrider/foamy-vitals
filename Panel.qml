@@ -475,6 +475,7 @@ Panel {
         warningColor: root.urgent
         onSave: function(key, value) { root.savePreference(key, value) }
         onClearError: root.settingsError = ""
+        onPasteFailed: function(message) { root.settingsError = message }
         onBack: root.closeSettings()
       }
       Column {

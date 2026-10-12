@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
@@ -16,6 +15,7 @@ Column {
   signal save(string key, var value)
   signal back()
   signal clearError()
+  signal pasteFailed(string message)
   function tr(label) { return Preferences.text(label, language) }
   function focusBack() { backButton.forceActiveFocus() }
   readonly property color secondary: Qt.tint(Color.popups.background, Qt.alpha(Color.popups.text, 0.7))
@@ -93,19 +93,21 @@ Column {
         visible: fieldRow.modelData.type === "integer"
         spacing: Style.space(10)
         Text { Layout.fillWidth: true; text: root.tr(fieldRow.modelData.label); color: Color.popups.text; font.family: "sans-serif"; font.pixelSize: Style.space(13) }
-        Controls.TextField {
+        SafeTextField {
           id: input
           Layout.preferredWidth: Style.space(68)
           implicitHeight: Style.space(34)
           text: String(fieldRow.current)
-          selectByMouse: true
           color: Color.popups.text
           font.family: "sans-serif"
           font.pixelSize: Style.space(12)
-          horizontalAlignment: Text.AlignRight
-          padding: Style.space(7)
+          horizontalAlignment: TextEdit.AlignRight
+          leftPadding: Style.space(7)
+          rightPadding: Style.space(7)
           Accessible.name: root.tr(fieldRow.modelData.group || "") + " " + root.tr(fieldRow.modelData.label)
-          background: Rectangle { radius: Style.cornerRadius * 2; color: Qt.alpha(Color.popups.text, 0.055); border.width: input.activeFocus ? 1 : 0; border.color: Color.accent }
+          translate: root.tr
+          background: Rectangle { radius: Style.cornerRadius * 2; color: Qt.alpha(Color.popups.text, 0.055); border.width: input.inputActiveFocus ? 1 : 0; border.color: Color.accent }
+          onPasteErrorChanged: if (pasteError !== "") root.pasteFailed(root.tr(pasteError))
           onTextEdited: root.clearError()
           onEditingFinished: {
             if (!fieldRow.visible || fieldRow.modelData.type !== "integer") return
@@ -114,7 +116,7 @@ Column {
           }
           Keys.onEscapePressed: { text = String(fieldRow.current); root.back() }
           HoverHandler { id: numberHover }
-          PanelToolTip { visible: numberHover.hovered || input.activeFocus; text: fieldRow.modelData.min + "–" + fieldRow.modelData.max; fontFamily: "sans-serif" }
+          PanelToolTip { visible: numberHover.hovered || input.inputActiveFocus; text: fieldRow.modelData.min + "–" + fieldRow.modelData.max; fontFamily: "sans-serif" }
         }
         Text { Layout.preferredWidth: Style.space(20); text: fieldRow.modelData.unit || ""; color: root.secondary; font.family: "sans-serif"; font.pixelSize: Style.space(12) }
       }
