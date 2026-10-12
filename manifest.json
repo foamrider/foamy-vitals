@@ -21,6 +21,7 @@
     "defaults": {
       "language": "system",
       "barDisplay": "adaptive",
+      "useThemeWarningColors": true,
       "cpuWarning": 95,
       "memoryWarning": 95,
       "gpuWarning": 95,
@@ -51,6 +52,12 @@
           "memory",
           "gpu"
         ]
+      },
+      {
+        "key": "useThemeWarningColors",
+        "type": "boolean",
+        "label": "Use theme warning colors",
+        "defaultValue": true
       },
       {
         "key": "cpuWarning",

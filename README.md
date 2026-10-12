@@ -16,10 +16,15 @@ omarchy plugin add https://github.com/foamrider/foamy-vitals.git --enable
 ## Use
 
 - Left-click the widget to see usage, temperatures, processes, network traffic, and storage.
-- Open the cog to change the bar reading, warning thresholds, and language.
+- Open the cog to change the bar reading, warning colors, warning thresholds, and language.
 - Click **btop** or right-click the widget to open btop (if installed).
 
 Settings are saved in Omarchy's `shell.json`. Available readings depend on your hardware.
+
+**Use theme warning colors** is on by default. Turn it off to use our red for
+warnings in the bar, usage and temperature cards, CPU cores, and error messages:
+`#ff6b6b` on dark surfaces and `#c62828` on light surfaces. The bar and popup
+choose their red independently for readability. Warning thresholds stay the same.
 
 Intel (`i915`/`xe`) monitoring uses Python 3 and unprivileged DRM client counters.
 GPU usage is the busiest engine, normalized for its engine count, across accessible

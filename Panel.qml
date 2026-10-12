@@ -19,7 +19,12 @@ Panel {
   manageIpc: false
   readonly property bool vertical: bar && (bar.position === "left" || bar.position === "right")
   readonly property color foreground: Color.popups.text
-  readonly property color urgent: bar ? bar.urgent : Color.urgent
+  readonly property color urgent: preference("useThemeWarningColors")
+    ? (bar ? bar.urgent : Color.urgent) : redForSurface(Color.popups.background)
+  readonly property color barUrgent: preference("useThemeWarningColors")
+    ? (bar ? bar.urgent : Color.urgent) : redForSurface(bar ? bar.background : Color.bar.background)
+  // Bar and popup surfaces can differ; keep our red readable on each surface.
+  function redForSurface(background) { return background.hslLightness > 0.5 ? "#c62828" : "#ff6b6b" }
   readonly property color dim: Qt.tint(Color.popups.background, Qt.alpha(foreground, 0.70))
   readonly property color outline: Qt.tint(Color.popups.background, Qt.alpha(foreground, 0.18))
   readonly property string panelFont: "sans-serif"
@@ -343,7 +348,7 @@ Panel {
     labelVisible: false
     hasVisualContent: true
     active: root.warning
-    activeColor: root.urgent
+    activeColor: root.barUrgent
     fixedWidth: root.vertical ? -1 : Math.ceil(barLabelMetrics.width) + Style.space(8)
     tooltipText: ""
 
@@ -358,7 +363,7 @@ Panel {
         width: Math.ceil(barLabelMetrics.width)
         height: Style.bar.iconCanvas
         text: root.barText
-        color: root.warning ? root.urgent : root.barForeground
+        color: root.warning ? root.barUrgent : root.barForeground
         font.family: root.fontFamily
         font.pixelSize: Style.font.body
         font.wordSpacing: barLabelMetrics.font.wordSpacing
@@ -467,6 +472,7 @@ Panel {
         language: root.language
         saving: preferencesSave.running
         error: root.settingsError
+        warningColor: root.urgent
         onSave: function(key, value) { root.savePreference(key, value) }
         onClearError: root.settingsError = ""
         onBack: root.closeSettings()
@@ -538,7 +544,7 @@ Panel {
             visible: typeof root.stats.gpuError === "string" && root.stats.gpuError !== ""
             text: root.tr(root.stats.gpuError === "Intel GPU readings unavailable. Retrying…"
               ? root.stats.gpuError : "NVIDIA readings unavailable. Check nvidia-smi.")
-            color: Color.urgent
+            color: root.urgent
             wrapMode: Text.WordWrap
           }
           Caption {

@@ -2,7 +2,8 @@
 var fields = [
   {key: "language", type: "enum", label: "Language", defaultValue: "system", options: ["system", "en", "nb"]},
   {key: "barDisplay", type: "enum", label: "Bar display", defaultValue: "adaptive", options: ["adaptive", "cpu", "memory", "gpu"]},
-  {key: "cpuWarning", type: "integer", label: "CPU", group: "Usage warnings", description: "Turns red at or above these percentages.", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
+  {key: "useThemeWarningColors", type: "boolean", label: "Use theme warning colors", description: "When off, warnings use our red for light or dark backgrounds.", defaultValue: true},
+  {key: "cpuWarning", type: "integer", label: "CPU", group: "Usage warnings", description: "Warns at or above these percentages.", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
   {key: "memoryWarning", type: "integer", label: "RAM", group: "Usage warnings", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
   {key: "gpuWarning", type: "integer", label: "GPU", group: "Usage warnings", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
   {key: "vramWarning", type: "integer", label: "VRAM", group: "Usage warnings", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
@@ -16,6 +17,7 @@ function field(key) {
 function valid(key, value) {
   var f = field(key)
   if (!f) return false
+  if (f.type === "boolean") return typeof value === "boolean"
   if (f.type === "enum") return typeof value === "string" && f.options.indexOf(value) >= 0
   return typeof value === "number" && isFinite(value) && Math.floor(value) === value && value >= f.min && value <= f.max
 }
@@ -36,8 +38,10 @@ var norwegian = {
   "NVIDIA readings unavailable. Check nvidia-smi.": "NVIDIA-avlesninger er utilgjengelige. Sjekk nvidia-smi.",
   "Language": "Språk", "System": "System", "Settings": "Innstillinger", "Back": "Tilbake", "Saving…": "Lagrer…",
   "Bar display": "Visning i linjen", "Adaptive": "Automatisk", "Usage warnings": "Bruksvarsler",
+  "Use theme warning colors": "Bruk temafarger for varsler",
+  "When off, warnings use our red for light or dark backgrounds.": "Når dette er av, brukes vår rødfarge for lyse eller mørke bakgrunner.",
   "Temperature warning margin": "Margin for temperaturvarsel",
-  "Turns red at or above these percentages.": "Blir rødt ved disse prosentene eller høyere.",
+  "Warns at or above these percentages.": "Varsler ved disse prosentene eller høyere.",
   "Warn this many °C below the hardware limit.": "Varsler så mange °C under maskinvarens temperaturgrense.",
   "Invalid setting.": "Ugyldig innstilling.", "Could not save settings.": "Kunne ikke lagre innstillingene.",
   "Up": "Oppetid", "Load": "Last",

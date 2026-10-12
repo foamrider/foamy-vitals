@@ -41,6 +41,19 @@ test('individual warning values and bar selection stay independent', () => {
   assert.equal(preferences.valid('unknownSetting', 1), false);
 });
 
+test('theme warning colors default on and preserve an explicit false value', () => {
+  const key = 'useThemeWarningColors';
+  assert.equal(preferences.value({}, key), true);
+  for (const value of [true, false]) {
+    assert.equal(preferences.valid(key, value), true);
+    assert.equal(preferences.value({[key]: value}, key), value);
+  }
+  for (const value of [null, undefined, 'false', 0, 1, {}, []]) {
+    assert.equal(preferences.valid(key, value), false);
+    assert.equal(preferences.value({[key]: value}, key), true);
+  }
+});
+
 test('language follows the shell locale unless explicitly selected', () => {
   assert.equal(preferences.language('system', 'nb_NO'), 'nb');
   assert.equal(preferences.language('system', 'en_US'), 'en');

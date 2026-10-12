@@ -11,6 +11,7 @@ Column {
   required property string language
   property bool saving: false
   property string error: ""
+  property color warningColor: Color.urgent
   property alias backTarget: backButton
   signal save(string key, var value)
   signal back()
@@ -32,7 +33,7 @@ Column {
     text: root.error
     textFormat: Text.PlainText
     wrapMode: Text.WordWrap
-    color: Color.urgent
+    color: root.warningColor
     font.family: "sans-serif"
     font.pixelSize: Style.space(12)
     Accessible.role: Accessible.AlertMessage
@@ -67,6 +68,25 @@ Column {
         value: String(fieldRow.current)
         options: (fieldRow.modelData.options || []).map(function(v) { return {value: v, label: root.tr(Preferences.optionLabel(v))} })
         onChanged: function(value) { root.save(fieldRow.modelData.key, value) }
+      }
+      Toggle {
+        width: parent.width
+        visible: fieldRow.modelData.type === "boolean"
+        color: "transparent"
+        borderSpec: activeFocus ? Border.flat(Color.accent, 1) : Border.none()
+        radius: Style.cornerRadius * 2
+        foreground: Color.popups.text
+        fontFamily: "sans-serif"
+        titleSize: Style.space(13)
+        descriptionSize: Style.space(11)
+        label: root.tr(fieldRow.modelData.label)
+        description: root.tr(fieldRow.modelData.description || "")
+        checked: fieldRow.current === true
+        Accessible.name: label
+        Accessible.role: Accessible.CheckBox
+        Accessible.checkable: true
+        Accessible.checked: checked
+        onClicked: root.save(fieldRow.modelData.key, !checked)
       }
       RowLayout {
         width: parent.width
