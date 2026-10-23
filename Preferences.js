@@ -1,6 +1,5 @@
 // Inline widget settings are the source of truth; invalid values use defaults.
 var fields = [
-  {key: "language", type: "enum", label: "Language", defaultValue: "system", options: ["system", "en", "nb"]},
   {key: "barDisplay", type: "enum", label: "Bar display", defaultValue: "adaptive", options: ["adaptive", "cpu", "memory", "gpu"]},
   {key: "useThemeWarningColors", type: "boolean", label: "Use theme warning colors", description: "When off, warnings use our red for light or dark backgrounds.", defaultValue: true},
   {key: "cpuWarning", type: "integer", label: "CPU", group: "Usage warnings", description: "Warns at or above these percentages.", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
@@ -25,39 +24,9 @@ function value(settings, key) {
   var f = field(key)
   return f ? settings && valid(key, settings[key]) ? settings[key] : f.defaultValue : undefined
 }
-function language(mode, locale) {
-  return mode === "en" || mode === "nb" ? mode : /^(nb|nn|no)(_|-|$)/i.test(locale || "") ? "nb" : "en"
-}
+
 function optionLabel(value) {
   return {system: "System", en: "English", nb: "Norsk bokmål", adaptive: "Adaptive", cpu: "CPU", memory: "RAM", gpu: "GPU"}[value] || value
 }
-var norwegian = {
-  "Intel GPU readings unavailable. Retrying…": "Intel GPU-avlesninger er utilgjengelige. Prøver igjen…",
-  "Intel GPU: busiest engine and private allocations from accessible processes for this user.": "Intel GPU: travleste motor og private allokeringer fra tilgjengelige prosesser for denne brukeren.",
-  "GPU MEMORY": "GPU-MINNE", "Private": "Privat", "Not exposed": "Ikke tilgjengelig",
-  "NVIDIA readings unavailable. Check nvidia-smi.": "NVIDIA-avlesninger er utilgjengelige. Sjekk nvidia-smi.",
-  "Language": "Språk", "System": "System", "Settings": "Innstillinger", "Back": "Tilbake", "Saving…": "Lagrer…",
-  "Bar display": "Visning i linjen", "Adaptive": "Automatisk", "Usage warnings": "Bruksvarsler",
-  "Use theme warning colors": "Bruk temafarger for varsler",
-  "When off, warnings use our red for light or dark backgrounds.": "Når dette er av, brukes vår rødfarge for lyse eller mørke bakgrunner.",
-  "Temperature warning margin": "Margin for temperaturvarsel",
-  "Warns at or above these percentages.": "Varsler ved disse prosentene eller høyere.",
-  "Warn this many °C below the hardware limit.": "Varsler så mange °C under maskinvarens temperaturgrense.",
-  "Invalid setting.": "Ugyldig innstilling.", "Could not save settings.": "Kunne ikke lagre innstillingene.",
-  "Undo": "Angre", "Redo": "Gjør om", "Cut": "Klipp ut", "Copy": "Kopier", "Paste": "Lim inn", "Select all": "Velg alt",
-  "Clipboard paste timed out. Copy the text again.": "Innliming tok for lang tid. Kopier teksten på nytt.",
-  "Clipboard text is too large or contains invalid characters.": "Utklippstavleteksten er for stor eller inneholder ugyldige tegn.",
-  "Could not paste clipboard text. Copy plain text and try again.": "Kunne ikke lime inn teksten. Kopier ren tekst og prøv igjen.",
-  "Up": "Oppetid", "Load": "Last",
-  "CPU TEMP": "CPU-TEMP", "GPU TEMP": "GPU-TEMP", "threads": "tråder", "CPU cores": "CPU-kjerner",
-  "Resource usage": "Ressursbruk", "Network traffic": "Nettverkstrafikk", "Storage": "Lagring", "Process": "Prosess", "Root filesystem": "Rotfilsystem",
-  "Incoming": "Innkommende", "Outgoing": "Utgående",
-  "Top CPU processes": "Høyest CPU-bruk", "Top memory processes": "Høyest minnebruk",
-  "Limit unknown": "Ukjent grense", "limit": "grense", "Package": "Pakke", "Hotspot": "Hotspot", "Edge": "Kant", "Memory": "Minne",
-  "Unavailable": "Utilgjengelig", "No mounted local disks": "Ingen lokale disker montert",
-  "Reading disk capacity": "Leser diskplass", "Disk capacity unavailable": "Diskplass utilgjengelig",
-  "Telemetry unavailable. Retrying…": "Målinger utilgjengelige. Prøver igjen…",
-  "Install btop to use this shortcut.": "Installer btop for å bruke snarveien."
-}
-function text(label, language) { return language === "nb" ? norwegian[label] || label : label }
-if (typeof module !== "undefined") module.exports = {fields: fields, field: field, valid: valid, value: value, language: language, text: text, optionLabel: optionLabel}
+
+if (typeof module !== "undefined") module.exports = {fields: fields, field: field, valid: valid, value: value,   optionLabel: optionLabel}

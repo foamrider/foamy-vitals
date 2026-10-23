@@ -1,0 +1,9 @@
+singleton FoamyI18n 1.0 FoamyI18n.qml
+HistoryChart 1.0 HistoryChart.qml
+Panel 1.0 Panel.qml
+SafeTextField 1.0 SafeTextField.qml
+SettingsPane 1.0 SettingsPane.qml
+VitalsAction 1.0 VitalsAction.qml
+VitalsDropdown 1.0 VitalsDropdown.qml
+VitalsIcon 1.0 VitalsIcon.qml
+VitalsPopup 1.0 VitalsPopup.qml

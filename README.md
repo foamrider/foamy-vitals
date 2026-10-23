@@ -16,7 +16,7 @@ omarchy plugin add https://github.com/foamrider/foamy-vitals.git --enable
 ## Use
 
 - Left-click the widget to see usage, temperatures, processes, network traffic, and storage.
-- Open the cog to change the bar reading, warning colors, warning thresholds, and language.
+- Open the cog to change the bar reading, warning colors, warning thresholds.
 - Click **btop** or right-click the widget to open btop (if installed).
 
 Settings are saved in Omarchy's `shell.json`. Available readings depend on your hardware.
@@ -67,3 +67,7 @@ Licensed under [MIT](LICENSE), with [Omarchy](LICENSE-OMARCHY) and
 [Lucide](LICENSE-LUCIDE) notices.
 
 Provided **as is**, without warranty or guaranteed support. Use at your own risk.
+
+Language follows **Omarchy → Setup → Language** on Omarchy 4.5. Plugin language overrides are no longer used. Omarchy 4.0 displays the plugin in English. Missing translations fall back to English.
+
+Translation checks: `python3 tests/i18n-runtime.py` uses the installed shell. Set `OMARCHY_PATH` to a 4.5 source tree to check live language switching against that version.

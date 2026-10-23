@@ -53,10 +53,3 @@ test('theme warning colors default on and preserve an explicit false value', () 
     assert.equal(preferences.value({[key]: value}, key), true);
   }
 });
-
-test('language follows the shell locale unless explicitly selected', () => {
-  assert.equal(preferences.language('system', 'nb_NO'), 'nb');
-  assert.equal(preferences.language('system', 'en_US'), 'en');
-  assert.equal(preferences.language('en', 'nb_NO'), 'en');
-  assert.equal(preferences.text('Settings', 'nb'), 'Innstillinger');
-});

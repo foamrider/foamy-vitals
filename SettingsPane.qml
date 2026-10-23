@@ -16,7 +16,7 @@ Column {
   signal back()
   signal clearError()
   signal pasteFailed(string message)
-  function tr(label) { return Preferences.text(label, language) }
+  function tr(label) { return FoamyI18n.t(label) }
   function focusBack() { backButton.forceActiveFocus() }
   readonly property color secondary: Qt.tint(Color.popups.background, Qt.alpha(Color.popups.text, 0.7))
   padding: Style.space(20)

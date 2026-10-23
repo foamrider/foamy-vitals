@@ -28,9 +28,9 @@ Panel {
   readonly property color dim: Qt.tint(Color.popups.background, Qt.alpha(foreground, 0.70))
   readonly property color outline: Qt.tint(Color.popups.background, Qt.alpha(foreground, 0.18))
   readonly property string panelFont: "sans-serif"
-  readonly property string language: Preferences.language(preference("language"), Qt.locale().name)
+  readonly property string language: FoamyI18n.language
   function preference(key) { return Preferences.value(settings, key) }
-  function tr(label) { return Preferences.text(label, language) }
+  function tr(label) { return FoamyI18n.t(label) }
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string statsCommand: decodeURIComponent(Qt.resolvedUrl("stats.sh").toString().replace(/^file:\/\//, ""))
   property string telemetryError: ""
