@@ -6,6 +6,8 @@ import "Preferences.js" as Preferences
 
 Column {
   id: root
+  LayoutMirroring.enabled: FoamyI18n.rightToLeft
+  LayoutMirroring.childrenInherit: true
   required property var settings
   required property string language
   property bool saving: false
@@ -24,13 +26,14 @@ Column {
   RowLayout {
     width: root.width - root.padding * 2
     VitalsAction { id: backButton; iconName: "arrow-left"; foreground: root.secondary; tooltipText: root.tr("Back"); onClicked: root.back() }
-    Text { text: root.tr("Settings"); color: root.secondary; font.family: "sans-serif"; font.pixelSize: Style.space(13); Layout.fillWidth: true }
+    Text { horizontalAlignment: Text.AlignLeft; text: root.tr("Settings"); color: root.secondary; font.family: "sans-serif"; font.pixelSize: Style.space(13); Layout.fillWidth: true }
     Text { visible: root.saving; text: root.tr("Saving…"); color: root.secondary; font.family: "sans-serif"; font.pixelSize: Style.space(11) }
   }
   Text {
     width: root.width - root.padding * 2
     visible: root.error !== ""
-    text: root.error
+    objectName: "settingsErrorText"
+    text: root.tr(root.error)
     textFormat: Text.PlainText
     wrapMode: Text.WordWrap
     color: root.warningColor
@@ -107,7 +110,7 @@ Column {
           Accessible.name: root.tr(fieldRow.modelData.group || "") + " " + root.tr(fieldRow.modelData.label)
           translate: root.tr
           background: Rectangle { radius: Style.cornerRadius * 2; color: Qt.alpha(Color.popups.text, 0.055); border.width: input.inputActiveFocus ? 1 : 0; border.color: Color.accent }
-          onPasteErrorChanged: if (pasteError !== "") root.pasteFailed(root.tr(pasteError))
+          onPasteErrorChanged: if (pasteError !== "") root.pasteFailed(pasteError)
           onTextEdited: root.clearError()
           onEditingFinished: {
             if (!fieldRow.visible || fieldRow.modelData.type !== "integer") return

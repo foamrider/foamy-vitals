@@ -3,6 +3,7 @@ import QtQuick
 
 Image {
   id: root
+  mirror: FoamyI18n.rightToLeft && (name === "arrow-left" || name === "chevron-right")
   property string name: "settings"
   readonly property var paths: ({
     "monitor": '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>',

@@ -71,3 +71,5 @@ Provided **as is**, without warranty or guaranteed support. Use at your own risk
 Language follows **Omarchy → Setup → Language** on Omarchy 4.5. Plugin language overrides are no longer used. Omarchy 4.0 displays the plugin in English. Missing translations fall back to English.
 
 Translation checks: `python3 tests/i18n-runtime.py` uses the installed shell. Set `OMARCHY_PATH` to a 4.5 source tree to check live language switching against that version.
+
+Run `node tests/formatting.test.cjs` and `python3 tests/rtl.py` to check localized readings, mirrored settings and live error translations.
