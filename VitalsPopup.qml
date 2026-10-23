@@ -408,6 +408,8 @@ PanelWindow {
 
     Item {
       id: contentHolder
+      LayoutMirroring.enabled: FoamyI18n.rightToLeft
+      LayoutMirroring.childrenInherit: true
       anchors.fill: parent
       anchors.topMargin: card.contentTopInset
       anchors.rightMargin: card.contentRightInset

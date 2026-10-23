@@ -12,6 +12,8 @@ import "Preferences.js" as Preferences
 
 Panel {
   id: root
+  LayoutMirroring.enabled: FoamyI18n.rightToLeft
+  LayoutMirroring.childrenInherit: true
 
   moduleName: "foamy.vitals"
   ipcTarget: "foamy.vitals"
@@ -28,9 +30,9 @@ Panel {
   readonly property color dim: Qt.tint(Color.popups.background, Qt.alpha(foreground, 0.70))
   readonly property color outline: Qt.tint(Color.popups.background, Qt.alpha(foreground, 0.18))
   readonly property string panelFont: "sans-serif"
-  readonly property string language: Preferences.language(preference("language"), Qt.locale().name)
+  readonly property string language: FoamyI18n.language
   function preference(key) { return Preferences.value(settings, key) }
-  function tr(label) { return Preferences.text(label, language) }
+  function tr(label) { return FoamyI18n.t(label) }
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string statsCommand: decodeURIComponent(Qt.resolvedUrl("stats.sh").toString().replace(/^file:\/\//, ""))
   property string telemetryError: ""
@@ -45,8 +47,10 @@ Panel {
   })[chassis] || "monitor"
   property var disks: []
   property string diskStatus: "Reading disk capacity"
-  property string loadAverage: "--"
-  property string uptime: "--"
+  property var loadAverages: []
+  property int uptimeMinutes: -1
+  readonly property string loadAverage: loadAverages.length ? loadAverages.map(function(value) { return FoamyI18n.number(value, 2) }).join(" / ") : "--"
+  readonly property string uptime: uptimeMinutes < 0 ? "--" : FoamyI18n.number(Math.floor(uptimeMinutes / 60)) + "h " + FoamyI18n.number(uptimeMinutes % 60) + "m"
 
   function refreshDisks() {
     if (!diskProcess.running) diskProcess.running = true
@@ -54,7 +58,7 @@ Panel {
 
   function diskCapacity(usedKb, totalKb) {
     var divisor = totalKb >= 1073741824 ? 1073741824 : 1048576
-    return (usedKb / divisor).toFixed(1) + " / " + (totalKb / divisor).toFixed(1)
+    return FoamyI18n.number(usedKb / divisor, 1) + " / " + FoamyI18n.number(totalKb / divisor, 1)
       + (divisor === 1073741824 ? " TiB" : " GiB")
   }
 
@@ -79,13 +83,13 @@ Panel {
     path: "/proc/uptime"
     onLoaded: {
       var minutes = Math.floor(Number(text().split(" ")[0]) / 60)
-      root.uptime = Math.floor(minutes / 60) + "h " + (minutes % 60) + "m"
+      root.uptimeMinutes = minutes
     }
   }
   FileView {
     id: loadFile
     path: "/proc/loadavg"
-    onLoaded: root.loadAverage = text().trim().split(/\s+/).slice(0, 3).join(" / ")
+    onLoaded: root.loadAverages = text().trim().split(/\s+/).slice(0, 3).map(Number)
   }
   Process {
     id: diskProcess
@@ -123,8 +127,8 @@ Panel {
 
   function rate(value) {
     if (!isFinite(value)) return "--"
-    return value >= 1048576 ? (value / 1048576).toFixed(1) + " MiB/s"
-      : (value / 1024).toFixed(1) + " KiB/s"
+    return value >= 1048576 ? FoamyI18n.number(value / 1048576, 1) + " MiB/s"
+      : FoamyI18n.number(value / 1024, 1) + " KiB/s"
   }
 
   function recordSample(parsed) {
@@ -152,7 +156,7 @@ Panel {
     ? 100 * root.reading("memUsedKb") / root.reading("memTotalKb") : NaN
   readonly property real gpu: root.reading("gpuBusy")
   readonly property bool intelGpu: stats.gpuIntel === true
-  readonly property string gpuClock: isNaN(reading("gpuFrequencyMHz")) ? "" : Math.round(reading("gpuFrequencyMHz")) + " MHz"
+  readonly property string gpuClock: isNaN(reading("gpuFrequencyMHz")) ? "" : FoamyI18n.number(Math.round(reading("gpuFrequencyMHz"))) + " MHz"
   readonly property real vram: root.reading("vramTotal") > 0
     ? 100 * root.reading("vramUsed") / root.reading("vramTotal") : NaN
   readonly property bool showMemory: !isNaN(memory) && (isNaN(cpu) || memory > cpu)
@@ -190,16 +194,16 @@ Panel {
   }
 
   function percent(v) {
-    return isNaN(v) ? "--" : Math.round(v) + "%"
+    return isNaN(v) ? "--" : FoamyI18n.number(Math.round(v)) + "%"
   }
 
   function degrees(v) {
-    return isNaN(v) ? "--" : Math.round(v) + "°C"
+    return isNaN(v) ? "--" : FoamyI18n.number(Math.round(v)) + "°C"
   }
 
   function rpm(v) {
     if (isNaN(v)) return "--"
-    return v <= 0 ? "stopped" : Math.round(v) + " rpm"
+    return v <= 0 ? "stopped" : FoamyI18n.number(Math.round(v)) + " rpm"
   }
 
   function gibFromKb(kb) {
@@ -212,7 +216,7 @@ Panel {
 
   function pair(used, total) {
     if (isNaN(used) || isNaN(total) || total <= 0) return "--"
-    return used.toFixed(1) + " / " + total.toFixed(1) + " GiB"
+    return FoamyI18n.number(used, 1) + " / " + FoamyI18n.number(total, 1) + " GiB"
   }
 
   function temperatureDetail(thermal) {
@@ -221,10 +225,10 @@ Panel {
   }
 
   function hoveredCoreLabel() {
-    if (hoveredCore < 0 || hoveredCore >= cores.length) return cores.length + " threads"
+    if (hoveredCore < 0 || hoveredCore >= cores.length) return FoamyI18n.number(cores.length) + " " + tr("threads")
     var v = cores[hoveredCore]
-    var shown = (v === null || v === undefined) ? "--" : Math.round(root.coreLoad(v)) + "%"
-    return "Thread " + hoveredCore + "  ·  " + shown
+    var shown = (v === null || v === undefined) ? "--" : FoamyI18n.number(Math.round(root.coreLoad(v))) + "%"
+    return tr("Thread") + " " + FoamyI18n.number(hoveredCore) + "  ·  " + shown
   }
 
   function coreLoad(value) {
@@ -243,14 +247,14 @@ Panel {
   function processShare(value) {
     var n = Number(value)
     if (!isFinite(n)) return "--"
-    return (n >= 100 ? n.toFixed(0) : n.toFixed(1)) + "%"
+    return FoamyI18n.number(n, n >= 100 ? 0 : 1) + "%"
   }
 
   function memoryAmount(kb) {
     var n = Number(kb)
     if (!isFinite(n) || n < 0) return "--"
-    if (n >= 1048576) return (n / 1048576).toFixed(1) + " GiB"
-    return Math.round(n / 1024) + " MiB"
+    if (n >= 1048576) return FoamyI18n.number(n / 1048576, 1) + " GiB"
+    return FoamyI18n.number(Math.round(n / 1024)) + " MiB"
   }
 
   function refresh() {
@@ -268,7 +272,7 @@ Panel {
     id: btopCheck
     command: ["sh", "-c", "command -v btop >/dev/null 2>&1"]
     onExited: function(code) {
-      if (code !== 0) { root.launchError = root.tr("Install btop to use this shortcut."); return }
+      if (code !== 0) { root.launchError = "Install btop to use this shortcut."; return }
       Quickshell.execDetached(["omarchy-launch-or-focus-tui", "btop"])
       root.close()
     }
@@ -276,7 +280,7 @@ Panel {
 
   function failStats(message) {
     stats = ({})
-    telemetryError = tr(message)
+    telemetryError = message
     networkSnapshot = null
     networkUp = NaN
     networkDown = NaN
@@ -383,7 +387,7 @@ Panel {
   property string settingsError: ""
   property var pendingPreferences: ({})
   function savePreference(key, value) {
-    if (!Preferences.valid(key, value)) { settingsError = tr("Invalid setting."); return }
+    if (!Preferences.valid(key, value)) { settingsError = "Invalid setting."; return }
     settingsError = ""
     pendingPreferences[key] = value
     flushPreferences()
@@ -404,7 +408,7 @@ Panel {
     id: preferencesSave
     stdout: StdioCollector { id: saveOutput; waitForEnd: true }
     onExited: function(code) {
-      if (code !== 0 || saveOutput.text.trim() !== "ok") root.settingsError = root.tr("Could not save settings.")
+      if (code !== 0 || saveOutput.text.trim() !== "ok") root.settingsError = "Could not save settings."
       Qt.callLater(root.flushPreferences)
     }
   }
@@ -560,7 +564,7 @@ Panel {
             columnSpacing: Style.space(22)
             rowSpacing: Style.space(20)
             readonly property real cellWidth: (width - columnSpacing * (columns - 1)) / columns
-            Overview { glyph: "\uf2db"; width: parent.cellWidth; label: "CPU"; value: root.percent(root.cpu); detail: root.cores.length ? root.cores.length + " " + root.tr("threads") : "--"; meterValue: root.cpu; warning: root.cpuWarning }
+            Overview { glyph: "\uf2db"; width: parent.cellWidth; label: "CPU"; value: root.percent(root.cpu); detail: root.cores.length ? FoamyI18n.number(root.cores.length) + " " + root.tr("threads") : "--"; meterValue: root.cpu; warning: root.cpuWarning }
             Overview { glyph: "󰍛"; width: parent.cellWidth; label: "RAM"; value: root.percent(root.memory); detail: root.pair(root.gibFromKb(root.reading("memUsedKb")), root.gibFromKb(root.reading("memTotalKb"))); meterValue: root.memory; warning: root.memoryWarning }
             Overview { glyph: "\uf2c9"; width: parent.cellWidth; label: root.tr("CPU TEMP"); value: root.degrees(root.cpuTemp); detail: root.temperatureDetail(root.cpuThermal); meterValue: root.cpuThermal.meter; warning: root.cpuThermal.hot }
             Overview { glyph: "\uf108"; width: parent.cellWidth; label: "GPU"; value: root.percent(root.gpu); detail: root.intelGpu ? root.gpuClock : ""; meterValue: root.gpu; warning: root.gpuWarning }
@@ -586,7 +590,7 @@ Panel {
               }
               HistoryPlot {
                 width: parent.width; height: Style.space(90)
-                topLabel: "100%"; middleLabel: "50%"; bottomLabel: "0%"
+                topLabel: root.percent(100); middleLabel: root.percent(50); bottomLabel: root.percent(0)
                 maximum: 100
                 series: [{points: root.history.cpu, color: root.cpuColor}, {points: root.history.memory, color: root.memoryColor, dashed: true}, {points: root.history.gpu, color: root.gpuColor}]
               }
@@ -616,9 +620,9 @@ Panel {
               }
               HistoryPlot {
                 width: parent.width; height: Style.space(120)
-                topLabel: root.rate(root.networkScale).replace(".0 ", " ")
-                middleLabel: "0"
-                bottomLabel: root.rate(root.networkScale).replace(".0 ", " ")
+                topLabel: root.rate(root.networkScale)
+                middleLabel: FoamyI18n.number(0)
+                bottomLabel: root.rate(root.networkScale)
                 maximum: root.networkScale; centered: true
                 series: [{points: root.history.down, color: root.gpuColor}, {points: root.history.up, color: root.cpuColor, negative: true}]
               }
@@ -649,7 +653,7 @@ Panel {
                 }
                 MouseArea {
                   anchors.fill: parent; hoverEnabled: true
-                  onPositionChanged: function(mouse) { root.hoveredCore = Math.min(root.cores.length - 1, Math.floor(mouse.x / Math.max(1, width) * root.cores.length)) }
+                  onPositionChanged: function(mouse) { root.hoveredCore = Math.min(root.cores.length - 1, Math.max(0, Math.floor((FoamyI18n.rightToLeft ? width-mouse.x : mouse.x) / Math.max(1, width) * root.cores.length))) }
                   onExited: root.hoveredCore = -1
                 }
               }
@@ -669,7 +673,7 @@ Panel {
               }
             }
           }
-          Label { width: body.width - body.padding * 2; visible: root.telemetryError !== "" || root.launchError !== ""; text: root.telemetryError || root.launchError; color: root.urgent; wrapMode: Text.WordWrap; elide: Text.ElideNone; Accessible.role: Accessible.AlertMessage }
+          Label { width: body.width - body.padding * 2; visible: root.telemetryError !== "" || root.launchError !== ""; text: root.tr(root.telemetryError || root.launchError); color: root.urgent; wrapMode: Text.WordWrap; elide: Text.ElideNone; Accessible.role: Accessible.AlertMessage }
           Separator { width: body.width - body.padding * 2 }
           RowLayout {
             width: body.width - body.padding * 2
@@ -711,7 +715,7 @@ Panel {
     Item {
       width: parent.width
       implicitHeight: overviewValue.implicitHeight
-      Label { id: overviewValue; text: overview.value; font.pixelSize: Style.space(24); color: overview.warning ? root.urgent : root.foreground }
+      Label { id: overviewValue; anchors.left: parent.left; text: overview.value; font.pixelSize: Style.space(24); color: overview.warning ? root.urgent : root.foreground }
       // Keep secondary detail beside the reading, as in the original Vitals cards.
       Caption {
         anchors.left: overviewValue.right; anchors.leftMargin: Style.space(8)
@@ -723,6 +727,9 @@ Panel {
     Meter { width: parent.width; value: overview.meterValue; opacity: isFinite(overview.meterValue) ? 1 : 0; fillColor: overview.warning ? root.urgent : root.foreground }
   }
   component HistoryPlot: Item {
+    // Keep time-series plots in chronological order in both layout directions.
+    LayoutMirroring.enabled: false
+    LayoutMirroring.childrenInherit: true
     id: historyPlot
     property alias series: plot.series
     property alias maximum: plot.maximum
@@ -751,7 +758,7 @@ Panel {
     height: Style.space(4)
     radius: height / 2
     color: Qt.alpha(root.foreground, 0.12)
-    Rectangle { width: parent.width * (isFinite(parent.value) ? Math.max(0, Math.min(100, parent.value)) / 100 : 0); height: parent.height; radius: parent.radius; color: parent.fillColor }
+    Rectangle { anchors.left: parent.left; width: parent.width * (isFinite(parent.value) ? Math.max(0, Math.min(100, parent.value)) / 100 : 0); height: parent.height; radius: parent.radius; color: parent.fillColor }
   }
   component Legend: Row {
     property string text: ""

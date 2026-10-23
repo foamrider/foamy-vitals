@@ -19,7 +19,6 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "language": "system",
       "barDisplay": "adaptive",
       "useThemeWarningColors": true,
       "cpuWarning": 95,
@@ -30,17 +29,6 @@
       "gpuTemperatureMargin": 15
     },
     "schema": [
-      {
-        "key": "language",
-        "type": "enum",
-        "label": "Language",
-        "defaultValue": "system",
-        "options": [
-          "system",
-          "en",
-          "nb"
-        ]
-      },
       {
         "key": "barDisplay",
         "type": "enum",
@@ -98,7 +86,7 @@
       {
         "key": "cpuTemperatureMargin",
         "type": "integer",
-        "label": "CPU temperature warning margin below hardware limit (\u00b0C)",
+        "label": "CPU temperature warning margin below hardware limit (°C)",
         "defaultValue": 15,
         "min": 0,
         "max": 100,
@@ -107,7 +95,7 @@
       {
         "key": "gpuTemperatureMargin",
         "type": "integer",
-        "label": "GPU temperature warning margin below hardware limit (\u00b0C)",
+        "label": "GPU temperature warning margin below hardware limit (°C)",
         "defaultValue": 15,
         "min": 0,
         "max": 100,
