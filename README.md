@@ -36,7 +36,8 @@ selection, undo, and redo remain available.
 
 Every AMD, Intel, and NVIDIA (including nouveau) GPU is listed; other devices
 are ignored. One GPU looks the same as before. With two or more, the popup shows
-a table with a row for each. A GPU with no known name shows its short name.
+a table with a row for each. Rows are named from `pci.ids` when it is installed,
+otherwise by vendor and PCI address.
 
 The bar follows the busiest GPU. Click a row to pin that GPU to the bar, and
 click it again to unpin. The pin is saved by PCI address, so it resumes when the
@@ -54,7 +55,8 @@ processes owned by the current user. The first sample has no usage reading.
 GPU memory shows private allocations, excluding shared buffers to avoid counting
 them twice; it is not total VRAM or resident memory. On `i915`, the clock shows
 the highest current GT frequency. Unexposed temperatures remain unavailable.
-Collection shares the two-second cache and times out after 1.5 seconds.
+Collection shares the two-second cache; the process scan stops after one second,
+and all GPU collection after 2.5 seconds.
 
 NVIDIA GPUs using the proprietary driver are read through `nvidia-smi` and
 Python 3 (standard library only). Install the NVIDIA driver utilities matching
