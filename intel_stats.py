@@ -30,6 +30,15 @@ class Thermal(TypedDict):
     label: str
 
 
+class Device(TypedDict):
+    busy: float | None
+    engines: dict[str, float]
+    memoryPrivate: int | None
+    frequencyMHz: int | None
+    thermals: list[Thermal]
+    error: str
+
+
 class Stats(TypedDict):
     gpuIntel: bool
     gpuBusy: float | None
@@ -51,9 +60,10 @@ def memory(value: str) -> int | None:
     return int(match[1]) * {None: 1, "KiB": 1024, "MiB": 1048576}[match[2]] if match else None
 
 
-def parse_client(text: str, device: str) -> tuple[str, Client] | None:
+def parse_client(text: str, devices: set[str]) -> tuple[str, str, Client] | None:
     fields = dict(line.split(":", 1) for line in text.splitlines() if ":" in line)
-    if fields.get("drm-driver", "").strip() not in ("i915", "xe") or fields.get("drm-pdev", "").strip() != device:
+    device = fields.get("drm-pdev", "").strip()
+    if fields.get("drm-driver", "").strip() not in ("i915", "xe") or device not in devices:
         return None
     ident = fields.get("drm-client-id", "").strip()
     if not ident.isdecimal():
@@ -79,14 +89,14 @@ def parse_client(text: str, device: str) -> tuple[str, Client] | None:
     for region, total in totals.items():
         shared = memory(fields.get("drm-shared-" + region, ""))
         if total is None or shared is None or shared > total:
-            return ident, {"engines": engines, "capacities": capacities, "private": None}
+            return device, ident, {"engines": engines, "capacities": capacities, "private": None}
         private += total - shared
-    return ident, {"engines": engines, "capacities": capacities, "private": private if totals else None}
+    return device, ident, {"engines": engines, "capacities": capacities, "private": private if totals else None}
 
 
-def read_clients(device: str, proc: Path = Path("/proc")) -> dict[str, Client]:
+def read_clients(devices: set[str], proc: Path = Path("/proc")) -> dict[str, dict[str, Client]]:
     deadline = time.monotonic() + 1.0
-    clients: dict[str, Client] = {}
+    clients: dict[str, dict[str, Client]] = {device: {} for device in devices}
     for process in proc.iterdir():
         if time.monotonic() > deadline:
             raise TimeoutError("Intel process scan exceeded its budget")
@@ -99,14 +109,14 @@ def read_clients(device: str, proc: Path = Path("/proc")) -> dict[str, Client]:
                 if time.monotonic() > deadline:
                     raise TimeoutError("Intel descriptor scan exceeded its budget")
                 try:
-                    parsed = parse_client(fd.read_text(), device)
+                    parsed = parse_client(fd.read_text(), devices)
                 except (FileNotFoundError, ProcessLookupError, PermissionError):
                     continue
                 if parsed:
-                    ident, client = parsed
-                    # Processes may share a DRM file; count its client only once.
-                    if ident not in clients:
-                        clients[ident] = client
+                    device, ident, client = parsed
+                    # Processes may share a DRM file; count its client only once per device.
+                    if ident not in clients[device]:
+                        clients[device][ident] = client
         except (FileNotFoundError, ProcessLookupError, PermissionError):
             continue
     return clients
@@ -164,10 +174,55 @@ def utilization(current: Snapshot, previous: Snapshot | None) -> dict[str, float
             for engine, total in totals.items()}
 
 
-def collect(state: Path, drm: Path = Path("/sys/class/drm"), proc: Path = Path("/proc")) -> Stats:
+def collect_device(device: str, card: Path | None, state: Path, clients: dict[str, Client],
+                   proc: Path = Path("/proc")) -> Device:
+    try:
+        current: Snapshot = {"device": device, "boot": (proc / "sys/kernel/random/boot_id").read_text().strip(),
+                             "time": time.monotonic_ns(), "clients": clients}
+        engines = utilization(current, load_snapshot(state))
+        # stats.sh owns the shared flock and a private state directory. Rename
+        # atomically so interrupted helpers never leave half a baseline behind.
+        temporary = state.with_suffix(".tmp")
+        temporary.write_text(json.dumps(current, separators=(",", ":")))
+        temporary.replace(state)
+        frequencies = []
+        thermals: list[Thermal] = []
+        if card is not None:
+            for path in card.glob("gt/gt*/rps_act_freq_mhz"):
+                value = integer(path.read_text())
+                if value is not None:
+                    frequencies.append(value)
+            # Only use sensors attached to this GPU, never a CPU/package temperature
+            # or a sensor belonging to a different graphics device.
+            for path in (card / "device").glob("hwmon/hwmon*/temp*_input"):
+                value = integer(path.read_text())
+                if value is None:
+                    continue
+                prefix = path.name.removesuffix("_input")
+                limit = path.with_name(prefix + "_crit")
+                critical = integer(limit.read_text()) if limit.exists() else None
+                label = path.with_name(prefix + "_label")
+                thermals.append({"temperature": value / 1000,
+                                 "critical": critical / 1000 if critical else None,
+                                 "label": label.read_text().strip() if label.exists() else "GPU"})
+        allocations = [client["private"] for client in clients.values()]
+        return {"busy": max(engines.values(), default=None), "engines": engines,
+                "memoryPrivate": sum(v for v in allocations if v is not None) if allocations and all(v is not None for v in allocations) else None,
+                "frequencyMHz": max(frequencies, default=None), "thermals": thermals, "error": ""}
+    except (OSError, ValueError) as error:
+        print(f"Intel telemetry: {error}", file=sys.stderr)
+        return unavailable()
+
+
+def unavailable() -> Device:
+    return {"busy": None, "engines": {}, "memoryPrivate": None, "frequencyMHz": None, "thermals": [],
+            "error": "Intel GPU readings unavailable. Retrying…"}
+
+
+def legacy_collect(state: Path, drm: Path = Path("/sys/class/drm"), proc: Path = Path("/proc")) -> Stats:
     result: Stats = {"gpuIntel": False, "gpuBusy": None, "gpuEngines": {},
-              "gpuMemoryPrivate": None, "gpuFrequencyMHz": None, "gpuTemp": None,
-              "gpuThermals": [], "gpuError": ""}
+                     "gpuMemoryPrivate": None, "gpuFrequencyMHz": None, "gpuTemp": None,
+                     "gpuThermals": [], "gpuError": ""}
     try:
         devices = {}
         for card in drm.glob("card[0-9]*"):
@@ -179,49 +234,20 @@ def collect(state: Path, drm: Path = Path("/sys/class/drm"), proc: Path = Path("
             return result
         result["gpuIntel"] = True
         device = sorted(devices)[0]
-        card = devices[device]
-        clients = read_clients(device, proc)
-        current: Snapshot = {"device": device, "boot": (proc / "sys/kernel/random/boot_id").read_text().strip(),
-                             "time": time.monotonic_ns(), "clients": clients}
-        engines = utilization(current, load_snapshot(state))
-        # stats.sh owns the shared flock and a private state directory. Rename
-        # atomically so interrupted helpers never leave half a baseline behind.
-        temporary = state.with_suffix(".tmp")
-        temporary.write_text(json.dumps(current, separators=(",", ":")))
-        temporary.replace(state)
-        frequencies = []
-        for path in card.glob("gt/gt*/rps_act_freq_mhz"):
-            value = integer(path.read_text())
-            if value is not None:
-                frequencies.append(value)
-        thermals: list[Thermal] = []
-        # Only use sensors attached to this GPU, never a CPU/package temperature
-        # or a sensor belonging to a different graphics device.
-        for path in (card / "device").glob("hwmon/hwmon*/temp*_input"):
-            value = integer(path.read_text())
-            if value is None:
-                continue
-            prefix = path.name.removesuffix("_input")
-            limit = path.with_name(prefix + "_crit")
-            critical = integer(limit.read_text()) if limit.exists() else None
-            label = path.with_name(prefix + "_label")
-            thermals.append({"temperature": value / 1000,
-                             "critical": critical / 1000 if critical else None,
-                             "label": label.read_text().strip() if label.exists() else "GPU"})
-        allocations = [client["private"] for client in clients.values()]
-        result.update(gpuEngines=engines, gpuBusy=max(engines.values(), default=None),
-                      gpuMemoryPrivate=sum(v for v in allocations if v is not None) if allocations and all(v is not None for v in allocations) else None,
-                      gpuFrequencyMHz=max(frequencies, default=None), gpuThermals=thermals,
-                      gpuTemp=max((t["temperature"] for t in thermals), default=None))
+        reading = collect_device(device, devices[device], state, read_clients({device}, proc)[device], proc)
     except (OSError, ValueError) as error:
-        result.update(gpuBusy=None, gpuEngines={}, gpuMemoryPrivate=None, gpuFrequencyMHz=None, gpuTemp=None, gpuThermals=[],
-                      gpuError="Intel GPU readings unavailable. Retrying…")
         print(f"Intel telemetry: {error}", file=sys.stderr)
+        reading = unavailable()
+    result.update(gpuBusy=reading["busy"], gpuEngines=reading["engines"], gpuMemoryPrivate=reading["memoryPrivate"],
+                  gpuFrequencyMHz=reading["frequencyMHz"], gpuThermals=reading["thermals"],
+                  gpuTemp=max((t["temperature"] for t in reading["thermals"]), default=None),
+                  gpuError=reading["error"])
     return result
 
 
+# stats.sh's legacy path uses this until the multi-GPU collector replaces it.
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("state", type=Path)
     args = parser.parse_args()
-    print(json.dumps(collect(args.state), separators=(",", ":"), allow_nan=False))
+    print(json.dumps(legacy_collect(args.state), separators=(",", ":"), allow_nan=False))
