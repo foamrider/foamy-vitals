@@ -221,7 +221,11 @@ class GpuStatsTest(unittest.TestCase):
                                         "vramUsed", "vramTotal", "memoryPrivate", "frequencyMHz", "thermals", "error"})
 
     def test_closed_mode_intel_keeps_its_baseline_across_spaced_reads(self):
-        make_gpu(self.root, "0000:00:02.0", "i915", control="auto", delay=None)  # unreadable delay: 30 s gaps
+        device = make_gpu(self.root, "0000:00:02.0", "i915", control="auto", delay=None)  # unreadable delay: 30 s gaps
+        (self.sys / "class/drm/renderD128").mkdir(parents=True)
+        (self.sys / "class/drm/renderD128/device").symlink_to(device)
+        (self.proc / "100/fd").mkdir(parents=True)
+        (self.proc / "100/fd/3").symlink_to("/dev/dri/renderD128")
         fds = self.proc / "100/fdinfo"
         fds.mkdir(parents=True)
         record = "drm-driver: i915\ndrm-pdev: 0000:00:02.0\ndrm-client-id: 7\ndrm-engine-render: {} ns\n"

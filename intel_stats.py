@@ -38,6 +38,9 @@ class Device(TypedDict):
     error: str
 
 
+DRM_NODE = re.compile(r"/dev/dri/(card\d+|renderD\d+)")
+
+
 def integer(value: str, unit: str = "") -> int | None:
     match = re.fullmatch(r"\s*(\d+)\s*" + re.escape(unit) + r"\s*", value)
     return int(match[1]) if match else None
@@ -82,9 +85,18 @@ def parse_client(text: str, devices: set[str]) -> tuple[str, str, Client] | None
     return device, ident, {"engines": engines, "capacities": capacities, "private": private if totals else None}
 
 
-def read_clients(devices: set[str], proc: Path = Path("/proc")) -> dict[str, dict[str, Client]]:
+def node_device(node: str, sys_root: Path) -> str | None:
+    try:
+        return (sys_root / "class/drm" / node / "device").resolve(strict=True).name.lower()
+    except OSError:
+        return None
+
+
+def read_clients(devices: set[str], proc: Path = Path("/proc"),
+                 sys_root: Path = Path("/sys")) -> dict[str, dict[str, Client]]:
     deadline = time.monotonic() + 1.0
     clients: dict[str, dict[str, Client]] = {device: {} for device in devices}
+    owners: dict[str, str | None] = {}
     for process in proc.iterdir():
         if time.monotonic() > deadline:
             raise TimeoutError("Intel process scan exceeded its budget")
@@ -93,11 +105,20 @@ def read_clients(devices: set[str], proc: Path = Path("/proc")) -> dict[str, dic
         try:
             if process.stat().st_uid != os.getuid():
                 continue
-            for fd in (process / "fdinfo").iterdir():
+            for fd in (process / "fd").iterdir():
                 if time.monotonic() > deadline:
                     raise TimeoutError("Intel descriptor scan exceeded its budget")
                 try:
-                    parsed = parse_client(fd.read_text(), devices)
+                    # Printing an xe fdinfo takes a runtime-PM reference and wakes the
+                    # GPU. Resolve the descriptor first; only read requested devices.
+                    node = DRM_NODE.fullmatch(os.readlink(fd))
+                    if node is None:
+                        continue
+                    if node[1] not in owners:
+                        owners[node[1]] = node_device(node[1], sys_root)
+                    if owners[node[1]] not in devices:
+                        continue
+                    parsed = parse_client((process / "fdinfo" / fd.name).read_text(), devices)
                 except (FileNotFoundError, ProcessLookupError, PermissionError):
                     continue
                 if parsed:

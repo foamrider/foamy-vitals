@@ -25,6 +25,23 @@ drm-shared-system0: 1024 KiB
 '''
 
 
+def open_drm(proc, sys_root, pid, fd, pci, text, node=None):
+    """Give pid a descriptor on pci's render node; text None makes its fdinfo raise if read."""
+    node = node or "renderD" + str(128 + int(pci[5:7], 16))
+    for name in ("fd", "fdinfo"):
+        (proc / str(pid) / name).mkdir(parents=True, exist_ok=True)
+    (proc / str(pid) / "fd" / str(fd)).symlink_to("/dev/dri/" + node)
+    if text is None:
+        (proc / str(pid) / "fdinfo" / str(fd)).mkdir()
+    else:
+        (proc / str(pid) / "fdinfo" / str(fd)).write_text(text)
+    drm = sys_root / "class/drm" / node
+    if not drm.exists():
+        drm.mkdir(parents=True)
+        (sys_root / "devices" / pci).mkdir(parents=True, exist_ok=True)
+        (drm / "device").symlink_to(sys_root / "devices" / pci)
+
+
 def snapshot(at, *records):
     return dict(device=DEVICE, boot="boot", time=at,
                 clients={ident: client for _, ident, client in (INTEL.parse_client(record, {DEVICE}) for record in records)})
@@ -75,16 +92,31 @@ class IntelTest(unittest.TestCase):
 
     def test_shared_descriptors_are_deduplicated(self):
         with tempfile.TemporaryDirectory() as directory:
-            proc = Path(directory)
+            proc, sys_root = Path(directory) / "proc", Path(directory) / "sys"
             for pid in (1, 2):
-                fds = proc / str(pid) / "fdinfo"
-                fds.mkdir(parents=True)
-                (fds / "3").write_text(fdinfo())
-                (fds / "4").write_text(fdinfo())
-            self.assertEqual(len(INTEL.read_clients({DEVICE}, proc)[DEVICE]), 1)
+                open_drm(proc, sys_root, pid, 3, DEVICE, fdinfo())
+                open_drm(proc, sys_root, pid, 4, DEVICE, fdinfo())
+            self.assertEqual(len(INTEL.read_clients({DEVICE}, proc, sys_root)[DEVICE]), 1)
             with patch.object(INTEL.time, "monotonic", side_effect=[0, 2]):
                 with self.assertRaises(TimeoutError):
-                    INTEL.read_clients({DEVICE}, proc)
+                    INTEL.read_clients({DEVICE}, proc, sys_root)
+
+    def test_only_descriptors_of_requested_devices_are_read(self):
+        # Printing an xe fdinfo wakes its GPU, so an asleep or unrequested device's
+        # fdinfo must never be opened: here opening one raises.
+        asleep = "0000:03:00.0"
+        with tempfile.TemporaryDirectory() as directory:
+            proc, sys_root = Path(directory) / "proc", Path(directory) / "sys"
+            open_drm(proc, sys_root, 1, 3, DEVICE, fdinfo())
+            open_drm(proc, sys_root, 1, 4, asleep, None)
+            open_drm(proc, sys_root, 2, 5, asleep, None, node="card1")
+            open_drm(proc, sys_root, 2, 6, "0000:09:00.0", None, node="renderD200")
+            (sys_root / "class/drm/renderD200/device").unlink()  # node without a device link
+            (proc / "2/fd/7").symlink_to("/dev/null")
+            (proc / "2/fdinfo/7").mkdir()
+            clients = INTEL.read_clients({DEVICE}, proc, sys_root)
+            self.assertEqual(list(clients), [DEVICE])
+            self.assertEqual(list(clients[DEVICE]), ["1"])
 
     def fake_system(self, root, devices):
         """Build a card, PCI device and proc tree for each (pci id, card number)."""
@@ -110,17 +142,14 @@ class IntelTest(unittest.TestCase):
     def test_one_scan_attributes_clients_per_device(self):
         other = "0000:03:00.0"
         with tempfile.TemporaryDirectory() as directory:
-            proc = Path(directory)
+            proc, sys_root = Path(directory) / "proc", Path(directory) / "sys"
             for pid, pci, ident in ((1, DEVICE, 1), (2, other, 1)):
-                fds = proc / str(pid) / "fdinfo"
-                fds.mkdir(parents=True)
-                (fds / "3").write_text(fdinfo(ident).replace(DEVICE, pci))
-            (proc / "3/fdinfo").mkdir(parents=True)
-            (proc / "3/fdinfo/3").write_text(fdinfo().replace(DEVICE, "0000:09:00.0"))
-            clients = INTEL.read_clients({DEVICE, other}, proc)
+                open_drm(proc, sys_root, pid, 3, pci, fdinfo(ident).replace(DEVICE, pci))
+            open_drm(proc, sys_root, 3, 3, "0000:09:00.0", fdinfo().replace(DEVICE, "0000:09:00.0"))
+            clients = INTEL.read_clients({DEVICE, other}, proc, sys_root)
             self.assertEqual(set(clients), {DEVICE, other})
             self.assertEqual([list(v) for v in clients.values()], [["1"], ["1"]])
-            self.assertEqual(INTEL.read_clients({other, "0000:05:00.0"}, proc),
+            self.assertEqual(INTEL.read_clients({other, "0000:05:00.0"}, proc, sys_root),
                              {other: clients[other], "0000:05:00.0": {}})
 
     def test_snapshots_are_per_device(self):
@@ -128,14 +157,15 @@ class IntelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             cards, proc = self.fake_system(root, [(DEVICE, 0), (other, 1)])
-            fds = proc / "1/fdinfo"
-            fds.mkdir(parents=True)
+            sys_root = root / "sys"
+            for number, pci in enumerate(cards):
+                open_drm(proc, sys_root, 1, number, pci, "")
             states = {pci: root / f"intel-{pci}.json" for pci in cards}
 
             def sample(at, render):
                 for number, pci in enumerate(cards):
-                    (fds / str(number)).write_text(fdinfo(render=render).replace(DEVICE, pci))
-                clients = INTEL.read_clients(set(cards), proc)
+                    (proc / "1/fdinfo" / str(number)).write_text(fdinfo(render=render).replace(DEVICE, pci))
+                clients = INTEL.read_clients(set(cards), proc, sys_root)
                 with patch.object(INTEL.time, "monotonic_ns", return_value=at):
                     return {pci: INTEL.collect_device(pci, cards[pci], states[pci], clients[pci], proc) for pci in cards}
 
@@ -152,13 +182,13 @@ class IntelTest(unittest.TestCase):
             root = Path(directory)
             cards, proc = self.fake_system(root, [(DEVICE, 1)])
             card, device = cards[DEVICE], root / DEVICE
+            sys_root = root / "sys"
+            open_drm(proc, sys_root, 1, 3, DEVICE, fdinfo())
             fds = proc / "1/fdinfo"
-            fds.mkdir(parents=True)
-            (fds / "3").write_text(fdinfo())
             state = root / "intel.json"
 
             def collect(card_path=card):
-                clients = INTEL.read_clients({DEVICE}, proc)[DEVICE]
+                clients = INTEL.read_clients({DEVICE}, proc, sys_root)[DEVICE]
                 return INTEL.collect_device(DEVICE, card_path, state, clients, proc)
 
             with patch.object(INTEL.time, "monotonic_ns", return_value=1_000_000_000):

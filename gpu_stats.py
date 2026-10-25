@@ -207,11 +207,12 @@ def load_state(path: Path, boot: str | None) -> dict[str, dict[str, Any]]:
     return devices
 
 
-def read_intel(cards: list[Card], state_dir: Path, proc: Path) -> dict[str, Reading]:
+def read_intel(cards: list[Card], state_dir: Path, proc: Path, sys_root: Path) -> dict[str, Reading]:
     if not cards:
         return {}
     try:
-        clients = intel_stats.read_clients({card["id"] for card in cards}, proc)
+        # Only due cards are passed, so an asleep GPU's descriptors are never read.
+        clients = intel_stats.read_clients({card["id"] for card in cards}, proc, sys_root)
     except (OSError, ValueError) as error:
         print(f"Intel telemetry: {error}", file=sys.stderr)
         clients = None
@@ -257,7 +258,7 @@ def collect(mode: str, state_dir: Path, sys_root: Path = Path("/sys"), proc: Pat
     # them side by side so both timing out still fits the caller's 2.5 s limit.
     with ThreadPoolExecutor(max_workers=1) as pool:
         pending = pool.submit(nvidia, nvidia_ids) if nvidia_ids else None
-        readings.update(read_intel([card for card in due if card["vendor"] == "intel"], state_dir, proc))
+        readings.update(read_intel([card for card in due if card["vendor"] == "intel"], state_dir, proc, sys_root))
         for card in due:
             if card["vendor"] == "amd" or card["driver"] == "nouveau":
                 try:
