@@ -30,8 +30,12 @@ test('barGpu follows the pin, including asleep, and falls back when absent', () 
   const list = [{id: A, busy: 50}, {id: B, busy: 1}];
   assert.equal(G.barGpu(G.order(list), B).id, B);
   assert.equal(G.barGpu(G.order([{id: A, busy: 50}, {id: B, asleep: true, busy: null}]), B).id, B);
-  assert.equal(G.barGpu(G.order([list[0]]), B).id, A);
-  assert.equal(G.barGpu(G.order(list), B).id, B);
+  const absent = G.order([list[0]]);
+  assert.equal(G.pinnedMissing(absent, B), true);
+  assert.equal(G.barGpu(absent, B).id, A);
+  const back = G.order(list);
+  assert.equal(G.pinnedMissing(back, B), false);
+  assert.equal(G.barGpu(back, B).id, B);
 });
 
 test('pinnedMissing', () => {
@@ -70,8 +74,12 @@ test('appendHistory nulls a vanished GPU, never zero, then drops it', () => {
   assert.ok(h[A]);
 });
 
-test('colorSlot is stable over current and history ids', () => {
-  assert.equal(G.colorSlot([B, A, C], B), 1);
-  assert.equal(G.colorSlot([C, A], C), 1);
-  assert.equal(G.colorSlot([A], B), -1);
+test('colorSlot follows row order, then history-only ids by address', () => {
+  const rows = G.order([{id: A, type: 'discrete'}, {id: C, type: 'integrated'}]);
+  const history = {[A]: [], [C]: [], '0000:02:00.0': [], '0000:01:00.0': []};
+  assert.equal(G.colorSlot(rows, history, C), 0);
+  assert.equal(G.colorSlot(rows, history, A), 1);
+  assert.equal(G.colorSlot(rows, history, '0000:01:00.0'), 2);
+  assert.equal(G.colorSlot(rows, history, '0000:02:00.0'), 3);
+  assert.equal(G.colorSlot(rows, {}, B), -1);
 });

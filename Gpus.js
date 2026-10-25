@@ -77,10 +77,10 @@ function appendHistory(history, ordered, time) {
   return next
 }
 
-function colorSlot(ids, id) {
-  var known = order((Array.isArray(ids) ? ids : []).map(function(value) { return {id: value, type: null} }))
-  for (var i = 0; i < known.length; i++) if (known[i].id === id) return i
-  return -1
+function colorSlot(ordered, history, id) {
+  var slots = (Array.isArray(ordered) ? ordered : []).map(function(gpu) { return gpu.id })
+  var absent = Object.keys(history || {}).filter(function(key) { return slots.indexOf(key) < 0 }).sort()
+  return slots.concat(absent).indexOf(id)
 }
 
 if (typeof module !== "undefined") module.exports = {order: order, barGpu: barGpu, pinnedMissing: pinnedMissing, vram: vram, summarize: summarize, appendHistory: appendHistory, colorSlot: colorSlot}
