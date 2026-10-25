@@ -26,7 +26,8 @@
       "gpuWarning": 95,
       "vramWarning": 95,
       "cpuTemperatureMargin": 15,
-      "gpuTemperatureMargin": 15
+      "gpuTemperatureMargin": 15,
+      "pinnedGpu": ""
     },
     "schema": [
       {
