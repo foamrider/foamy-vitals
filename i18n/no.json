@@ -54,5 +54,16 @@
   "Reading disk capacity": "Leser diskplass",
   "Disk capacity unavailable": "Diskplass utilgjengelig",
   "Telemetry unavailable. Retrying…": "Målinger utilgjengelige. Prøver igjen…",
-  "Install btop to use this shortcut.": "Installer btop for å bruke snarveien."
+  "Install btop to use this shortcut.": "Installer btop for å bruke snarveien.",
+  "Graphics": "Grafikk",
+  "%1 GPUs": "%1 GPU-er",
+  "Integrated": "Integrert",
+  "Discrete": "Diskret",
+  "BUSY": "BRUK",
+  "TEMP": "TEMP",
+  "Asleep": "I dvale",
+  "bar": "linje",
+  "Pinned GPU not connected": "Festet GPU er ikke tilkoblet",
+  "Click to pin to bar": "Klikk for å feste til linjen",
+  "Click to unpin": "Klikk for å løsne"
 }

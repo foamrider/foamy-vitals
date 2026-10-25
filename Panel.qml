@@ -33,7 +33,7 @@ Panel {
   readonly property string panelFont: "sans-serif"
   readonly property string language: FoamyI18n.language
   function preference(key) { return Preferences.value(settings, key) }
-  function tr(label) { return FoamyI18n.t(label) }
+  function tr(label, values) { return FoamyI18n.t(label, values) }
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string statsCommand: decodeURIComponent(Qt.resolvedUrl("stats.sh").toString().replace(/^file:\/\//, ""))
   property string telemetryError: ""
@@ -124,6 +124,9 @@ Panel {
   readonly property color cpuColor: Color.accent
   readonly property color memoryColor: Qt.darker(Color.accent, 1.5)
   readonly property color gpuColor: Qt.tint(Color.accent, Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.6))
+  // Later GPU slots: Qt.tint(Color.accent, Qt.rgba(0.95, 0.95, 0.24, 0.8)), Qt.rgba(0.24, 0.95, 0.95, 0.8), Qt.rgba(0.95, 0.24, 0.77, 0.8) (ΔE ≥ 24 from CPU, RAM, GPU and each other in every bundled theme).
+  readonly property var gpuTints: [Qt.rgba(0.95, 0.95, 0.24, 0.8), Qt.rgba(0.24, 0.95, 0.95, 0.8), Qt.rgba(0.95, 0.24, 0.77, 0.8)]
+  function gpuSlotColor(slot) { return slot <= 0 ? gpuColor : Qt.tint(Color.accent, gpuTints[(slot - 1) % gpuTints.length]) }
   readonly property real networkScale: Math.pow(2, Math.ceil(Math.log(Math.max(1024, History.peak(history.up), History.peak(history.down)) * 1.1) / Math.LN2))
 
   function rate(value) {
@@ -166,6 +169,11 @@ Panel {
   readonly property var barGpu: Gpus.barGpu(gpuRows, preference("pinnedGpu"))
   readonly property bool pinnedMissing: Gpus.pinnedMissing(gpus, preference("pinnedGpu"))
   readonly property bool anyGpuWarning: gpuRows.some(function(row) { return row.warning })
+  readonly property bool multiGpu: gpus.length >= 2
+  // History lines in color-slot order: current rows first, then vanished GPUs.
+  readonly property var gpuChartIds: Object.keys(history.gpus).sort(function(a, b) {
+    return Gpus.colorSlot(gpus, history.gpus, a) - Gpus.colorSlot(gpus, history.gpus, b)
+  })
   // A collector failure outranks the first per-GPU error.
   readonly property string gpuError: String(stats.gpuError || gpuRows.map(function(row) { return row.error }).filter(Boolean)[0] || "")
   readonly property real gpu: barGpu && barGpu.asleep ? 0 : gpuReading("busy")
@@ -213,8 +221,16 @@ Panel {
 
   // The bar GPU's line, or the last one seen while no GPU is reporting.
   function gpuHistory() {
-    var id = barGpu ? barGpu.id : Object.keys(history.gpus)[0]
+    var id = barGpu ? barGpu.id : gpuChartIds[0]
     return id !== undefined && history.gpus[id] ? history.gpus[id] : []
+  }
+
+  function gpuName(row) { return row.name || row.shortName }
+
+  // A vanished GPU keeps its line; its address stands in for the lost name.
+  function gpuLegend(id) {
+    var row = gpus.filter(function(gpu) { return gpu.id === id })[0]
+    return row ? row.shortName : id
   }
 
   function percent(v) {
@@ -591,10 +607,12 @@ Panel {
             Overview { glyph: "\uf2db"; width: parent.cellWidth; label: "CPU"; value: root.percent(root.cpu); detail: root.cores.length ? FoamyI18n.number(root.cores.length) + " " + root.tr("threads") : "--"; meterValue: root.cpu; warning: root.cpuWarning }
             Overview { glyph: "󰍛"; width: parent.cellWidth; label: "RAM"; value: root.percent(root.memory); detail: root.pair(root.gibFromKb(root.reading("memUsedKb")), root.gibFromKb(root.reading("memTotalKb"))); meterValue: root.memory; warning: root.memoryWarning }
             Overview { glyph: "\uf2c9"; width: parent.cellWidth; label: root.tr("CPU TEMP"); value: root.degrees(root.cpuTemp); detail: root.temperatureDetail(root.cpuThermal); meterValue: root.cpuThermal.meter; warning: root.cpuThermal.hot }
-            Overview { glyph: "\uf108"; width: parent.cellWidth; label: "GPU"; value: root.percent(root.gpu); detail: root.intelGpu ? root.gpuClock : ""; meterValue: root.gpu; warning: !!root.barGpu && root.barGpu.busyWarning }
-            Overview { glyph: "󰍛"; width: parent.cellWidth; label: root.intelGpu ? root.tr("GPU MEMORY") : "VRAM"; value: root.intelGpu ? root.memoryAmount(root.gpuReading("memoryPrivate") / 1024) : root.percent(root.vram); detail: root.intelGpu ? root.tr("Private") : root.pair(root.gibFromBytes(root.gpuReading("vramUsed")), root.gibFromBytes(root.gpuReading("vramTotal"))); meterValue: root.vram; warning: !!root.barGpu && root.barGpu.vramWarning }
-            Overview { glyph: "\uf2c9"; width: parent.cellWidth; label: root.tr("GPU TEMP"); value: root.degrees(root.gpuTemp); detail: root.intelGpu && isNaN(root.gpuTemp) ? root.tr("Not exposed") : root.temperatureDetail(root.gpuThermal); meterValue: root.gpuThermal.meter; warning: root.gpuThermal.hot }
+            Overview { glyph: "\uf108"; width: parent.cellWidth; visible: !root.multiGpu; label: "GPU"; value: root.percent(root.gpu); detail: root.intelGpu ? root.gpuClock : ""; meterValue: root.gpu; warning: !!root.barGpu && root.barGpu.busyWarning }
+            Overview { glyph: "󰍛"; width: parent.cellWidth; visible: !root.multiGpu; label: root.intelGpu ? root.tr("GPU MEMORY") : "VRAM"; value: root.intelGpu ? root.memoryAmount(root.gpuReading("memoryPrivate") / 1024) : root.percent(root.vram); detail: root.intelGpu ? root.tr("Private") : root.pair(root.gibFromBytes(root.gpuReading("vramUsed")), root.gibFromBytes(root.gpuReading("vramTotal"))); meterValue: root.vram; warning: !!root.barGpu && root.barGpu.vramWarning }
+            Overview { glyph: "\uf2c9"; width: parent.cellWidth; visible: !root.multiGpu; label: root.tr("GPU TEMP"); value: root.degrees(root.gpuTemp); detail: root.intelGpu && isNaN(root.gpuTemp) ? root.tr("Not exposed") : root.temperatureDetail(root.gpuThermal); meterValue: root.gpuThermal.meter; warning: root.gpuThermal.hot }
           }
+          GraphicsSection { width: body.width - body.padding * 2; visible: root.multiGpu }
+          Caption { width: body.width - body.padding * 2; visible: root.pinnedMissing; text: root.tr("Pinned GPU not connected"); color: root.dim; wrapMode: Text.WordWrap }
           Grid {
             id: detailsGrid
             width: body.width - body.padding * 2
@@ -607,16 +625,37 @@ Panel {
               spacing: Style.space(12)
               SectionHeading { title: root.tr("Resource usage"); detail: "2 min" }
               Row {
+                visible: !root.multiGpu
                 spacing: Style.space(14)
                 Legend { text: "CPU"; dotColor: root.cpuColor }
                 Legend { text: "RAM"; dotColor: root.memoryColor; dashed: true }
                 Legend { text: "GPU"; dotColor: root.gpuColor }
               }
+              // One entry per GPU line; entries wrap and long names elide to the column.
+              Flow {
+                id: usageLegend
+                visible: root.multiGpu
+                width: parent.width
+                spacing: Style.space(14)
+                Legend { text: "CPU"; dotColor: root.cpuColor }
+                Legend { text: "RAM"; dotColor: root.memoryColor; dashed: true }
+                Repeater {
+                  model: root.multiGpu ? root.gpuChartIds : []
+                  Legend {
+                    required property string modelData
+                    text: root.gpuLegend(modelData)
+                    textWidth: usageLegend.width - Style.space(22)
+                    dotColor: root.gpuSlotColor(Gpus.colorSlot(root.gpus, root.history.gpus, modelData))
+                  }
+                }
+              }
               HistoryPlot {
                 width: parent.width; height: Style.space(90)
                 topLabel: root.percent(100); middleLabel: root.percent(50); bottomLabel: root.percent(0)
                 maximum: 100
-                series: [{points: root.history.cpu, color: root.cpuColor}, {points: root.history.memory, color: root.memoryColor, dashed: true}, {points: root.gpuHistory(), color: root.gpuColor}]
+                series: [{points: root.history.cpu, color: root.cpuColor}, {points: root.history.memory, color: root.memoryColor, dashed: true}].concat(root.multiGpu
+                  ? root.gpuChartIds.map(function(id) { return {points: root.history.gpus[id], color: root.gpuSlotColor(Gpus.colorSlot(root.gpus, root.history.gpus, id))} })
+                  : [{points: root.gpuHistory(), color: root.gpuColor}])
               }
             }
             ProcessSection { width: detailsGrid.columnWidth; title: root.tr("Top CPU processes"); entries: root.processes }
@@ -789,6 +828,8 @@ Panel {
     id: legend
     property color dotColor: root.cpuColor
     property bool dashed: false
+    // Elide to this width when set; otherwise the caption takes its natural width.
+    property real textWidth: -1
     spacing: Style.space(6)
     Row {
       anchors.verticalCenter: parent.verticalCenter
@@ -798,7 +839,7 @@ Panel {
         Rectangle { width: Style.space(legend.dashed ? 4 : 16); height: Style.space(2); radius: height / 2; color: legend.dotColor }
       }
     }
-    Caption { text: parent.text }
+    Caption { text: parent.text; width: legend.textWidth < 0 ? implicitWidth : Math.max(0, Math.min(implicitWidth, legend.textWidth)) }
   }
   component SectionHeading: Item {
     property string title: ""
@@ -816,6 +857,118 @@ Panel {
     implicitHeight: Math.max(rowLabel.implicitHeight, rowValue.implicitHeight)
     Caption { id: rowLabel; anchors.left: parent.left; anchors.right: rowValue.left; anchors.rightMargin: Style.space(8); text: parent.label }
     Label { id: rowValue; anchors.right: parent.right; width: Math.min(implicitWidth, parent.width * 0.65); text: parent.value; color: parent.subdued ? root.dim : root.foreground; font.pixelSize: Style.space(11); horizontalAlignment: Text.AlignRight }
+  }
+  component GraphicsSection: Column {
+    id: graphics
+    // Fixed reading columns keep rows aligned; the GPU name takes what is left.
+    readonly property real busyWidth: Style.space(108)
+    readonly property real tempWidth: Style.space(48)
+    readonly property real vramWidth: Style.space(100)
+    readonly property real inset: Style.space(8)
+    spacing: Style.space(6)
+    SectionHeading { title: root.tr("Graphics"); detail: root.tr("%1 GPUs", [FoamyI18n.number(root.gpus.length)]) }
+    RowLayout {
+      width: parent.width
+      spacing: Style.space(12)
+      Caption { Layout.fillWidth: true; Layout.leftMargin: graphics.inset; text: root.tr("GPU"); horizontalAlignment: Text.AlignLeft }
+      Caption { Layout.preferredWidth: graphics.busyWidth; text: root.tr("BUSY"); horizontalAlignment: Text.AlignLeft }
+      Caption { Layout.preferredWidth: graphics.tempWidth; text: root.tr("TEMP"); horizontalAlignment: Text.AlignRight }
+      Caption { Layout.preferredWidth: graphics.vramWidth; Layout.rightMargin: graphics.inset; text: root.tr("VRAM"); horizontalAlignment: Text.AlignRight }
+    }
+    Repeater {
+      model: root.multiGpu ? root.gpuRows : []
+      Rectangle {
+        id: gpuRow
+        required property var modelData
+        readonly property string name: root.gpuName(modelData)
+        readonly property bool pinned: root.preference("pinnedGpu") === modelData.id
+        readonly property bool onBar: !!root.barGpu && root.barGpu.id === modelData.id
+        readonly property bool asleep: !!modelData.asleep
+        readonly property bool intel: modelData.vendor === "intel"
+        readonly property real busy: root.numeric(modelData.busy)
+        readonly property real clock: root.numeric(modelData.frequencyMHz)
+        readonly property string tooltip: [
+          name, modelData.id, root.temperatureDetail(modelData.thermal),
+          isNaN(clock) ? "" : FoamyI18n.number(clock) + " MHz",
+          intel ? root.tr("Intel GPU: busiest engine and private allocations from accessible processes for this user.") : "",
+          pinned ? root.tr("Click to unpin") : root.tr("Click to pin to bar")
+        ].filter(Boolean).join("\n")
+        function toggle() { root.togglePin(modelData.id) }
+        width: graphics.width
+        implicitHeight: rowContent.implicitHeight + Style.space(12)
+        radius: Style.cornerRadius * 2
+        color: rowMouse.containsMouse || activeFocus ? Qt.alpha(root.foreground, 0.08) : "transparent"
+        // Same focus treatment as VitalsAction.
+        activeFocusOnTab: true
+        border.width: activeFocus ? 1 : 0
+        border.color: Color.accent
+        Accessible.role: Accessible.Button
+        Accessible.name: name + " · " + (pinned ? root.tr("Click to unpin") : root.tr("Click to pin to bar"))
+        Accessible.onPressAction: toggle()
+        Keys.onReturnPressed: toggle()
+        Keys.onEnterPressed: toggle()
+        Keys.onSpacePressed: toggle()
+        RowLayout {
+          id: rowContent
+          anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+          anchors.leftMargin: graphics.inset; anchors.rightMargin: graphics.inset
+          spacing: Style.space(12)
+          Column {
+            Layout.fillWidth: true
+            spacing: Style.space(2)
+            Row {
+              id: nameRow
+              width: parent.width
+              spacing: Style.space(6)
+              // The tag follows the name; only the name elides.
+              Label { width: Math.min(implicitWidth, nameRow.width - (rowTag.visible ? rowTag.width + nameRow.spacing : 0)); text: gpuRow.name }
+              Item {
+                id: rowTag
+                visible: gpuRow.pinned || gpuRow.onBar
+                anchors.verticalCenter: parent.verticalCenter
+                width: gpuRow.pinned ? pinIcon.width : barPill.width
+                height: gpuRow.pinned ? pinIcon.height : barPill.height
+                VitalsIcon { id: pinIcon; visible: gpuRow.pinned; name: "pin"; width: Style.space(12); height: width; color: root.foreground }
+                Rectangle {
+                  id: barPill
+                  visible: !gpuRow.pinned
+                  width: barTag.implicitWidth + Style.space(10); height: barTag.implicitHeight + Style.space(2)
+                  radius: height / 2
+                  color: Qt.alpha(root.foreground, 0.12)
+                  Caption { id: barTag; anchors.centerIn: parent; text: root.tr("bar"); font.pixelSize: Style.space(10) }
+                }
+              }
+            }
+            Caption { width: parent.width; horizontalAlignment: Text.AlignLeft; text: gpuRow.modelData.type === "integrated" ? root.tr("Integrated") : gpuRow.modelData.type === "discrete" ? root.tr("Discrete") : "" }
+          }
+          RowLayout {
+            Layout.preferredWidth: graphics.busyWidth; Layout.maximumWidth: graphics.busyWidth
+            spacing: Style.space(8)
+            Meter { visible: !gpuRow.asleep; Layout.fillWidth: true; value: gpuRow.busy; fillColor: gpuRow.modelData.busyWarning ? root.urgent : root.foreground }
+            Label {
+              Layout.fillWidth: gpuRow.asleep; Layout.preferredWidth: Style.space(36)
+              text: gpuRow.asleep ? root.tr("Asleep") : root.percent(gpuRow.busy)
+              color: gpuRow.asleep ? root.dim : gpuRow.modelData.busyWarning ? root.urgent : root.foreground
+              horizontalAlignment: gpuRow.asleep ? Text.AlignLeft : Text.AlignRight; font.pixelSize: Style.space(12)
+            }
+          }
+          Label {
+            Layout.preferredWidth: graphics.tempWidth; horizontalAlignment: Text.AlignRight; font.pixelSize: Style.space(12)
+            text: gpuRow.asleep ? root.tr("Asleep") : root.degrees(gpuRow.modelData.thermal.temperature)
+            color: gpuRow.asleep ? root.dim : gpuRow.modelData.hot ? root.urgent : root.foreground
+          }
+          Label {
+            Layout.preferredWidth: graphics.vramWidth; horizontalAlignment: Text.AlignRight; font.pixelSize: Style.space(12)
+            text: gpuRow.asleep ? root.tr("Asleep") : gpuRow.intel ? root.memoryAmount(root.numeric(gpuRow.modelData.memoryPrivate) / 1024)
+              : root.pair(root.gibFromBytes(root.numeric(gpuRow.modelData.vramUsed)), root.gibFromBytes(root.numeric(gpuRow.modelData.vramTotal)))
+            color: gpuRow.asleep ? root.dim : gpuRow.modelData.vramWarning ? root.urgent : root.foreground
+          }
+        }
+        MouseArea { id: rowMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: gpuRow.toggle() }
+        HoverHandler { id: rowHover }
+        PanelToolTip { visible: rowHover.hovered; text: gpuRow.tooltip; fontFamily: root.panelFont }
+      }
+    }
   }
   component ProcessSection: Column {
     id: processSection
