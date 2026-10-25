@@ -167,7 +167,8 @@ Panel {
   })
   // The bar follows the pinned GPU while it is connected, otherwise the busiest.
   readonly property var barGpu: Gpus.barGpu(gpuRows, preference("pinnedGpu"))
-  readonly property bool pinnedMissing: Gpus.pinnedMissing(gpus, preference("pinnedGpu"))
+  // A failed collector run lists no GPUs for one sample; that is not a missing pin.
+  readonly property bool pinnedMissing: !stats.gpuError && Gpus.pinnedMissing(gpus, preference("pinnedGpu"))
   readonly property bool anyGpuWarning: gpuRows.some(function(row) { return row.warning })
   readonly property bool multiGpu: gpus.length >= 2
   // History lines in color-slot order: current rows first, then vanished GPUs.

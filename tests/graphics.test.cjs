@@ -23,6 +23,20 @@ assert.deepEqual(click('', '0000:05:00.0'), [['pinnedGpu', '0000:05:00.0']]);
 assert.deepEqual(click('0000:05:00.0', '0000:05:00.0'), [['pinnedGpu', '']]);
 assert.deepEqual(click('0000:05:00.0', '0000:c1:00.0'), [['pinnedGpu', '0000:c1:00.0']]);
 
+// A failed collector run empties gpus for one sample; that is not a missing pin.
+const missing = source.match(/readonly property bool pinnedMissing: (.*)\n/);
+assert.ok(missing, 'pinnedMissing');
+const Gpus = vm.createContext({});
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../Gpus.js'), 'utf8').replace(/^\.import .*$/m, ''), Gpus);
+function pinnedMissing(gpus, gpuError) {
+  const scope = vm.createContext({stats: {gpus: gpus, gpuError: gpuError}, gpus: gpus, Gpus: Gpus,
+    preference(key) { assert.equal(key, 'pinnedGpu'); return '0000:05:00.0'; }});
+  return vm.runInContext(missing[1], scope);
+}
+assert.equal(pinnedMissing([], 'GPU readings unavailable. Retrying…'), false);
+assert.equal(pinnedMissing([], ''), true);
+assert.equal(pinnedMissing([{id: '0000:05:00.0'}], ''), false);
+
 const strings = {
   'Graphics': 'Grafikk',
   '%1 GPUs': '%1 GPU-er',

@@ -17,13 +17,21 @@ test('order puts integrated, discrete, then unknown, ties by address', () => {
   assert.deepEqual(ids(G.order(list)), [C, '0000:01:00.0', B, A]);
 });
 
-test('barGpu picks the busiest, treating asleep as 0 and no reading as lowest', () => {
+test('barGpu picks the busiest, with no reading as lowest', () => {
   const pick = list => G.barGpu(G.order(list), '').id;
   assert.equal(pick([{id: A, busy: 0}, {id: B, busy: 12}]), B);
   assert.equal(pick([{id: A, asleep: true, busy: null}, {id: B, busy: 3}]), B);
   assert.equal(pick([{id: A, busy: null}, {id: B, busy: 0}]), B);
   assert.equal(pick([{id: A, busy: 5}, {id: B, busy: 5}]), A);
   assert.equal(G.barGpu([], ''), null);
+});
+
+test('barGpu ranks asleep below any real reading but above an unknown one', () => {
+  const pick = list => G.barGpu(G.order(list), '').id;
+  assert.equal(pick([{id: A, asleep: true, busy: null}, {id: B, busy: 0}]), B);
+  assert.equal(pick([{id: A, busy: 0}, {id: B, asleep: true, busy: null}]), A);
+  assert.equal(pick([{id: A, busy: null}, {id: B, asleep: true, busy: null}]), B);
+  assert.equal(pick([{id: A, asleep: true, busy: null}, {id: B, busy: null}]), A);
 });
 
 test('barGpu follows the pin, including asleep, and falls back when absent', () => {

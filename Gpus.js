@@ -16,8 +16,9 @@ function order(gpus) {
   })
 }
 
+// Any real reading (even 0 %) beats an asleep GPU, which beats no reading.
 function reading(gpu) {
-  if (gpu.asleep) return 0
+  if (gpu.asleep) return -0.5
   return typeof gpu.busy === "number" && isFinite(gpu.busy) ? gpu.busy : -1
 }
 
