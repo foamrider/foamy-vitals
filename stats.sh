@@ -405,11 +405,12 @@ network="$(awk '
   }
 ' /proc/net/route /proc/net/dev /proc/uptime)"
 
-# The helper's output is embedded only once jq has confirmed it is exactly one
-# array, so no driver or hardware string ever passes through Bash into the JSON.
+# The helper's output is embedded only once it has exited cleanly and jq has
+# confirmed it is exactly one array, so no driver or hardware string ever passes
+# through Bash into the JSON.
 gpu_error='""'
-helper="$(timeout --kill-after=0.2s 2.5s python3 "$(dirname "$(readlink -f "$0")")/gpu_stats.py" "$poll_mode" "$state_dir")"
-if ! gpus="$(jq -cse 'if length == 1 and (.[0] | type == "array") then .[0] else false end' 2>/dev/null <<<"$helper")"; then
+if ! helper="$(timeout --kill-after=0.2s 2.5s python3 "$(dirname "$(readlink -f "$0")")/gpu_stats.py" "$poll_mode" "$state_dir")" ||
+  ! gpus="$(jq -cse 'if length == 1 and (.[0] | type == "array") then .[0] else false end' 2>/dev/null <<<"$helper")"; then
   gpus='[]'
   gpu_error='"GPU readings unavailable. Retrying…"'
 fi

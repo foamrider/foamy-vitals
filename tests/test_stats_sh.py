@@ -50,13 +50,15 @@ class StatsShTest(unittest.TestCase):
                 self.assertEqual(stats["gpuError"], "")
 
     def test_failed_helper_degrades_to_no_gpus(self):
-        with tempfile.TemporaryDirectory() as runtime, tempfile.TemporaryDirectory() as bin_dir:
-            fake = Path(bin_dir) / "python3"
-            fake.write_text('#!/bin/sh\nprintf \'{"not":"an array"}\'\n')
-            fake.chmod(0o755)
-            stats = json.loads(run("closed", runtime, bin_dir))
-            self.assertEqual(stats["gpus"], [])
-            self.assertEqual(stats["gpuError"], "GPU readings unavailable. Retrying…")
+        for script in ('printf \'{"not":"an array"}\'', "exit 0", "printf '[]'; exit 3", "exit 1"):
+            with self.subTest(script), tempfile.TemporaryDirectory() as runtime, \
+                    tempfile.TemporaryDirectory() as bin_dir:
+                fake = Path(bin_dir) / "python3"
+                fake.write_text(f"#!/bin/sh\n{script}\n")
+                fake.chmod(0o755)
+                stats = json.loads(run("closed", runtime, bin_dir))
+                self.assertEqual(stats["gpus"], [])
+                self.assertEqual(stats["gpuError"], "GPU readings unavailable. Retrying…")
 
 
 if __name__ == "__main__":
