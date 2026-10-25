@@ -45,9 +45,17 @@ def empty(error: str = "") -> Reading:
             "frequencyMHz": None, "thermals": [], "error": error}
 
 
+def optional(path: Path) -> str | None:
+    """One sysfs file's text, or None when that file alone is missing or unreadable."""
+    try:
+        return path.read_text().strip()
+    except (OSError, ValueError):
+        return None
+
+
 def integer(path: Path) -> int | None:
-    text = path.read_text().strip()
-    return int(text) if re.fullmatch(r"-?\d+", text) else None
+    text = optional(path)
+    return int(text) if text is not None and re.fullmatch(r"-?\d+", text) else None
 
 
 def card_number(path: Path) -> int:
@@ -135,10 +143,7 @@ def closed_interval(card: Card) -> int:
         return 0  # No runtime PM, so polling cannot keep the device awake.
     # Every read resets the idle timer. Leave gaps well past the autosuspend
     # delay so an idle GPU can actually suspend while the popup is closed.
-    try:
-        delay = integer(device / "power/autosuspend_delay_ms")
-    except OSError:
-        delay = None
+    delay = integer(device / "power/autosuspend_delay_ms")
     return max(2 * delay * 1_000_000, 15 * 1_000_000_000) if delay is not None else 30 * 1_000_000_000
 
 
@@ -149,15 +154,15 @@ def poll_due(card: Card, last_read_ns: int | None, now_ns: int, mode: str) -> bo
 
 
 def read_sysfs(device: Path) -> Reading:
+    # Each value is read on its own, so one missing or failing file (EIO/EINVAL)
+    # costs only that value or sensor, never the whole row.
     reading = empty()
-    if (device / "gpu_busy_percent").exists():
-        busy = integer(device / "gpu_busy_percent")
-        reading["busy"] = busy if busy is not None and 0 <= busy <= 100 else None
-    if (device / "mem_info_vram_total").exists():
-        used = integer(device / "mem_info_vram_used")
-        total = integer(device / "mem_info_vram_total")
-        if total is not None and total > 0 and used is not None and 0 <= used <= total:
-            reading["vramUsed"], reading["vramTotal"] = used, total
+    busy = integer(device / "gpu_busy_percent")
+    reading["busy"] = busy if busy is not None and 0 <= busy <= 100 else None
+    used = integer(device / "mem_info_vram_used")
+    total = integer(device / "mem_info_vram_total")
+    if total is not None and total > 0 and used is not None and 0 <= used <= total:
+        reading["vramUsed"], reading["vramTotal"] = used, total
     inputs = sorted(device.glob("hwmon/hwmon*/temp*_input"),
                     key=lambda p: (p.parent.name, int(re.sub(r"\D", "", p.name) or 0)))
     for path in inputs:
@@ -165,11 +170,9 @@ def read_sysfs(device: Path) -> Reading:
         if value is None:
             continue
         prefix = path.name.removesuffix("_input")
-        limit = path.with_name(prefix + "_crit")
-        critical = integer(limit) if limit.exists() else None
-        label = path.with_name(prefix + "_label")
+        critical = integer(path.with_name(prefix + "_crit"))
         # Map known driver labels to stable display strings; never pass arbitrary text through.
-        name = LABELS.get(label.read_text().strip()) if label.exists() else None
+        name = LABELS.get(optional(path.with_name(prefix + "_label")) or "")
         reading["thermals"].append({"temperature": value / 1000,
                                     "critical": critical / 1000 if critical and critical > 0 else None,
                                     "label": name or "Sensor " + prefix.removeprefix("temp")})

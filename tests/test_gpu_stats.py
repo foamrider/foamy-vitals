@@ -212,6 +212,28 @@ class GpuStatsTest(unittest.TestCase):
         self.assertNotEqual(gone["error"], "")
         self.assertEqual((other["busy"], other["thermals"][0]["temperature"], other["error"]), (12, 57.0, ""))
 
+    def test_missing_vram_file_keeps_busy_and_temperatures(self):
+        files = amd_files(40, 1, 2, [("edge", 50000, 100000)], True)
+        del files["mem_info_vram_used"]
+        make_gpu(self.root, "0000:05:00.0", "amdgpu", files=files)
+        gpu = self.collect()["0000:05:00.0"]
+        self.assertEqual((gpu["busy"], gpu["vramUsed"], gpu["vramTotal"], gpu["error"]), (40, None, None, ""))
+        self.assertEqual(gpu["thermals"], [{"temperature": 50.0, "critical": 100.0, "label": "Edge"}])
+
+    def test_one_failing_sensor_file_skips_only_that_value(self):
+        # A directory raises on read, like EIO/EINVAL from a single sysfs attribute.
+        files = amd_files(40, 1, 2, [("edge", 50000, 100000), ("junction", 61000, None),
+                                     ("mem", 72000, 95000), ("edge", 45000, None)], True)
+        files["hwmon/hwmon0/temp1_input"] = None
+        files["hwmon/hwmon0/temp3_label"] = None
+        files["hwmon/hwmon0/temp3_crit"] = None
+        files["hwmon/hwmon0/temp4_input"] = "garbage\n"
+        make_gpu(self.root, "0000:05:00.0", "amdgpu", files=files)
+        gpu = self.collect()["0000:05:00.0"]
+        self.assertEqual((gpu["busy"], gpu["vramUsed"], gpu["vramTotal"], gpu["error"]), (40, 1, 2, ""))
+        self.assertEqual(gpu["thermals"], [{"temperature": 61.0, "critical": None, "label": "Hotspot"},
+                                           {"temperature": 72.0, "critical": None, "label": "Sensor 3"}])
+
     def test_mixed_vendors_all_listed(self):
         make_gpu(self.root, "0000:00:02.0", "i915")
         make_gpu(self.root, "0000:01:00.0", "nvidia")
