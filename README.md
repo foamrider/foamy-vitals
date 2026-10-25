@@ -32,22 +32,34 @@ text, and stops reads after two seconds. Oversized, invalid, or unavailable
 clipboard text leaves the current value unchanged and shows an error. Typing,
 selection, undo, and redo remain available.
 
+## Graphics
+
+Every AMD, Intel, and NVIDIA (including nouveau) GPU is listed; other devices
+are ignored. One GPU looks the same as before. With two or more, the popup shows
+a table with a row for each. A GPU with no known name shows its short name.
+
+The bar follows the busiest GPU. Click a row to pin that GPU to the bar, and
+click it again to unpin. The pin is saved by PCI address, so it resumes when the
+GPU returns; **Pinned GPU not connected** shows meanwhile.
+
+Asleep GPUs are never woken and show **Asleep**. With the popup open, every GPU
+is read each two seconds. With it closed, GPUs with runtime power management are
+read at most every `max(2 × autosuspend delay, 15 s)` so they can sleep (30 s if
+the delay can't be read), so the bar reacts later.
+
 Intel (`i915`/`xe`) monitoring uses Python 3 and unprivileged DRM client counters.
 GPU usage is the busiest engine, normalized for its engine count, across accessible
 processes owned by the current user. The first sample has no usage reading.
 GPU memory shows private allocations, excluding shared buffers to avoid counting
-them twice; it is not total VRAM or resident memory. The lowest PCI-address Intel
-GPU is selected when AMD/NVIDIA telemetry is not selected. On `i915`, the clock
-shows the highest current GT frequency. Unexposed temperatures remain unavailable.
+them twice; it is not total VRAM or resident memory. On `i915`, the clock shows
+the highest current GT frequency. Unexposed temperatures remain unavailable.
 Collection shares the two-second cache and times out after 1.5 seconds.
 
 NVIDIA GPUs using the proprietary driver are read through `nvidia-smi` and
 Python 3 (standard library only). Install the NVIDIA driver utilities matching
-your driver if `nvidia-smi` is missing. The lowest PCI-address NVIDIA GPU is used
-when no sysfs GPU load source is available. Load, VRAM and temperature always
-come from that same GPU. Thermal warnings use its reported shutdown threshold;
-unsupported readings and limits remain unknown. Probes time out after 1.5 seconds
-and share the normal two-second sample cache.
+your driver if `nvidia-smi` is missing. Thermal warnings use the reported
+shutdown threshold; unsupported readings and limits remain unknown. Probes time
+out after 1.5 seconds and share the normal two-second sample cache.
 
 ## Remove
 
@@ -73,3 +85,5 @@ Language follows **Omarchy → Setup → Language** on Omarchy 4.5. Plugin langu
 Translation checks: `python3 tests/i18n-runtime.py` uses the installed shell. Set `OMARCHY_PATH` to a 4.5 source tree to check live language switching against that version.
 
 Run `node tests/formatting.test.cjs` and `python3 tests/rtl.py` to check localized readings, mirrored settings and live error translations.
+
+Run `node tests/gpus.test.js`, `node tests/graphics.test.cjs` and `python3 -m unittest discover -s tests` to check GPU discovery, selection, the graphics table and the helpers.
