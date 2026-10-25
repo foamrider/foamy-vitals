@@ -1,5 +1,6 @@
 {
   "Intel GPU readings unavailable. Retrying…": "Intel GPU-avlesninger er utilgjengelige. Prøver igjen…",
+  "GPU readings unavailable. Retrying…": "GPU-avlesninger er utilgjengelige. Prøver igjen…",
   "Intel GPU: busiest engine and private allocations from accessible processes for this user.": "Intel GPU: travleste motor og private allokeringer fra tilgjengelige prosesser for denne brukeren.",
   "GPU MEMORY": "GPU-MINNE",
   "Private": "Privat",

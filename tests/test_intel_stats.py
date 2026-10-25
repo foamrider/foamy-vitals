@@ -190,29 +190,6 @@ class IntelTest(unittest.TestCase):
                 self.assertIsNone(INTEL.load_snapshot(state))
                 self.assertIsNone(collect()["busy"])
 
-    def test_legacy_main_keeps_single_device_shape(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            cards, proc = self.fake_system(root, [(DEVICE, 1)])
-            fds = proc / "1/fdinfo"
-            fds.mkdir(parents=True)
-            (fds / "3").write_text(fdinfo())
-            keys = ["gpuIntel", "gpuBusy", "gpuEngines", "gpuMemoryPrivate", "gpuFrequencyMHz",
-                    "gpuTemp", "gpuThermals", "gpuError"]
-            result = INTEL.legacy_collect(root / "intel.json", root / "drm", proc)
-            self.assertEqual(list(result), keys)
-            self.assertTrue(result["gpuIntel"])
-            self.assertEqual((result["gpuFrequencyMHz"], result["gpuMemoryPrivate"], result["gpuError"]),
-                             (800, 63 * 1048576, ""))
-            with patch.object(INTEL, "read_clients", side_effect=TimeoutError("scan budget")):
-                failed = INTEL.legacy_collect(root / "intel.json", root / "drm", proc)
-            self.assertEqual((failed["gpuIntel"], failed["gpuBusy"], failed["gpuError"]),
-                             (True, None, "Intel GPU readings unavailable. Retrying…"))
-            (cards[DEVICE] / "device").unlink()
-            empty = INTEL.legacy_collect(root / "intel.json", root / "drm", proc)
-            self.assertEqual(list(empty), keys)
-            self.assertFalse(empty["gpuIntel"])
-
     def test_changed_capacity_and_missing_counters_are_not_invented(self):
         before = snapshot(1_000_000_000, fdinfo())
         changed = fdinfo(video=1_000_000_000).replace("capacity-video: 2", "capacity-video: 1")

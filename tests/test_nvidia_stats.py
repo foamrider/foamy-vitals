@@ -1,5 +1,4 @@
 import importlib.util
-import json
 from pathlib import Path
 import subprocess
 import unittest
@@ -81,23 +80,6 @@ class NvidiaTest(unittest.TestCase):
             with patch.object(NVIDIA.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, xml)):
                 devices = NVIDIA.collect(wanted)
             self.assertEqual(devices['0000:09:00.0']['error'], NVIDIA.ERROR)
-
-    def test_legacy_output_shape_is_unchanged(self):
-        keys = ['gpuBusy', 'vramUsed', 'vramTotal', 'gpuTemp', 'gpuThermals', 'gpuError']
-        xml = wrap(device(address='00000000:09:00.0', load='99 %'), device())
-        with patch.object(NVIDIA.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, xml)) as run:
-            stats = NVIDIA.legacy_stats()
-        self.assertEqual(run.call_args.args[0], ['nvidia-smi', '-q', '-x'])
-        self.assertEqual(list(stats), keys)
-        self.assertEqual(stats['gpuBusy'], 20)
-        self.assertEqual(stats['gpuTemp'], 51)
-        self.assertEqual(stats['gpuThermals'], [{'temperature': 51, 'critical': 98, 'label': 'GPU'}])
-        self.assertEqual(stats['gpuError'], '')
-        with patch.object(NVIDIA.subprocess, 'run', side_effect=FileNotFoundError()):
-            stats = NVIDIA.legacy_stats()
-        self.assertEqual(stats, {'gpuBusy': None, 'vramUsed': None, 'vramTotal': None, 'gpuTemp': None,
-                                 'gpuThermals': [], 'gpuError': 'NVIDIA telemetry unavailable; check nvidia-smi.'})
-        json.dumps(stats, allow_nan=False)
 
 
 if __name__ == '__main__':

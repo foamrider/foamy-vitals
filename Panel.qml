@@ -7,6 +7,7 @@ import qs.Commons
 import qs.Ui
 import "History.js" as History
 import "Filesystems.js" as Filesystems
+import "Gpus.js" as Gpus
 import "Thermals.js" as Thermals
 import "Preferences.js" as Preferences
 
@@ -114,7 +115,7 @@ Panel {
 
   property var stats: ({})
   property int hoveredCore: -1
-  property var history: ({cpu: [], memory: [], gpu: [], up: [], down: []})
+  property var history: ({cpu: [], memory: [], gpus: {}, up: [], down: []})
   property var networkSnapshot: null
   property real sampledAt: 0
   property real networkUp: NaN
@@ -143,7 +144,7 @@ Panel {
     history = {
       cpu: History.append(history.cpu, time, cpu),
       memory: History.append(history.memory, time, memory),
-      gpu: History.append(history.gpu, time, reading("gpuBusy")),
+      gpus: Gpus.appendHistory(history.gpus, Gpus.order(parsed.gpus), time),
       up: History.append(net.changed ? [] : history.up, time, net.up),
       down: History.append(net.changed ? [] : history.down, time, net.down)
     }
@@ -154,29 +155,39 @@ Panel {
   readonly property real cpu: root.reading("cpu")
   readonly property real memory: root.reading("memTotalKb") > 0
     ? 100 * root.reading("memUsedKb") / root.reading("memTotalKb") : NaN
-  readonly property real gpu: root.reading("gpuBusy")
-  readonly property bool intelGpu: stats.gpuIntel === true
-  readonly property string gpuClock: isNaN(reading("gpuFrequencyMHz")) ? "" : FoamyI18n.number(Math.round(reading("gpuFrequencyMHz"))) + " MHz"
-  readonly property real vram: root.reading("vramTotal") > 0
-    ? 100 * root.reading("vramUsed") / root.reading("vramTotal") : NaN
+  readonly property var gpus: Gpus.order(stats.gpus)
+  // Every GPU with its own thermal summary and warnings, in display order.
+  readonly property var gpuRows: gpus.map(function(item) {
+    var thermal = Thermals.summarize(item.thermals, root.preference("gpuTemperatureMargin"))
+    var summary = Gpus.summarize(item, thermal, {gpu: root.preference("gpuWarning"), vram: root.preference("vramWarning")})
+    return Object.assign({}, item, summary, {thermal: thermal})
+  })
+  // The bar follows the pinned GPU while it is connected, otherwise the busiest.
+  readonly property var barGpu: Gpus.barGpu(gpuRows, preference("pinnedGpu"))
+  readonly property bool pinnedMissing: Gpus.pinnedMissing(gpus, preference("pinnedGpu"))
+  readonly property bool anyGpuWarning: gpuRows.some(function(row) { return row.warning })
+  // A collector failure outranks the first per-GPU error.
+  readonly property string gpuError: String(stats.gpuError || gpuRows.map(function(row) { return row.error }).filter(Boolean)[0] || "")
+  readonly property real gpu: barGpu && barGpu.asleep ? 0 : gpuReading("busy")
+  readonly property bool intelGpu: !!barGpu && barGpu.vendor === "intel"
+  readonly property string gpuClock: isNaN(gpuReading("frequencyMHz")) ? "" : FoamyI18n.number(Math.round(gpuReading("frequencyMHz"))) + " MHz"
+  readonly property real vram: Gpus.vram(barGpu)
   readonly property bool showMemory: !isNaN(memory) && (isNaN(cpu) || memory > cpu)
   readonly property bool showGpu: !isNaN(gpu)
     && (isNaN(cpu) || gpu > cpu) && (isNaN(memory) || gpu > memory)
   readonly property var cpuThermal: Thermals.summarize([
     {temperature: root.reading("cpuTemp"), critical: root.reading("cpuTempCrit")}
   ], preference("cpuTemperatureMargin"))
-  readonly property var gpuThermal: Thermals.summarize(stats.gpuThermals, preference("gpuTemperatureMargin"))
+  readonly property var gpuThermal: barGpu ? barGpu.thermal : Thermals.summarize([], preference("gpuTemperatureMargin"))
   readonly property real cpuTemp: cpuThermal.temperature
   readonly property real gpuTemp: gpuThermal.temperature
   readonly property var cores: (stats && Array.isArray(stats.cores)) ? stats.cores : []
   readonly property var processes: (stats && Array.isArray(stats.processes)) ? stats.processes : []
   readonly property var memoryProcesses: (stats && Array.isArray(stats.memoryProcesses)) ? stats.memoryProcesses : []
-  readonly property bool hot: cpuThermal.hot || gpuThermal.hot
   readonly property bool cpuWarning: cpu >= preference("cpuWarning")
   readonly property bool memoryWarning: memory >= preference("memoryWarning")
-  readonly property bool gpuWarning: gpu >= preference("gpuWarning")
-  readonly property bool vramWarning: vram >= preference("vramWarning")
-  readonly property bool warning: hot || cpuWarning || memoryWarning || gpuWarning || vramWarning
+  // Any GPU past a threshold warns, not only the one the bar shows.
+  readonly property bool warning: cpuThermal.hot || anyGpuWarning || cpuWarning || memoryWarning
   readonly property string selectedMetric: preference("barDisplay") === "adaptive"
     ? (showGpu ? "gpu" : showMemory ? "memory" : "cpu") : preference("barDisplay")
   readonly property string barText: (selectedMetric === "gpu" ? "GPU " : selectedMetric === "memory" ? "RAM " : "CPU ")
@@ -187,10 +198,23 @@ Panel {
   implicitHeight: button.implicitHeight
 
   function reading(key) {
-    var v = stats ? stats[key] : null
+    return numeric(stats ? stats[key] : null)
+  }
+
+  function gpuReading(key) {
+    return numeric(barGpu ? barGpu[key] : null)
+  }
+
+  function numeric(v) {
     if (v === null || v === undefined) return NaN
     var n = Number(v)
     return isFinite(n) ? n : NaN
+  }
+
+  // The bar GPU's line, or the last one seen while no GPU is reporting.
+  function gpuHistory() {
+    var id = barGpu ? barGpu.id : Object.keys(history.gpus)[0]
+    return id !== undefined && history.gpus[id] ? history.gpus[id] : []
   }
 
   function percent(v) {
@@ -288,7 +312,7 @@ Panel {
     var at = sampledAt + (opened ? 2000 : 5000)
     history = {
       cpu: History.append(history.cpu, at, NaN), memory: History.append(history.memory, at, NaN),
-      gpu: History.append(history.gpu, at, NaN), up: History.append(history.up, at, NaN), down: History.append(history.down, at, NaN)
+      gpus: Gpus.appendHistory(history.gpus, [], at), up: History.append(history.up, at, NaN), down: History.append(history.down, at, NaN)
     }
     console.warn(root.moduleName + ": " + message)
   }
@@ -317,7 +341,7 @@ Panel {
 
   Process {
     id: statsProcess
-    command: ["timeout", "--kill-after=1s", "5s", root.statsCommand]
+    command: ["timeout", "--kill-after=1s", "5s", root.statsCommand, root.opened ? "open" : "closed"]
     stdout: StdioCollector { id: statsOutput; waitForEnd: true }
     onExited: function(code) {
       if (code !== 0) root.failStats("Telemetry unavailable. Retrying…")
@@ -392,6 +416,7 @@ Panel {
     pendingPreferences[key] = value
     flushPreferences()
   }
+  function togglePin(id) { savePreference("pinnedGpu", preference("pinnedGpu") === id ? "" : id) }
   // Serialize writes so edits to separate fields cannot overwrite each other.
   function flushPreferences() {
     if (preferencesSave.running) return
@@ -546,15 +571,14 @@ Panel {
           spacing: Style.space(20)
           Caption {
             width: body.width - body.padding * 2
-            visible: typeof root.stats.gpuError === "string" && root.stats.gpuError !== ""
-            text: root.tr(root.stats.gpuError === "Intel GPU readings unavailable. Retrying…"
-              ? root.stats.gpuError : "NVIDIA readings unavailable. Check nvidia-smi.")
+            visible: root.gpuError !== ""
+            text: root.tr(root.gpuError)
             color: root.urgent
             wrapMode: Text.WordWrap
           }
           Caption {
             width: body.width - body.padding * 2
-            visible: root.intelGpu
+            visible: root.gpuRows.some(function(row) { return row.vendor === "intel" })
             text: root.tr("Intel GPU: busiest engine and private allocations from accessible processes for this user.")
             wrapMode: Text.WordWrap
           }
@@ -567,8 +591,8 @@ Panel {
             Overview { glyph: "\uf2db"; width: parent.cellWidth; label: "CPU"; value: root.percent(root.cpu); detail: root.cores.length ? FoamyI18n.number(root.cores.length) + " " + root.tr("threads") : "--"; meterValue: root.cpu; warning: root.cpuWarning }
             Overview { glyph: "󰍛"; width: parent.cellWidth; label: "RAM"; value: root.percent(root.memory); detail: root.pair(root.gibFromKb(root.reading("memUsedKb")), root.gibFromKb(root.reading("memTotalKb"))); meterValue: root.memory; warning: root.memoryWarning }
             Overview { glyph: "\uf2c9"; width: parent.cellWidth; label: root.tr("CPU TEMP"); value: root.degrees(root.cpuTemp); detail: root.temperatureDetail(root.cpuThermal); meterValue: root.cpuThermal.meter; warning: root.cpuThermal.hot }
-            Overview { glyph: "\uf108"; width: parent.cellWidth; label: "GPU"; value: root.percent(root.gpu); detail: root.intelGpu ? root.gpuClock : ""; meterValue: root.gpu; warning: root.gpuWarning }
-            Overview { glyph: "󰍛"; width: parent.cellWidth; label: root.intelGpu ? root.tr("GPU MEMORY") : "VRAM"; value: root.intelGpu ? root.memoryAmount(root.reading("gpuMemoryPrivate") / 1024) : root.percent(root.vram); detail: root.intelGpu ? root.tr("Private") : root.pair(root.gibFromBytes(root.reading("vramUsed")), root.gibFromBytes(root.reading("vramTotal"))); meterValue: root.vram; warning: root.vramWarning }
+            Overview { glyph: "\uf108"; width: parent.cellWidth; label: "GPU"; value: root.percent(root.gpu); detail: root.intelGpu ? root.gpuClock : ""; meterValue: root.gpu; warning: !!root.barGpu && root.barGpu.busyWarning }
+            Overview { glyph: "󰍛"; width: parent.cellWidth; label: root.intelGpu ? root.tr("GPU MEMORY") : "VRAM"; value: root.intelGpu ? root.memoryAmount(root.gpuReading("memoryPrivate") / 1024) : root.percent(root.vram); detail: root.intelGpu ? root.tr("Private") : root.pair(root.gibFromBytes(root.gpuReading("vramUsed")), root.gibFromBytes(root.gpuReading("vramTotal"))); meterValue: root.vram; warning: !!root.barGpu && root.barGpu.vramWarning }
             Overview { glyph: "\uf2c9"; width: parent.cellWidth; label: root.tr("GPU TEMP"); value: root.degrees(root.gpuTemp); detail: root.intelGpu && isNaN(root.gpuTemp) ? root.tr("Not exposed") : root.temperatureDetail(root.gpuThermal); meterValue: root.gpuThermal.meter; warning: root.gpuThermal.hot }
           }
           Grid {
@@ -592,7 +616,7 @@ Panel {
                 width: parent.width; height: Style.space(90)
                 topLabel: root.percent(100); middleLabel: root.percent(50); bottomLabel: root.percent(0)
                 maximum: 100
-                series: [{points: root.history.cpu, color: root.cpuColor}, {points: root.history.memory, color: root.memoryColor, dashed: true}, {points: root.history.gpu, color: root.gpuColor}]
+                series: [{points: root.history.cpu, color: root.cpuColor}, {points: root.history.memory, color: root.memoryColor, dashed: true}, {points: root.gpuHistory(), color: root.gpuColor}]
               }
             }
             ProcessSection { width: detailsGrid.columnWidth; title: root.tr("Top CPU processes"); entries: root.processes }

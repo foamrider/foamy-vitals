@@ -1,5 +1,6 @@
 {
   "Intel GPU readings unavailable. Retrying…": "Intel GPU readings unavailable. Retrying…",
+  "GPU readings unavailable. Retrying…": "GPU readings unavailable. Retrying…",
   "Intel GPU: busiest engine and private allocations from accessible processes for this user.": "Intel GPU: busiest engine and private allocations from accessible processes for this user.",
   "GPU MEMORY": "GPU MEMORY",
   "Private": "Private",

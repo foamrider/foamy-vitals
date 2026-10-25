@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Sample accessible Intel DRM clients without perf privileges or extra packages."""
 
-import argparse
 import json
 import os
 from pathlib import Path
@@ -37,17 +36,6 @@ class Device(TypedDict):
     frequencyMHz: int | None
     thermals: list[Thermal]
     error: str
-
-
-class Stats(TypedDict):
-    gpuIntel: bool
-    gpuBusy: float | None
-    gpuEngines: dict[str, float]
-    gpuMemoryPrivate: int | None
-    gpuFrequencyMHz: int | None
-    gpuTemp: float | None
-    gpuThermals: list[Thermal]
-    gpuError: str
 
 
 def integer(value: str, unit: str = "") -> int | None:
@@ -219,37 +207,3 @@ def collect_device(device: str, card: Path | None, state: Path, clients: dict[st
 def unavailable() -> Device:
     return {"busy": None, "engines": {}, "memoryPrivate": None, "frequencyMHz": None, "thermals": [],
             "error": "Intel GPU readings unavailable. Retrying…"}
-
-
-def legacy_collect(state: Path, drm: Path = Path("/sys/class/drm"), proc: Path = Path("/proc")) -> Stats:
-    result: Stats = {"gpuIntel": False, "gpuBusy": None, "gpuEngines": {},
-                     "gpuMemoryPrivate": None, "gpuFrequencyMHz": None, "gpuTemp": None,
-                     "gpuThermals": [], "gpuError": ""}
-    try:
-        devices = {}
-        for card in drm.glob("card[0-9]*"):
-            if "-" in card.name or not (card / "device/driver").exists():
-                continue
-            if (card / "device/driver").resolve().name in ("i915", "xe"):
-                devices[(card / "device").resolve().name] = card
-        if not devices:
-            return result
-        result["gpuIntel"] = True
-        device = sorted(devices)[0]
-        reading = collect_device(device, devices[device], state, read_clients({device}, proc)[device], proc)
-    except (OSError, ValueError) as error:
-        print(f"Intel telemetry: {error}", file=sys.stderr)
-        reading = unavailable()
-    result.update(gpuBusy=reading["busy"], gpuEngines=reading["engines"], gpuMemoryPrivate=reading["memoryPrivate"],
-                  gpuFrequencyMHz=reading["frequencyMHz"], gpuThermals=reading["thermals"],
-                  gpuTemp=max((t["temperature"] for t in reading["thermals"]), default=None),
-                  gpuError=reading["error"])
-    return result
-
-
-# stats.sh's legacy path uses this until the multi-GPU collector replaces it.
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("state", type=Path)
-    args = parser.parse_args()
-    print(json.dumps(legacy_collect(args.state), separators=(",", ":"), allow_nan=False))

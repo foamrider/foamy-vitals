@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Read NVIDIA telemetry without changing GPU settings or adding Python packages."""
 
-import json
 import math
 import re
 import subprocess
@@ -22,15 +21,6 @@ class Device(TypedDict):
     vramTotal: int | None
     thermals: list[Thermal]
     error: str
-
-
-class Stats(TypedDict):
-    gpuBusy: float | None
-    vramUsed: int | None
-    vramTotal: int | None
-    gpuTemp: float | None
-    gpuThermals: list[Thermal]
-    gpuError: str
 
 
 ERROR = "NVIDIA readings unavailable. Check nvidia-smi."
@@ -97,20 +87,3 @@ def collect(addresses: list[str]) -> dict[str, Device]:
         # A failed probe must not leave stale successful readings in the panel.
         found = {}
     return {address: found.get(address) or unavailable() for address in addresses}
-
-
-def legacy_stats() -> Stats:
-    # stats.sh's legacy path uses this until the multi-GPU collector replaces it.
-    try:
-        result = subprocess.run(["nvidia-smi", "-q", "-x"], capture_output=True, text=True, timeout=1.5, check=True)
-        devices = parse_devices(result.stdout)
-        gpu = devices[min(devices)]
-    except (OSError, subprocess.SubprocessError, ET.ParseError, ValueError):
-        return {"gpuBusy": None, "vramUsed": None, "vramTotal": None, "gpuTemp": None,
-                "gpuThermals": [], "gpuError": "NVIDIA telemetry unavailable; check nvidia-smi."}
-    return {"gpuBusy": gpu["busy"], "vramUsed": gpu["vramUsed"], "vramTotal": gpu["vramTotal"],
-            "gpuTemp": gpu["thermals"][0]["temperature"], "gpuThermals": gpu["thermals"], "gpuError": ""}
-
-
-if __name__ == "__main__":
-    print(json.dumps(legacy_stats(), separators=(",", ":"), allow_nan=False))
