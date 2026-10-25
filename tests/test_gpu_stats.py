@@ -220,6 +220,21 @@ class GpuStatsTest(unittest.TestCase):
             self.assertEqual(set(gpu), {"id", "vendor", "driver", "name", "shortName", "type", "asleep", "busy",
                                         "vramUsed", "vramTotal", "memoryPrivate", "frequencyMHz", "thermals", "error"})
 
+    def test_closed_mode_intel_keeps_its_baseline_across_spaced_reads(self):
+        make_gpu(self.root, "0000:00:02.0", "i915", control="auto", delay=None)  # unreadable delay: 30 s gaps
+        fds = self.proc / "100/fdinfo"
+        fds.mkdir(parents=True)
+        record = "drm-driver: i915\ndrm-pdev: 0000:00:02.0\ndrm-client-id: 7\ndrm-engine-render: {} ns\n"
+        (fds / "3").write_text(record.format(0))
+        with patch("time.monotonic_ns", return_value=0):
+            self.assertIsNone(self.collect("closed", 0)["0000:00:02.0"]["busy"])
+        (fds / "3").write_text(record.format(4 * SECOND))
+        with patch("time.monotonic_ns", return_value=31 * SECOND):
+            self.assertIsNone(self.collect("closed", 29 * SECOND)["0000:00:02.0"]["busy"])  # carried, not read
+        with patch("time.monotonic_ns", return_value=40 * SECOND):
+            gpu = self.collect("closed", 40 * SECOND)["0000:00:02.0"]
+        self.assertEqual((gpu["busy"], gpu["error"]), (10.0, ""))
+
     def test_nouveau_row_has_temperature_only(self):
         make_gpu(self.root, "0000:01:00.0", "nouveau", files={"hwmon/hwmon3/temp1_input": "45000\n"})
         nvidia = FakeNvidia()

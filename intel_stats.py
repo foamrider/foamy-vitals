@@ -148,11 +148,13 @@ def load_snapshot(path: Path) -> Snapshot | None:
     return {"device": raw["device"], "boot": raw["boot"], "time": raw["time"], "clients": clients}
 
 
-def utilization(current: Snapshot, previous: Snapshot | None) -> dict[str, float]:
+def utilization(current: Snapshot, previous: Snapshot | None, window_ns: int = 30_000_000_000) -> dict[str, float]:
     if previous is None or current["device"] != previous["device"] or current["boot"] != previous["boot"]:
         return {}
     elapsed = current["time"] - previous["time"]
-    if not 0 < elapsed <= 30_000_000_000:
+    # Callers that space reads out (gpu_stats.py's sleep policy) widen the window;
+    # busy is then averaged over that longer gap rather than discarded.
+    if not 0 < elapsed <= window_ns:
         return {}
     totals: dict[str, int] = {}
     capacities: dict[str, int] = {}
@@ -175,11 +177,11 @@ def utilization(current: Snapshot, previous: Snapshot | None) -> dict[str, float
 
 
 def collect_device(device: str, card: Path | None, state: Path, clients: dict[str, Client],
-                   proc: Path = Path("/proc")) -> Device:
+                   proc: Path = Path("/proc"), window_ns: int = 30_000_000_000) -> Device:
     try:
         current: Snapshot = {"device": device, "boot": (proc / "sys/kernel/random/boot_id").read_text().strip(),
                              "time": time.monotonic_ns(), "clients": clients}
-        engines = utilization(current, load_snapshot(state))
+        engines = utilization(current, load_snapshot(state), window_ns)
         # stats.sh owns the shared flock and a private state directory. Rename
         # atomically so interrupted helpers never leave half a baseline behind.
         temporary = state.with_suffix(".tmp")

@@ -43,6 +43,12 @@ class IntelTest(unittest.TestCase):
                          dict(current, boot="older"), dict(current, device="0000:01:00.0")):
             self.assertEqual(INTEL.utilization(current, previous), {})
 
+    def test_baseline_window_follows_the_poll_interval(self):
+        before = snapshot(1_000_000_000, fdinfo())
+        after = snapshot(41_000_000_000, fdinfo(render=4_000_000_100))
+        self.assertEqual(INTEL.utilization(after, before), {})
+        self.assertEqual(INTEL.utilization(after, before, window_ns=60_000_000_000), {"render": 10, "video": 0})
+
     def test_client_churn_does_not_count_lifetime_usage(self):
         before = snapshot(1_000_000_000, fdinfo(), fdinfo(2))
         after = snapshot(2_000_000_000, fdinfo(render=100_000_100), fdinfo(3, render=9_000_000_000))

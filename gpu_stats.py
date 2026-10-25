@@ -121,22 +121,26 @@ def short_name(name: str | None, card: Card) -> str:
     return f"{VENDOR_NAMES[card['vendor']]} {card['id'][5:]}"
 
 
-def poll_due(device: Path, last_read_ns: int | None, now_ns: int, mode: str) -> bool:
-    if mode == "open" or last_read_ns is None or now_ns < last_read_ns:
-        return True
+def closed_interval(device: Path) -> int:
+    """Minimum gap between closed-popup reads in ns; 0 when reads cannot keep the GPU awake."""
     try:
         if (device / "power/control").read_text().strip() != "auto":
-            return True
+            return 0
     except OSError:
-        return True  # No runtime PM, so polling cannot keep the device awake.
+        return 0  # No runtime PM, so polling cannot keep the device awake.
     # Every read resets the idle timer. Leave gaps well past the autosuspend
     # delay so an idle GPU can actually suspend while the popup is closed.
     try:
         delay = integer(device / "power/autosuspend_delay_ms")
     except OSError:
         delay = None
-    interval = max(2 * delay * 1_000_000, 15 * 1_000_000_000) if delay is not None else 30 * 1_000_000_000
-    return now_ns - last_read_ns >= interval
+    return max(2 * delay * 1_000_000, 15 * 1_000_000_000) if delay is not None else 30 * 1_000_000_000
+
+
+def poll_due(device: Path, last_read_ns: int | None, now_ns: int, mode: str) -> bool:
+    if mode == "open" or last_read_ns is None or now_ns < last_read_ns:
+        return True
+    return now_ns - last_read_ns >= closed_interval(device)
 
 
 def read_sysfs(device: Path) -> Reading:
@@ -213,8 +217,11 @@ def read_intel(cards: list[Card], state_dir: Path, proc: Path) -> dict[str, Read
         clients = None
     readings: dict[str, Reading] = {}
     for card in cards:
+        # Spaced reads land one stats.sh cadence past the interval; allow a
+        # whole extra interval so Intel keeps its baseline instead of reading null.
+        window = max(30_000_000_000, 2 * closed_interval(card["device"]))
         device = (intel_stats.collect_device(card["id"], card["card"], state_dir / f"intel-{card['id']}.json",
-                                             clients[card["id"]], proc)
+                                             clients[card["id"]], proc, window)
                   if clients is not None else intel_stats.unavailable())
         readings[card["id"]] = {**empty(device["error"]), "busy": device["busy"], "memoryPrivate": device["memoryPrivate"],
                                 "frequencyMHz": device["frequencyMHz"], "thermals": device["thermals"]}
