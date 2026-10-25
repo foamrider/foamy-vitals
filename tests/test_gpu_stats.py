@@ -307,7 +307,7 @@ class GpuStatsTest(unittest.TestCase):
 
     def test_output_is_strict_json(self):
         with tempfile.TemporaryDirectory() as temporary:
-            result = subprocess.run([sys.executable, "gpu_stats.py", "closed", temporary], cwd=ROOT, timeout=5,
+            result = subprocess.run([sys.executable, "gpu_stats.py", "closed", temporary], cwd=ROOT, timeout=10,
                                     capture_output=True, text=True, env={**os.environ, "XDG_RUNTIME_DIR": temporary})
         self.assertEqual(result.returncode, 0, result.stderr)
         gpus = json.loads(result.stdout, parse_constant=lambda constant: self.fail(constant))

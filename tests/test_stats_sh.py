@@ -32,8 +32,17 @@ class StatsShTest(unittest.TestCase):
                 self.assertNotIn(key, stats)
             for gpu in stats["gpus"]:
                 self.assertIsInstance(gpu["id"], str)
-            # Every bar instance inside the cache window shares one sample.
-            self.assertEqual(run("closed", runtime), first)
+
+    def test_fresh_cache_is_shared(self):
+        # Every bar instance inside the cache window shares one sample. Plant the
+        # sample with a fresh mtime rather than racing the whole-second check.
+        with tempfile.TemporaryDirectory() as runtime:
+            state = Path(runtime, f"foamy-vitals-{os.geteuid()}")
+            state.mkdir(mode=0o700)
+            cache = state / "cache"
+            cache.write_text('{"cached":true}\n')
+            os.utime(cache)
+            self.assertEqual(run("closed", runtime), '{"cached":true}\n')
 
     def test_mode_and_state_reach_the_helper(self):
         with tempfile.TemporaryDirectory() as runtime, tempfile.TemporaryDirectory() as bin_dir:
