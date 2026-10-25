@@ -43,9 +43,10 @@ click it again to unpin. The pin is saved by PCI address, so it resumes when the
 GPU returns; **Pinned GPU not connected** shows meanwhile.
 
 Asleep GPUs are never woken and show **Asleep**. With the popup open, every GPU
-is read each two seconds. With it closed, GPUs with runtime power management are
-read at most every `max(2 × autosuspend delay, 15 s)` so they can sleep (30 s if
-the delay can't be read), so the bar reacts later.
+is read each two seconds. With it closed, discrete GPUs with runtime power
+management are read at most every `max(2 × autosuspend delay, 15 s)` so they can
+sleep (30 s if the delay can't be read), so the bar reacts later. Integrated GPUs
+are always read each two seconds.
 
 Intel (`i915`/`xe`) monitoring uses Python 3 and unprivileged DRM client counters.
 GPU usage is the busiest engine, normalized for its engine count, across accessible

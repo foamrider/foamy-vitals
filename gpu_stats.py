@@ -121,8 +121,13 @@ def short_name(name: str | None, card: Card) -> str:
     return f"{VENDOR_NAMES[card['vendor']]} {card['id'][5:]}"
 
 
-def closed_interval(device: Path) -> int:
-    """Minimum gap between closed-popup reads in ns; 0 when reads cannot keep the GPU awake."""
+def closed_interval(card: Card) -> int:
+    """Minimum gap between closed-popup reads in ns; 0 when reads are never spaced."""
+    # Integrated GPUs autosuspend by default (i915, APUs). Spacing them would slow
+    # a lone iGPU's bar, so they keep the normal cadence.
+    if gpu_type(card) == "integrated":
+        return 0
+    device = card["device"]
     try:
         if (device / "power/control").read_text().strip() != "auto":
             return 0
@@ -137,10 +142,10 @@ def closed_interval(device: Path) -> int:
     return max(2 * delay * 1_000_000, 15 * 1_000_000_000) if delay is not None else 30 * 1_000_000_000
 
 
-def poll_due(device: Path, last_read_ns: int | None, now_ns: int, mode: str) -> bool:
+def poll_due(card: Card, last_read_ns: int | None, now_ns: int, mode: str) -> bool:
     if mode == "open" or last_read_ns is None or now_ns < last_read_ns:
         return True
-    return now_ns - last_read_ns >= closed_interval(device)
+    return now_ns - last_read_ns >= closed_interval(card)
 
 
 def read_sysfs(device: Path) -> Reading:
@@ -220,7 +225,7 @@ def read_intel(cards: list[Card], state_dir: Path, proc: Path, sys_root: Path) -
     for card in cards:
         # Spaced reads land one stats.sh cadence past the interval; allow a
         # whole extra interval so Intel keeps its baseline instead of reading null.
-        window = max(30_000_000_000, 2 * closed_interval(card["device"]))
+        window = max(30_000_000_000, 2 * closed_interval(card))
         device = (intel_stats.collect_device(card["id"], card["card"], state_dir / f"intel-{card['id']}.json",
                                              clients[card["id"]], proc, window)
                   if clients is not None else intel_stats.unavailable())
@@ -248,7 +253,7 @@ def collect(mode: str, state_dir: Path, sys_root: Path = Path("/sys"), proc: Pat
             status = ""
         if status == "suspended":
             asleep.add(card["id"])
-        elif poll_due(card["device"], stored.get(card["id"], {}).get("readAt"), now, mode):
+        elif poll_due(card, stored.get(card["id"], {}).get("readAt"), now, mode):
             due.append(card)
 
     readings: dict[str, Reading] = {}

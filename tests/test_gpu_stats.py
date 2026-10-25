@@ -146,28 +146,41 @@ class GpuStatsTest(unittest.TestCase):
         self.assertEqual(nvidia.calls, [["0000:02:00.0"], ["0000:02:00.0"]])
 
     def test_closed_mode_spaces_reads_for_autosuspend_devices(self):
-        device = make_gpu(self.root, "0000:05:00.0", "amdgpu", control="auto", files=amd_files(10, 1, 2, []))
+        device = make_gpu(self.root, "0000:05:00.0", "amdgpu", control="auto", files=amd_files(10, 1, 2, [], True))
+        card = GPU.discover(self.sys)[0]
         busy = device / "gpu_busy_percent"
         self.assertEqual(self.collect("closed", 0)["0000:05:00.0"]["busy"], 10)
         busy.write_text("50\n")
         self.assertEqual(self.collect("closed", 5 * SECOND)["0000:05:00.0"]["busy"], 10)
         self.assertEqual(self.collect("closed", 16 * SECOND)["0000:05:00.0"]["busy"], 50)
-        self.assertFalse(GPU.poll_due(device, 0, 5 * SECOND, "closed"))
-        self.assertFalse(GPU.poll_due(device, 0, 14 * SECOND, "closed"))  # 15 s floor beats 2 x 5 s
-        self.assertTrue(GPU.poll_due(device, 0, 5 * SECOND, "open"))
-        self.assertTrue(GPU.poll_due(device, None, 0, "closed"))
+        self.assertFalse(GPU.poll_due(card, 0, 5 * SECOND, "closed"))
+        self.assertFalse(GPU.poll_due(card, 0, 14 * SECOND, "closed"))  # 15 s floor beats 2 x 5 s
+        self.assertTrue(GPU.poll_due(card, 0, 5 * SECOND, "open"))
+        self.assertTrue(GPU.poll_due(card, None, 0, "closed"))
         busy.write_text("60\n")
         self.assertEqual(self.collect("open", 17 * SECOND)["0000:05:00.0"]["busy"], 60)
 
         (device / "power/autosuspend_delay_ms").unlink()
         (device / "power/autosuspend_delay_ms").mkdir()
-        self.assertFalse(GPU.poll_due(device, 0, 29 * SECOND, "closed"))
-        self.assertTrue(GPU.poll_due(device, 0, 30 * SECOND, "closed"))
+        self.assertFalse(GPU.poll_due(card, 0, 29 * SECOND, "closed"))
+        self.assertTrue(GPU.poll_due(card, 0, 30 * SECOND, "closed"))
 
         (device / "power/control").write_text("on\n")
-        self.assertTrue(GPU.poll_due(device, 0, 1, "closed"))
+        self.assertTrue(GPU.poll_due(card, 0, 1, "closed"))
         busy.write_text("70\n")
         self.assertEqual(self.collect("closed", 18 * SECOND)["0000:05:00.0"]["busy"], 70)
+
+    def test_closed_mode_reads_integrated_gpus_every_call(self):
+        # i915 and APUs autosuspend by default; spacing them would slow a lone iGPU's bar.
+        device = make_gpu(self.root, "0000:c1:00.0", "amdgpu", control="auto", files=amd_files(10, 1, 2, []))
+        make_gpu(self.root, "0000:00:02.0", "i915", control="auto")
+        for second, busy in ((0, 10), (2, 20), (4, 30)):
+            (device / "gpu_busy_percent").write_text(f"{busy}\n")
+            gpu = self.collect("closed", second * SECOND)["0000:c1:00.0"]
+            self.assertEqual((gpu["type"], gpu["busy"]), ("integrated", busy))
+        for card in GPU.discover(self.sys):
+            self.assertEqual(GPU.closed_interval(card), 0)
+            self.assertTrue(GPU.poll_due(card, 0, 1, "closed"))
 
     def test_state_from_another_boot_or_malformed_is_ignored(self):
         device = make_gpu(self.root, "0000:05:00.0", "amdgpu", control="auto", files=amd_files(10, 1, 2, []))
@@ -221,22 +234,22 @@ class GpuStatsTest(unittest.TestCase):
                                         "vramUsed", "vramTotal", "memoryPrivate", "frequencyMHz", "thermals", "error"})
 
     def test_closed_mode_intel_keeps_its_baseline_across_spaced_reads(self):
-        device = make_gpu(self.root, "0000:00:02.0", "i915", control="auto", delay=None)  # unreadable delay: 30 s gaps
+        device = make_gpu(self.root, "0000:03:00.0", "xe", control="auto", delay=None)  # unreadable delay: 30 s gaps
         (self.sys / "class/drm/renderD128").mkdir(parents=True)
         (self.sys / "class/drm/renderD128/device").symlink_to(device)
         (self.proc / "100/fd").mkdir(parents=True)
         (self.proc / "100/fd/3").symlink_to("/dev/dri/renderD128")
         fds = self.proc / "100/fdinfo"
         fds.mkdir(parents=True)
-        record = "drm-driver: i915\ndrm-pdev: 0000:00:02.0\ndrm-client-id: 7\ndrm-engine-render: {} ns\n"
+        record = "drm-driver: xe\ndrm-pdev: 0000:03:00.0\ndrm-client-id: 7\ndrm-engine-render: {} ns\n"
         (fds / "3").write_text(record.format(0))
         with patch("time.monotonic_ns", return_value=0):
-            self.assertIsNone(self.collect("closed", 0)["0000:00:02.0"]["busy"])
+            self.assertIsNone(self.collect("closed", 0)["0000:03:00.0"]["busy"])
         (fds / "3").write_text(record.format(4 * SECOND))
         with patch("time.monotonic_ns", return_value=31 * SECOND):
-            self.assertIsNone(self.collect("closed", 29 * SECOND)["0000:00:02.0"]["busy"])  # carried, not read
+            self.assertIsNone(self.collect("closed", 29 * SECOND)["0000:03:00.0"]["busy"])  # carried, not read
         with patch("time.monotonic_ns", return_value=40 * SECOND):
-            gpu = self.collect("closed", 40 * SECOND)["0000:00:02.0"]
+            gpu = self.collect("closed", 40 * SECOND)["0000:03:00.0"]
         self.assertEqual((gpu["busy"], gpu["error"]), (10.0, ""))
 
     def test_nouveau_row_has_temperature_only(self):

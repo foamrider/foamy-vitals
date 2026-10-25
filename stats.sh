@@ -3,8 +3,8 @@
 # vitals bar plugin. Read sysfs here; gpu_stats.py reports every GPU from sysfs,
 # Intel DRM clients and nvidia-smi. None of the telemetry paths needs privileges.
 #
-# Usage: stats.sh [open|closed]. With the popup closed, GPUs that can runtime
-# suspend are read less often, so polling alone never keeps them awake.
+# Usage: stats.sh [open|closed]. With the popup closed, discrete GPUs that can
+# runtime suspend are read less often, so polling alone never keeps them awake.
 #
 # Load is a delta against the previous call, so the first call after a reboot
 # reports null and every call after it is a true average over the poll gap.
