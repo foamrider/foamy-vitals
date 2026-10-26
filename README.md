@@ -49,6 +49,9 @@ management are read at most every `max(2 × autosuspend delay, 15 s)` so they ca
 sleep (30 s if the delay can't be read), so the bar reacts later. Integrated GPUs
 are always read each two seconds.
 
+On AMD APUs, GPU MEMORY is the firmware VRAM carve-out plus GTT, the system RAM the GPU
+borrows once the carve-out fills. That memory also counts toward RAM.
+
 Intel (`i915`/`xe`) monitoring uses Python 3 and unprivileged DRM client counters.
 GPU usage is the busiest engine, normalized for its engine count, across accessible
 processes owned by the current user. The first sample has no usage reading.

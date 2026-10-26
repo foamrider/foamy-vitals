@@ -153,16 +153,26 @@ def poll_due(card: Card, last_read_ns: int | None, now_ns: int, mode: str) -> bo
     return now_ns - last_read_ns >= closed_interval(card)
 
 
-def read_sysfs(device: Path) -> Reading:
+def memory_pair(device: Path, pool: str) -> tuple[int, int] | None:
+    used = integer(device / f"mem_info_{pool}_used")
+    total = integer(device / f"mem_info_{pool}_total")
+    if total is not None and total > 0 and used is not None and 0 <= used <= total:
+        return used, total
+    return None
+
+
+def read_sysfs(device: Path, integrated: bool = False) -> Reading:
     # Each value is read on its own, so one missing or failing file (EIO/EINVAL)
     # costs only that value or sensor, never the whole row.
     reading = empty()
     busy = integer(device / "gpu_busy_percent")
     reading["busy"] = busy if busy is not None and 0 <= busy <= 100 else None
-    used = integer(device / "mem_info_vram_used")
-    total = integer(device / "mem_info_vram_total")
-    if total is not None and total > 0 and used is not None and 0 <= used <= total:
-        reading["vramUsed"], reading["vramTotal"] = used, total
+    vram = memory_pair(device, "vram")
+    if vram:
+        # An APU's VRAM is a small firmware carve-out that fills first and then
+        # spills into GTT (system RAM), so only their sum reflects GPU memory.
+        gtt = memory_pair(device, "gtt") if integrated else None
+        reading["vramUsed"], reading["vramTotal"] = (vram[0] + gtt[0], vram[1] + gtt[1]) if gtt else vram
     inputs = sorted(device.glob("hwmon/hwmon*/temp*_input"),
                     key=lambda p: (p.parent.name, int(re.sub(r"\D", "", p.name) or 0)))
     for path in inputs:
@@ -270,7 +280,7 @@ def collect(mode: str, state_dir: Path, sys_root: Path = Path("/sys"), proc: Pat
         for card in due:
             if card["vendor"] == "amd" or card["driver"] == "nouveau":
                 try:
-                    readings[card["id"]] = read_sysfs(card["device"])
+                    readings[card["id"]] = read_sysfs(card["device"], gpu_type(card) == "integrated")
                 except (OSError, ValueError) as error:
                     # A device unplugged mid-read loses its own readings only.
                     print(f"GPU {card['id']}: {error}", file=sys.stderr)

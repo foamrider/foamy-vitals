@@ -129,6 +129,22 @@ class GpuStatsTest(unittest.TestCase):
         self.assertEqual(igpu["thermals"], [{"temperature": 57.0, "critical": None, "label": "Edge"}])
         self.assertEqual((dgpu["vendor"], dgpu["driver"], dgpu["asleep"], dgpu["error"]), ("amd", "amdgpu", False, ""))
 
+    def test_apu_memory_adds_gtt_to_vram_carve_out(self):
+        apu = amd_files(7, 491, 512, [])
+        apu.update({"mem_info_gtt_used": "3700\n", "mem_info_gtt_total": "46800\n"})
+        dgpu = amd_files(70, 1024, 8192, [], True)
+        dgpu.update({"mem_info_gtt_used": "100\n", "mem_info_gtt_total": "46800\n"})
+        make_gpu(self.root, "0000:c1:00.0", "amdgpu", class_="0x038000", files=apu)
+        make_gpu(self.root, "0000:05:00.0", "amdgpu", files=dgpu)
+        gpus = self.collect()
+        self.assertEqual((gpus["0000:c1:00.0"]["vramUsed"], gpus["0000:c1:00.0"]["vramTotal"]), (4191, 47312))
+        self.assertEqual((gpus["0000:05:00.0"]["vramUsed"], gpus["0000:05:00.0"]["vramTotal"]), (1024, 8192))
+
+    def test_apu_without_gtt_keeps_vram_carve_out(self):
+        make_gpu(self.root, "0000:c1:00.0", "amdgpu", class_="0x038000", files=amd_files(7, 491, 512, []))
+        gpu = self.collect()["0000:c1:00.0"]
+        self.assertEqual((gpu["vramUsed"], gpu["vramTotal"]), (491, 512))
+
     def test_suspended_device_is_not_read(self):
         make_gpu(self.root, "0000:05:00.0", "amdgpu", control="auto", status="suspended",
                  files={"gpu_busy_percent": None, "hwmon/hwmon0/temp1_input": None})
@@ -200,10 +216,10 @@ class GpuStatsTest(unittest.TestCase):
         make_gpu(self.root, "0000:c1:00.0", "amdgpu", files=amd_files(12, 1, 2, [("edge", 57000, None)]))
         real = GPU.read_sysfs
 
-        def flaky(device):
+        def flaky(device, integrated=False):
             if device.name == "0000:05:00.0":
                 raise FileNotFoundError(device / "gpu_busy_percent")
-            return real(device)
+            return real(device, integrated)
 
         with patch.object(GPU, "read_sysfs", flaky), contextlib.redirect_stderr(io.StringIO()):
             gpus = self.collect()
