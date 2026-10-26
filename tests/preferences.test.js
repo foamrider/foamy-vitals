@@ -6,11 +6,24 @@ const manifest = require('../manifest.json');
 test('manifest and runtime use the same setting defaults and constraints', () => {
   for (const field of preferences.fields) {
     assert.equal(preferences.value({}, field.key), manifest.barWidget.defaults[field.key]);
+    if (field.hidden) {
+      assert.equal(manifest.barWidget.schema.some(s => s.key === field.key), false);
+      continue;
+    }
     const schema = manifest.barWidget.schema.find(item => item.key === field.key);
     for (const key of ['type', 'defaultValue', 'min', 'max', 'step', 'options']) {
       assert.deepEqual(schema[key], field[key]);
     }
   }
+});
+
+test('pinned GPU accepts only empty or a PCI address', () => {
+  for (const v of ['', '0000:05:00.0', '0000:c1:00.0']) assert.equal(preferences.valid('pinnedGpu', v), true);
+  for (const v of [null, 5, '05:00.0', '0000:C1:00.0', '0000:c1:00.8', '0000:c1:00.0 ', '../x']) {
+    assert.equal(preferences.valid('pinnedGpu', v), false);
+    assert.equal(preferences.value({pinnedGpu: v}, 'pinnedGpu'), '');
+  }
+  assert.deepEqual(preferences.visibleFields.map(f => f.key), preferences.fields.filter(f => f.key !== 'pinnedGpu').map(f => f.key));
 });
 
 test('warnings reject missing, coerced, fractional and out-of-range values', () => {

@@ -1,5 +1,6 @@
 {
   "Intel GPU readings unavailable. Retrying…": "Intel GPU readings unavailable. Retrying…",
+  "GPU readings unavailable. Retrying…": "GPU readings unavailable. Retrying…",
   "Intel GPU: busiest engine and private allocations from accessible processes for this user.": "Intel GPU: busiest engine and private allocations from accessible processes for this user.",
   "GPU MEMORY": "GPU MEMORY",
   "Private": "Private",
@@ -57,5 +58,16 @@
   "CPU": "CPU",
   "RAM": "RAM",
   "GPU": "GPU",
-  "VRAM": "VRAM"
+  "VRAM": "VRAM",
+  "Graphics": "Graphics",
+  "%1 GPUs": "%1 GPUs",
+  "Integrated": "Integrated",
+  "Discrete": "Discrete",
+  "BUSY": "BUSY",
+  "TEMP": "TEMP",
+  "Asleep": "Asleep",
+  "bar": "bar",
+  "Pinned GPU not connected": "Pinned GPU not connected",
+  "Click to pin to bar": "Click to pin to bar",
+  "Click to unpin": "Click to unpin"
 }

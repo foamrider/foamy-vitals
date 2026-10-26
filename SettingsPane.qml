@@ -42,13 +42,13 @@ Column {
     Accessible.role: Accessible.AlertMessage
   }
   Repeater {
-    model: Preferences.fields
+    model: Preferences.visibleFields
     Column {
       id: fieldRow
       required property var modelData
       required property int index
       readonly property var current: Preferences.value(root.settings, modelData.key)
-      readonly property bool heading: !!modelData.group && (index === 0 || Preferences.fields[index - 1].group !== modelData.group)
+      readonly property bool heading: !!modelData.group && (index === 0 || Preferences.visibleFields[index - 1].group !== modelData.group)
       width: root.width - root.padding * 2
       spacing: Style.space(12)
       Column {

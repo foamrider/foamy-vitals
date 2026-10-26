@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Read NVIDIA telemetry without changing GPU settings or adding Python packages."""
 
-import json
 import math
 import re
 import subprocess
@@ -15,13 +14,16 @@ class Thermal(TypedDict):
     label: str
 
 
-class Stats(TypedDict):
-    gpuBusy: float | None
+class Device(TypedDict):
+    name: str | None
+    busy: float | None
     vramUsed: int | None
     vramTotal: int | None
-    gpuTemp: float | None
-    gpuThermals: list[Thermal]
-    gpuError: str
+    thermals: list[Thermal]
+    error: str
+
+
+ERROR = "NVIDIA readings unavailable. Check nvidia-smi."
 
 
 def number(text: str | None, unit: str, maximum: float | None = None) -> float | None:
@@ -32,12 +34,17 @@ def number(text: str | None, unit: str, maximum: float | None = None) -> float |
     return value if math.isfinite(value) and (maximum is None or value <= maximum) else None
 
 
-def parse_stats(xml: str) -> Stats:
-    gpus = sorted(ET.fromstring(xml).findall("gpu"), key=lambda gpu: gpu.get("id", ""))
-    if not gpus:
-        raise ValueError("NVIDIA driver returned no GPUs")
-    # Keep every reading on one device; never combine one GPU's load with another's memory.
-    gpu = gpus[0]
+def pci_address(bus_id: str) -> str | None:
+    """Normalize nvidia-smi's 00000000:01:00.0 to the sysfs form 0000:01:00.0."""
+    match = re.fullmatch(r"[0-9a-f]{4}([0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7])", bus_id.strip(), re.I)
+    return match[1].lower() if match else None
+
+
+def unavailable() -> Device:
+    return {"name": None, "busy": None, "vramUsed": None, "vramTotal": None, "thermals": [], "error": ERROR}
+
+
+def parse_device(gpu: ET.Element) -> Device:
     used = number(gpu.findtext("fb_memory_usage/used"), "MiB", (2**53 - 1) / 1048576)
     total = number(gpu.findtext("fb_memory_usage/total"), "MiB", (2**53 - 1) / 1048576)
     if total is not None and (total <= 0 or (used is not None and used > total)):
@@ -49,26 +56,34 @@ def parse_stats(xml: str) -> Stats:
     if critical is not None and critical <= 0:
         critical = None
     return {
-        "gpuBusy": number(gpu.findtext("utilization/gpu_util"), "%", 100),
+        "name": (gpu.findtext("product_name") or "").strip() or None,
+        "busy": number(gpu.findtext("utilization/gpu_util"), "%", 100),
         "vramUsed": int(used * 1048576) if used is not None else None,
         "vramTotal": int(total * 1048576) if total is not None else None,
-        "gpuTemp": temperature,
-        "gpuThermals": [{"temperature": temperature, "critical": critical, "label": "GPU"}],
-        "gpuError": "",
+        "thermals": [{"temperature": temperature, "critical": critical, "label": "GPU"}],
+        "error": "",
     }
 
 
-def collect() -> Stats:
+def parse_devices(xml: str) -> dict[str, Device]:
+    devices: dict[str, Device] = {}
+    for gpu in ET.fromstring(xml).findall("gpu"):
+        address = pci_address(gpu.get("id", ""))
+        if address:
+            devices[address] = parse_device(gpu)
+    return devices
+
+
+def collect(addresses: list[str]) -> dict[str, Device]:
+    if not addresses:
+        return {}
     try:
         result = subprocess.run(
-            ["nvidia-smi", "-q", "-x"], capture_output=True, text=True, timeout=1.5, check=True
+            ["nvidia-smi", "-q", "-x", "-i", ",".join("0000" + address for address in addresses)],
+            capture_output=True, text=True, timeout=1.5, check=True,
         )
-        return parse_stats(result.stdout)
-    except (OSError, subprocess.SubprocessError, ET.ParseError, ValueError):
+        found = parse_devices(result.stdout)
+    except (OSError, subprocess.SubprocessError, ET.ParseError):
         # A failed probe must not leave stale successful readings in the panel.
-        return {"gpuBusy": None, "vramUsed": None, "vramTotal": None, "gpuTemp": None,
-                "gpuThermals": [], "gpuError": "NVIDIA telemetry unavailable; check nvidia-smi."}
-
-
-if __name__ == "__main__":
-    print(json.dumps(collect(), separators=(",", ":"), allow_nan=False))
+        found = {}
+    return {address: found.get(address) or unavailable() for address in addresses}

@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # One JSON object of processor, memory, graphics and thermal readings for the
-# vitals bar plugin. Read sysfs, Intel DRM clients, and NVIDIA nvidia-smi.
-# None of the telemetry paths needs privileges.
+# vitals bar plugin. Read sysfs here; gpu_stats.py reports every GPU from sysfs,
+# Intel DRM clients and nvidia-smi. None of the telemetry paths needs privileges.
+#
+# Usage: stats.sh [open|closed]. With the popup closed, discrete GPUs that can
+# runtime suspend are read less often, so polling alone never keeps them awake.
 #
 # Load is a delta against the previous call, so the first call after a reboot
 # reports null and every call after it is a true average over the poll gap.
 set -uo pipefail
+
+poll_mode="${1:-closed}"
+[[ $poll_mode == open ]] || poll_mode=closed
 
 # Counters live in a directory only this user can enter. The fallback root is
 # world-writable, and a path another user can predict is a path they can plant a
@@ -360,30 +366,6 @@ if [[ $cpu_temp == null ]] && zone="$(thermal_zone_named x86_pkg_temp)"; then
   cpu_temp_crit=null
 fi
 
-gpu_temp=null
-gpu_thermals='['
-if dir="$(hwmon_named amdgpu radeon i915 xe nouveau)"; then
-  gpu_temp="$(degrees "$dir/temp1_input")"
-  first=1
-  for input in "$dir"/temp*_input; do
-    [[ -r $input ]] || continue
-    temperature="$(degrees "$input")"
-    critical="$(degrees "${input%_input}_crit")"
-    # Use stable display labels and keep arbitrary driver strings out of JSON.
-    label="Sensor ${input##*/temp}"
-    label="${label%_input}"
-    case "$(cat "${input%_input}_label" 2>/dev/null)" in
-      edge) label=Edge ;;
-      junction) label=Hotspot ;;
-      mem) label=Memory ;;
-    esac
-    ((first)) || gpu_thermals+=','
-    first=0
-    gpu_thermals+="{\"temperature\":$temperature,\"critical\":$critical,\"label\":\"$label\"}"
-  done
-fi
-gpu_thermals+=']'
-
 disk_temp=null
 if dir="$(hwmon_named nvme drivetemp)"; then disk_temp="$(degrees "$dir/temp1_input")"; fi
 
@@ -400,18 +382,6 @@ if [[ $fan == null ]]; then
     [[ $fan == null ]] || break
   done
 fi
-
-gpu_busy=null
-vram_used=null
-vram_total=null
-for busy in /sys/class/drm/card*/device/gpu_busy_percent; do
-  [[ -r $busy ]] || continue
-  gpu_busy="$(number_or_null "$busy")"
-  card="$(dirname "$busy")"
-  vram_used="$(number_or_null "$card/mem_info_vram_used")"
-  vram_total="$(number_or_null "$card/mem_info_vram_total")"
-  break
-done
 
 # Follow the lowest-metric IPv4 default route, without summing bridge members
 # and double-counting their traffic. Missing routes remain unavailable.
@@ -434,53 +404,24 @@ network="$(awk '
     else printf "null"
   }
 ' /proc/net/route /proc/net/dev /proc/uptime)"
+
+# The helper's output is embedded only once it has exited cleanly and jq has
+# confirmed it is exactly one array, so no driver or hardware string ever passes
+# through Bash into the JSON.
 gpu_error='""'
-intel='{}'
-if [[ $gpu_busy == null && -d /proc/driver/nvidia/gpus ]]; then
-  # The existing two-second cache also bounds NVIDIA polling across bar instances.
-  # Prefer the discrete GPU over an Intel fallback and keep all its readings together.
-  nvidia="$(python3 "$(dirname "$(readlink -f "$0")")/nvidia_stats.py")"
-  if jq -e 'type == "object"' >/dev/null 2>&1 <<<"$nvidia"; then
-    gpu_busy=$(jq -c '.gpuBusy' <<<"$nvidia")
-    vram_used=$(jq -c '.vramUsed' <<<"$nvidia")
-    vram_total=$(jq -c '.vramTotal' <<<"$nvidia")
-    gpu_temp=$(jq -c '.gpuTemp' <<<"$nvidia")
-    gpu_thermals=$(jq -c '.gpuThermals' <<<"$nvidia")
-    gpu_error=$(jq -c '.gpuError' <<<"$nvidia")
-  else
-    vram_used=null
-    vram_total=null
-    gpu_temp=null
-    gpu_thermals='[]'
-    gpu_error='"NVIDIA telemetry helper failed."'
-  fi
-elif [[ $gpu_busy == null ]]; then
-  # Same-user DRM counters need neither perf privileges nor a resident process.
-  intel="$(timeout --kill-after=0.2s 1.5s python3 "$(dirname "$(readlink -f "$0")")/intel_stats.py" "$state_dir/intel.json")"
-  if jq -e 'type == "object" and (.gpuIntel | type == "boolean")' >/dev/null 2>&1 <<<"$intel"; then
-    gpu_busy=$(jq -c '.gpuBusy' <<<"$intel")
-    gpu_error=$(jq -c '.gpuError' <<<"$intel")
-    if [[ $(jq -r '.gpuIntel' <<<"$intel") == true ]]; then
-      gpu_temp=$(jq -c '.gpuTemp' <<<"$intel")
-      gpu_thermals=$(jq -c '.gpuThermals' <<<"$intel")
-    fi
-  else
-    intel='{}'
-    gpu_error='"Intel GPU readings unavailable. Retrying…"'
-  fi
+if ! helper="$(timeout --kill-after=0.2s 2.5s python3 "$(dirname "$(readlink -f "$0")")/gpu_stats.py" "$poll_mode" "$state_dir")" ||
+  ! gpus="$(jq -cse 'if length == 1 and (.[0] | type == "array") then .[0] else false end' 2>/dev/null <<<"$helper")"; then
+  gpus='[]'
+  gpu_error='"GPU readings unavailable. Retrying…"'
 fi
 
 {
   printf '{'
   printf '"cpu":%s,"cores":[%s],' "$cpu" "$cores"
   printf '"memUsedKb":%s,"memTotalKb":%s,' "$mem_used_kb" "$mem_total_kb"
-  printf '"cpuTemp":%s,"gpuTemp":%s,"diskTemp":%s,"fanRpm":%s,' "$cpu_temp" "$gpu_temp" "$disk_temp" "$fan"
-  printf '"cpuTempCrit":%s,"gpuThermals":%s,' "$cpu_temp_crit" "$gpu_thermals"
-  printf '"gpuBusy":%s,"vramUsed":%s,"vramTotal":%s,' "$gpu_busy" "$vram_used" "$vram_total"
-  printf '"gpuError":%s,' "$gpu_error"
-  printf '"gpuIntel":%s,"gpuMemoryPrivate":%s,"gpuFrequencyMHz":%s,"gpuEngines":%s,' \
-    "$(jq -c '.gpuIntel // false' <<<"$intel")" "$(jq -c '.gpuMemoryPrivate' <<<"$intel")" \
-    "$(jq -c '.gpuFrequencyMHz' <<<"$intel")" "$(jq -c '.gpuEngines // {}' <<<"$intel")"
+  printf '"cpuTemp":%s,"diskTemp":%s,"fanRpm":%s,' "$cpu_temp" "$disk_temp" "$fan"
+  printf '"cpuTempCrit":%s,' "$cpu_temp_crit"
+  printf '"gpus":%s,"gpuError":%s,' "$gpus" "$gpu_error"
   printf '"processes":%s,"memoryProcesses":%s,' "$procs" "$memory_procs"
   printf '%s' "$network"
   printf '}\n'
