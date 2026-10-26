@@ -90,6 +90,12 @@ def gpu_type(card: Card) -> str | None:
         # Only dedicated VRAM has a memory vendor; APU carve-outs do not.
         if (card["device"] / "mem_info_vram_vendor").exists():
             return "discrete"
+        # Older chips (e.g. Tahiti) report no memory vendor. An APU carve-out is
+        # wholly CPU-visible; a dGPU without resizable BAR exposes only a window.
+        visible = integer(card["device"] / "mem_info_vis_vram_total")
+        total = integer(card["device"] / "mem_info_vram_total")
+        if visible is not None and total is not None and 0 < visible < total:
+            return "discrete"
         return "integrated" if card["driver"] == "amdgpu" else None
     if card["vendor"] == "intel":
         return "integrated" if card["id"] == "0000:00:02.0" else "discrete"

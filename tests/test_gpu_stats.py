@@ -129,6 +129,20 @@ class GpuStatsTest(unittest.TestCase):
         self.assertEqual(igpu["thermals"], [{"temperature": 57.0, "critical": None, "label": "Edge"}])
         self.assertEqual((dgpu["vendor"], dgpu["driver"], dgpu["asleep"], dgpu["error"]), ("amd", "amdgpu", False, ""))
 
+    def test_vendorless_dgpu_with_bar_window_is_discrete(self):
+        # Mac Pro 6,1 FirePro D700 (Tahiti): no memory vendor, 256 MiB BAR of 6 GiB.
+        tahiti = amd_files(3, 1024, 6442450944, [])
+        tahiti.update({"mem_info_vis_vram_total": "268435456\n",
+                       "mem_info_gtt_used": "100\n", "mem_info_gtt_total": "67514003456\n"})
+        apu = amd_files(7, 491, 512, [])
+        apu.update({"mem_info_vis_vram_total": "512\n"})
+        make_gpu(self.root, "0000:02:00.0", "amdgpu", files=tahiti)
+        make_gpu(self.root, "0000:c1:00.0", "amdgpu", class_="0x038000", files=apu)
+        gpus = self.collect()
+        dgpu, igpu = gpus["0000:02:00.0"], gpus["0000:c1:00.0"]
+        self.assertEqual((dgpu["type"], dgpu["vramUsed"], dgpu["vramTotal"]), ("discrete", 1024, 6442450944))
+        self.assertEqual(igpu["type"], "integrated")
+
     def test_apu_memory_adds_gtt_to_vram_carve_out(self):
         apu = amd_files(7, 491, 512, [])
         apu.update({"mem_info_gtt_used": "3700\n", "mem_info_gtt_total": "46800\n"})
