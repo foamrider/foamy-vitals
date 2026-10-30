@@ -6,8 +6,10 @@ System activity and hardware readings.
 
 ## Install
 
-Requires Omarchy Quattro, Bash, GNU coreutils, `jq`, and Python 3 for GPU
-helpers. `btop` is optional.
+Requires Omarchy 4.5 (it also runs on 4.0.6, in English), Bash, GNU coreutils
+and findutils, and `flock`. Python 3 is needed only for Intel GPU readings,
+`nvidia-smi` only for NVIDIA GPUs, and `btop` is optional. Settings paste
+uses `wl-paste`, `jq` and `timeout`, provided by Omarchy.
 
 ```sh
 omarchy plugin add https://github.com/foamrider/foamy-vitals.git --enable
@@ -15,39 +17,57 @@ omarchy plugin add https://github.com/foamrider/foamy-vitals.git --enable
 
 ## Use
 
-- Left-click the widget to see usage, temperatures, processes, network traffic, and storage.
-- Open the cog to change the bar reading, warning colors, warning thresholds.
-- Click **btop** or right-click the widget to open btop (if installed).
+- The bar shows CPU, RAM or GPU usage (the busiest one, or the one you pick) and
+  turns the warning color when a usage threshold or temperature limit is reached.
+- Left-click the widget to see usage, temperatures, top processes, network
+  traffic, CPU threads and storage. Right-click (or **btop** in the popup) opens
+  btop, if installed.
+- Keyboard: Up/Down (or j/k) walk Settings, the process rows, the CPU cores strip
+  and btop; Left/Right (h/l) pick a thread on the cores strip; Enter opens the
+  selected item; `s` Settings, `r` refresh, `b` btop, Esc closes (or leaves
+  Settings), Tab/Shift+Tab switch to the next bar panel. Hovering moves the
+  same cursor.
+- Open **Settings** (the cog) to choose what to show in the bar, the warning
+  color, usage warning thresholds and temperature warning margins. Settings are
+  saved in Omarchy's `shell.json`.
 
-Settings are saved in Omarchy's `shell.json`. Available readings depend on your hardware.
+**Use theme warning colors** is on by default: warnings use the theme's urgent
+color. Turn it off to use the theme's red (from its `colors.toml`), darkened on
+light surfaces. Warning thresholds stay the same.
 
-**Use theme warning colors** is on by default. Turn it off to use our red for
-warnings in the bar, usage and temperature cards, CPU cores, and error messages:
-`#ff6b6b` on dark surfaces and `#c62828` on light surfaces. The bar and popup
-choose their red independently for readability. Warning thresholds stay the same.
+IPC: `omarchy-shell foamy.vitals open|close|toggle|settings|refresh`.
 
-Settings clipboard paste uses `wl-paste`, `jq`, and `timeout`, provided by Omarchy.
-It reads clipboard text only on a paste action, accepts at most 16 KiB of plain
-text, and stops reads after two seconds. Oversized, invalid, or unavailable
-clipboard text leaves the current value unchanged and shows an error. Typing,
-selection, undo, and redo remain available.
+## Cost and privacy
 
-Intel (`i915`/`xe`) monitoring uses Python 3 and unprivileged DRM client counters.
-GPU usage is the busiest engine, normalized for its engine count, across accessible
-processes owned by the current user. The first sample has no usage reading.
-GPU memory shows private allocations, excluding shared buffers to avoid counting
-them twice; it is not total VRAM or resident memory. The lowest PCI-address Intel
-GPU is selected when AMD/NVIDIA telemetry is not selected. On `i915`, the clock
-shows the highest current GT frequency. Unexposed temperatures remain unavailable.
-Collection shares the two-second cache and times out after 1.5 seconds.
+One shell runs one sampler, however many monitors show the bar. While every
+popup is closed it takes a bar-only sample every 5 seconds (usage, memory, GPU
+and temperatures: about 8 ms of CPU and 4 short-lived processes on the
+reference machine). While a popup is open it takes a full sample every 2
+seconds (adds process rankings and their working directories: about 26 ms and 7
+processes). Popup content is built on first open and does not update while
+hidden. No telemetry path needs privileges, and nothing leaves the machine.
+Process and directory names are shown as plain text; control characters are
+removed.
 
-NVIDIA GPUs using the proprietary driver are read through `nvidia-smi` and
-Python 3 (standard library only). Install the NVIDIA driver utilities matching
-your driver if `nvidia-smi` is missing. The lowest PCI-address NVIDIA GPU is used
-when no sysfs GPU load source is available. Load, VRAM and temperature always
-come from that same GPU. Thermal warnings use its reported shutdown threshold;
-unsupported readings and limits remain unknown. Probes time out after 1.5 seconds
-and share the normal two-second sample cache.
+Intel (`i915`/`xe`) monitoring uses Python 3 and unprivileged DRM client
+counters: it reads the DRM fdinfo of the current user's processes (only file
+descriptors that point at `/dev/dri`). GPU usage is the busiest engine,
+normalized for its engine count. The first sample has no usage reading. GPU
+memory shows private allocations, excluding shared buffers to avoid counting
+them twice; it is not total VRAM or resident memory. The lowest PCI-address
+Intel GPU is used when no AMD/NVIDIA load source is available. On `i915`, the
+clock shows the highest current GT frequency. Unexposed temperatures remain
+unavailable. Collection times out after 1.5 seconds.
+
+NVIDIA GPUs with the proprietary driver are read with
+`nvidia-smi --query-gpu`; the shutdown temperature (for thermal warnings) is
+asked once per boot. The lowest PCI-address NVIDIA GPU is used when no sysfs
+GPU load source is available, and load, VRAM and temperature always come from
+that GPU. A GPU that runtime power management has suspended (hybrid laptops)
+is never woken: it shows as 0% and "Sleeping". While every popup is closed, a
+GPU that is allowed to runtime-suspend is queried at most every 30 seconds, so
+polling alone never keeps it awake. Install the NVIDIA driver utilities
+matching your driver if `nvidia-smi` is missing.
 
 ## Remove
 
@@ -68,8 +88,26 @@ Licensed under [MIT](LICENSE), with [Omarchy](LICENSE-OMARCHY) and
 
 Provided **as is**, without warranty or guaranteed support. Use at your own risk.
 
-Language follows **Omarchy → Setup → Language** on Omarchy 4.5. Plugin language overrides are no longer used. Omarchy 4.0 displays the plugin in English. Missing translations fall back to English.
+## Language
 
-Translation checks: `python3 tests/i18n-runtime.py` uses the installed shell. Set `OMARCHY_PATH` to a 4.5 source tree to check live language switching against that version.
+Language follows **Omarchy → Setup → Language** on Omarchy 4.5 (English and
+Norwegian catalogs; right-to-left languages mirror the popup). Omarchy 4.0
+displays the plugin in English. Missing translations fall back to English.
 
-Run `node tests/formatting.test.cjs` and `python3 tests/rtl.py` to check localized readings, mirrored settings and live error translations.
+## Development
+
+Shared controls come from [foamy-kit](https://github.com/foamrider/foamy-kit),
+copied into `kit/` (do not edit; run its `sync.sh`).
+
+```sh
+for t in tests/*.test.js tests/*.test.cjs; do node "$t"; done
+python3 -I tests/test_stats.py          # stats.sh JSON, bar mode, NVIDIA power, stderr
+python3 -I tests/test_intel_stats.py
+python3 tests/runtime.py both            # offscreen, 4.0 and 4.5 (needs foamy-kit)
+python3 tests/i18n-runtime.py            # OMARCHY_PATH=<4.5 tree> for live switching
+bash tests/kit-check.sh
+python3 -I tests/bench_stats.py [--bar]  # CPU, wall time and processes per sample
+```
+
+`preview/Preview.qml` and `preview/BarPreview.qml` hold mock states for the
+foamy-kit preview harness.
