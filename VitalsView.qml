@@ -9,7 +9,7 @@ import "kit/FoamyPrefs.js" as Prefs
 import "Preferences.js" as Schema
 import "History.js" as History
 
-// The Vitals popup body: header, readings dashboard and the settings page.
+// The Vitals popup body: hero band, readings dashboard and the settings page.
 // Data comes from VitalsService (or the preview's mock values); the Panel
 // owns sampling, saving and closing.
 //
@@ -44,9 +44,10 @@ PanelKeyCatcher {
   readonly property alias cursor: cursor
   readonly property alias flick: flick
   readonly property alias settingsPage: settingsPage
+  readonly property alias band: band
 
   implicitWidth: FoamyStyle.popupWidthWide
-  implicitHeight: editingSettings ? settingsPage.implicitHeight : header.implicitHeight + content.implicitHeight
+  implicitHeight: editingSettings ? settingsPage.implicitHeight : page.implicitHeight
   blocked: editingSettings
 
   VitalsReadings {
@@ -215,28 +216,13 @@ PanelKeyCatcher {
     return where === "" ? name : name + " · " + where
   }
 
-  // --- header ------------------------------------------------------------------------
-  FoamyHeader {
-    id: header
-    visible: !view.editingSettings
-    width: parent.width
-    iconName: view.deviceIcon
-    title: VitalsService.hostname
-    meta: FoamyI18n.t("Up %1 · Load %2", [view.uptimeText(VitalsService.uptimeMinutes), view.loadText(VitalsService.loadAverages)])
-    settingsHasCursor: cursor.at(0)
-    onSettingsClicked: view.settingsRequested()
-    onSettingsHovered: function(hovered) { if (hovered) cursor.hover(0) }
-  }
-
   Flickable {
     id: flick
     visible: !view.editingSettings
-    anchors.top: header.bottom
-    anchors.bottom: parent.bottom
-    width: parent.width
+    anchors.fill: parent
     clip: true
     contentWidth: width
-    contentHeight: content.implicitHeight
+    contentHeight: page.implicitHeight
     boundsBehavior: Flickable.StopAtBounds
     flickableDirection: Flickable.VerticalFlick
     interactive: contentHeight > height
@@ -245,221 +231,264 @@ PanelKeyCatcher {
     Controls.ScrollBar.vertical: Controls.ScrollBar { policy: Controls.ScrollBar.AsNeeded }
 
     Column {
-      id: content
+      id: page
       width: flick.width
-      leftPadding: FoamyStyle.padding
-      rightPadding: FoamyStyle.padding
-      bottomPadding: FoamyStyle.padding
-      spacing: FoamyStyle.padding
-      readonly property real inner: width - FoamyStyle.padding * 2
 
-      // Errors first, where they are seen without scrolling.
-      Label {
-        width: content.inner
-        visible: text !== ""
-        text: FoamyI18n.t(VitalsService.telemetryError || view.launchError)
-        color: Commons.Color.urgent
-        font.pixelSize: FoamyStyle.font.bodySmall
-        wrapMode: Text.WordWrap
-        elide: Text.ElideNone
-        Accessible.role: Accessible.AlertMessage
-        Accessible.name: text
-      }
-      Caption {
-        width: content.inner
-        visible: typeof r.stats.gpuError === "string" && r.stats.gpuError !== ""
-        text: FoamyI18n.t(r.stats.gpuError === "Intel GPU readings unavailable. Retrying…"
-          ? r.stats.gpuError : "NVIDIA readings unavailable. Check nvidia-smi.")
-        color: r.urgent
-        wrapMode: Text.WordWrap
-      }
-      Caption {
-        width: content.inner
-        visible: r.intelGpu
-        text: FoamyI18n.t("Intel GPU: busiest engine and private allocations from accessible processes for this user.")
-        wrapMode: Text.WordWrap
-      }
+      // The foamy band: title row, then the host line (the dev hero, compact).
+      FoamyHeroBand {
+        id: band
+        width: parent.width
+        iconName: "activity"
+        title: FoamyI18n.t("Vitals")
+        settingsHasCursor: cursor.at(0)
+        onSettingsClicked: view.settingsRequested()
+        onSettingsHovered: function(hovered) { if (hovered) cursor.hover(0) }
 
-      Grid {
-        id: overview
-        width: content.inner
-        columns: width >= Style.space(440) ? 3 : 2
-        columnSpacing: Style.space(22)
-        rowSpacing: FoamyStyle.padding
-        Overview {
-          glyph: "\u{f2db}"; label: "CPU"; value: view.percent(r.cpu); meterValue: r.cpu; warning: r.cpuWarning
-          detail: view.cores.length ? FoamyI18n.tn("%1 threads", view.cores.length) : "--"
-        }
-        Overview {
-          glyph: "\u{f035b}"; label: "RAM"; value: view.percent(r.memory); meterValue: r.memory; warning: r.memoryWarning
-          detail: view.pair(r.reading("memUsedKb") / 1048576, r.reading("memTotalKb") / 1048576)
-        }
-        Overview {
-          glyph: "\u{f2c9}"; label: FoamyI18n.t("CPU temperature"); value: view.degrees(r.cpuThermal.temperature)
-          detail: view.temperatureDetail(r.cpuThermal); meterValue: r.cpuThermal.meter; warning: r.cpuThermal.hot
-        }
-        Overview {
-          glyph: "\u{f108}"; label: "GPU"; value: view.percent(r.gpu); meterValue: r.gpu; warning: r.gpuWarning
-          detail: r.gpuSuspended ? FoamyI18n.t("Sleeping")
-            : r.intelGpu && !isNaN(r.reading("gpuFrequencyMHz")) ? FoamyI18n.number(Math.round(r.reading("gpuFrequencyMHz"))) + " MHz" : ""
-        }
-        Overview {
-          glyph: "\u{f035b}"; label: r.intelGpu ? FoamyI18n.t("GPU memory") : "VRAM"
-          value: r.intelGpu ? view.memoryAmount(r.reading("gpuMemoryPrivate") / 1024) : view.percent(r.vram)
-          detail: r.intelGpu ? FoamyI18n.t("Private") : view.pair(r.reading("vramUsed") / 1073741824, r.reading("vramTotal") / 1073741824)
-          meterValue: r.vram; warning: r.vramWarning
-        }
-        Overview {
-          glyph: "\u{f2c9}"; label: FoamyI18n.t("GPU temperature"); value: view.degrees(r.gpuThermal.temperature)
-          detail: r.gpuSuspended ? FoamyI18n.t("Sleeping")
-            : r.intelGpu && isNaN(r.gpuThermal.temperature) ? FoamyI18n.t("Not exposed") : view.temperatureDetail(r.gpuThermal)
-          meterValue: r.gpuThermal.meter; warning: r.gpuThermal.hot
-        }
-      }
-
-      Grid {
-        id: details
-        width: content.inner
-        columns: width >= Style.space(500) ? 2 : 1
-        columnSpacing: Style.space(28)
-        rowSpacing: FoamyStyle.padding
-        readonly property real columnWidth: (width - columnSpacing * (columns - 1)) / columns
-
-        Column {
-          width: details.columnWidth
+        RowLayout {
+          Layout.fillWidth: true
           spacing: FoamyStyle.gapLarge
-          SectionHeading { title: FoamyI18n.t("Resource usage"); detail: FoamyI18n.t("Last 2 minutes") }
-          Row {
-            spacing: FoamyStyle.sectionGap
-            Legend { text: "CPU"; dotColor: view.cpuColor }
-            Legend { text: "RAM"; dotColor: view.memoryColor; dashed: true }
-            Legend { text: "GPU"; dotColor: view.gpuColor }
+          FoamyIcon {
+            name: view.deviceIcon
+            color: view.foreground
+            Layout.preferredWidth: FoamyStyle.font.display
+            Layout.preferredHeight: FoamyStyle.font.display
+            Layout.alignment: Qt.AlignVCenter
           }
-          HistoryPlot {
-            width: parent.width; height: Style.space(90)
-            topLabel: view.percent(100); middleLabel: view.percent(50); bottomLabel: view.percent(0)
-            maximum: 100
-            series: view.live ? [{ points: view.history.cpu, color: view.cpuColor }, { points: view.history.memory, color: view.memoryColor, dashed: true }, { points: view.history.gpu, color: view.gpuColor }] : []
-          }
-        }
-
-        ProcessSection {
-          id: cpuSection
-          width: details.columnWidth
-          title: FoamyI18n.t("Top CPU processes")
-          entries: view.processes
-          Repeater { id: cpuRows; model: view.processes; ProcessRow { section: cpuSection; first: view.cpuStart } }
-        }
-
-        Column {
-          width: details.columnWidth
-          spacing: FoamyStyle.gapLarge
-          SectionHeading { title: FoamyI18n.t("Network traffic"); detail: r.stats.network ? r.stats.network.interface : FoamyI18n.t("Unavailable") }
-          RowLayout {
-            width: parent.width
-            spacing: Style.space(16)
-            Column {
-              Layout.fillWidth: true
-              Layout.preferredWidth: 1
-              spacing: Style.space(5)
-              Legend { text: FoamyI18n.t("Incoming"); dotColor: view.gpuColor }
-              Label { width: parent.width; text: view.rate(view.live ? VitalsService.networkDown : NaN); font.pixelSize: FoamyStyle.font.heading }
+          Column {
+            Layout.fillWidth: true
+            Layout.alignment: Qt.AlignVCenter
+            spacing: FoamyStyle.gapTiny
+            Label {
+              width: parent.width
+              text: VitalsService.hostname
+              font.pixelSize: FoamyStyle.font.display
             }
-            Column {
-              Layout.fillWidth: true
-              Layout.preferredWidth: 1
-              spacing: Style.space(5)
-              Legend { text: FoamyI18n.t("Outgoing"); dotColor: view.cpuColor }
-              Label { width: parent.width; text: view.rate(view.live ? VitalsService.networkUp : NaN); font.pixelSize: FoamyStyle.font.heading }
+            Caption {
+              width: parent.width
+              text: FoamyI18n.t("Up %1 · Load %2", [view.uptimeText(VitalsService.uptimeMinutes), view.loadText(VitalsService.loadAverages)])
             }
           }
-          HistoryPlot {
-            width: parent.width; height: Style.space(120)
-            topLabel: view.rate(view.networkScale)
-            middleLabel: FoamyI18n.number(0)
-            bottomLabel: view.rate(view.networkScale)
-            maximum: view.networkScale; centered: true
-            series: view.live ? [{ points: view.history.down, color: view.gpuColor }, { points: view.history.up, color: view.cpuColor, negative: true }] : []
+        }
+      }
+
+      Column {
+        id: content
+        width: flick.width
+        topPadding: FoamyStyle.sectionGap
+        leftPadding: FoamyStyle.padding
+        rightPadding: FoamyStyle.padding
+        bottomPadding: FoamyStyle.padding
+        spacing: FoamyStyle.padding
+        readonly property real inner: width - FoamyStyle.padding * 2
+
+        // Errors first, where they are seen without scrolling.
+        Label {
+          width: content.inner
+          visible: text !== ""
+          text: FoamyI18n.t(VitalsService.telemetryError || view.launchError)
+          color: Commons.Color.urgent
+          font.pixelSize: FoamyStyle.font.bodySmall
+          wrapMode: Text.WordWrap
+          elide: Text.ElideNone
+          Accessible.role: Accessible.AlertMessage
+          Accessible.name: text
+        }
+        Caption {
+          width: content.inner
+          visible: typeof r.stats.gpuError === "string" && r.stats.gpuError !== ""
+          text: FoamyI18n.t(r.stats.gpuError === "Intel GPU readings unavailable. Retrying…"
+            ? r.stats.gpuError : "NVIDIA readings unavailable. Check nvidia-smi.")
+          color: r.urgent
+          wrapMode: Text.WordWrap
+        }
+        Caption {
+          width: content.inner
+          visible: r.intelGpu
+          text: FoamyI18n.t("Intel GPU: busiest engine and private allocations from accessible processes for this user.")
+          wrapMode: Text.WordWrap
+        }
+
+        Grid {
+          id: overview
+          width: content.inner
+          columns: width >= Style.space(440) ? 3 : 2
+          columnSpacing: Style.space(22)
+          rowSpacing: FoamyStyle.padding
+          Overview {
+            glyph: "\u{f2db}"; label: "CPU"; value: view.percent(r.cpu); meterValue: r.cpu; warning: r.cpuWarning
+            detail: view.cores.length ? FoamyI18n.tn("%1 threads", view.cores.length) : "--"
+          }
+          Overview {
+            glyph: "\u{f035b}"; label: "RAM"; value: view.percent(r.memory); meterValue: r.memory; warning: r.memoryWarning
+            detail: view.pair(r.reading("memUsedKb") / 1048576, r.reading("memTotalKb") / 1048576)
+          }
+          Overview {
+            glyph: "\u{f2c9}"; label: FoamyI18n.t("CPU temperature"); value: view.degrees(r.cpuThermal.temperature)
+            detail: view.temperatureDetail(r.cpuThermal); meterValue: r.cpuThermal.meter; warning: r.cpuThermal.hot
+          }
+          Overview {
+            glyph: "\u{f108}"; label: "GPU"; value: view.percent(r.gpu); meterValue: r.gpu; warning: r.gpuWarning
+            detail: r.gpuSuspended ? FoamyI18n.t("Sleeping")
+              : r.intelGpu && !isNaN(r.reading("gpuFrequencyMHz")) ? FoamyI18n.number(Math.round(r.reading("gpuFrequencyMHz"))) + " MHz" : ""
+          }
+          Overview {
+            glyph: "\u{f035b}"; label: r.intelGpu ? FoamyI18n.t("GPU memory") : "VRAM"
+            value: r.intelGpu ? view.memoryAmount(r.reading("gpuMemoryPrivate") / 1024) : view.percent(r.vram)
+            detail: r.intelGpu ? FoamyI18n.t("Private") : view.pair(r.reading("vramUsed") / 1073741824, r.reading("vramTotal") / 1073741824)
+            meterValue: r.vram; warning: r.vramWarning
+          }
+          Overview {
+            glyph: "\u{f2c9}"; label: FoamyI18n.t("GPU temperature"); value: view.degrees(r.gpuThermal.temperature)
+            detail: r.gpuSuspended ? FoamyI18n.t("Sleeping")
+              : r.intelGpu && isNaN(r.gpuThermal.temperature) ? FoamyI18n.t("Not exposed") : view.temperatureDetail(r.gpuThermal)
+            meterValue: r.gpuThermal.meter; warning: r.gpuThermal.hot
           }
         }
 
-        ProcessSection {
-          id: memorySection
-          width: details.columnWidth
-          title: FoamyI18n.t("Top memory processes")
-          entries: view.memoryProcesses
-          memoryMode: true
-          Repeater { id: memoryRows; model: view.memoryProcesses; ProcessRow { section: memorySection; first: view.memoryStart } }
-        }
+        Grid {
+          id: details
+          width: content.inner
+          columns: width >= Style.space(500) ? 2 : 1
+          columnSpacing: Style.space(28)
+          rowSpacing: FoamyStyle.padding
+          readonly property real columnWidth: (width - columnSpacing * (columns - 1)) / columns
 
-        Column {
-          width: details.columnWidth
-          spacing: FoamyStyle.gapLarge
-          SectionHeading { title: FoamyI18n.t("CPU cores"); detail: view.coresDetail() }
-          FoamyCursorSurface {
-            id: coresStrip
-            width: parent.width
-            height: Style.space(18) + FoamyStyle.gap
-            hasCursor: cursor.at(view.coresStop) && view.coresStop >= 0
+          Column {
+            width: details.columnWidth
+            spacing: FoamyStyle.gapLarge
+            SectionHeading { title: FoamyI18n.t("Resource usage"); detail: FoamyI18n.t("Last 2 minutes") }
             Row {
-              id: coreRow
-              anchors.fill: parent
-              anchors.margins: FoamyStyle.gapSmall
-              spacing: Style.space(3)
-              Repeater {
-                model: view.cores
-                Rectangle {
-                  required property var modelData
-                  required property int index
-                  width: view.cores.length ? Math.max(0, (coreRow.width - coreRow.spacing * (view.cores.length - 1)) / view.cores.length) : 0
-                  height: coreRow.height
-                  radius: FoamyStyle.rounded ? Style.space(2) : 0
-                  color: view.coreLoad(modelData) >= r.preference("cpuWarning") ? r.urgent : view.cpuColor
-                  opacity: modelData === null ? 0.08 : view.hoveredCore === index ? 1 : 0.15 + 0.75 * view.coreLoad(modelData) / 100
+              spacing: FoamyStyle.sectionGap
+              Legend { text: "CPU"; dotColor: view.cpuColor }
+              Legend { text: "RAM"; dotColor: view.memoryColor; dashed: true }
+              Legend { text: "GPU"; dotColor: view.gpuColor }
+            }
+            HistoryPlot {
+              width: parent.width; height: Style.space(90)
+              topLabel: view.percent(100); middleLabel: view.percent(50); bottomLabel: view.percent(0)
+              maximum: 100
+              series: view.live ? [{ points: view.history.cpu, color: view.cpuColor }, { points: view.history.memory, color: view.memoryColor, dashed: true }, { points: view.history.gpu, color: view.gpuColor }] : []
+            }
+          }
+
+          ProcessSection {
+            id: cpuSection
+            width: details.columnWidth
+            title: FoamyI18n.t("Top CPU processes")
+            entries: view.processes
+            Repeater { id: cpuRows; model: view.processes; ProcessRow { section: cpuSection; first: view.cpuStart } }
+          }
+
+          Column {
+            width: details.columnWidth
+            spacing: FoamyStyle.gapLarge
+            SectionHeading { title: FoamyI18n.t("Network traffic"); detail: r.stats.network ? r.stats.network.interface : FoamyI18n.t("Unavailable") }
+            RowLayout {
+              width: parent.width
+              spacing: Style.space(16)
+              Column {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: Style.space(5)
+                Legend { text: FoamyI18n.t("Incoming"); dotColor: view.gpuColor }
+                Label { width: parent.width; text: view.rate(view.live ? VitalsService.networkDown : NaN); font.pixelSize: FoamyStyle.font.heading }
+              }
+              Column {
+                Layout.fillWidth: true
+                Layout.preferredWidth: 1
+                spacing: Style.space(5)
+                Legend { text: FoamyI18n.t("Outgoing"); dotColor: view.cpuColor }
+                Label { width: parent.width; text: view.rate(view.live ? VitalsService.networkUp : NaN); font.pixelSize: FoamyStyle.font.heading }
+              }
+            }
+            HistoryPlot {
+              width: parent.width; height: Style.space(120)
+              topLabel: view.rate(view.networkScale)
+              middleLabel: FoamyI18n.number(0)
+              bottomLabel: view.rate(view.networkScale)
+              maximum: view.networkScale; centered: true
+              series: view.live ? [{ points: view.history.down, color: view.gpuColor }, { points: view.history.up, color: view.cpuColor, negative: true }] : []
+            }
+          }
+
+          ProcessSection {
+            id: memorySection
+            width: details.columnWidth
+            title: FoamyI18n.t("Top memory processes")
+            entries: view.memoryProcesses
+            memoryMode: true
+            Repeater { id: memoryRows; model: view.memoryProcesses; ProcessRow { section: memorySection; first: view.memoryStart } }
+          }
+
+          Column {
+            width: details.columnWidth
+            spacing: FoamyStyle.gapLarge
+            SectionHeading { title: FoamyI18n.t("CPU cores"); detail: view.coresDetail() }
+            FoamyCursorSurface {
+              id: coresStrip
+              width: parent.width
+              height: Style.space(18) + FoamyStyle.gap
+              hasCursor: cursor.at(view.coresStop) && view.coresStop >= 0
+              Row {
+                id: coreRow
+                anchors.fill: parent
+                anchors.margins: FoamyStyle.gapSmall
+                spacing: Style.space(3)
+                Repeater {
+                  model: view.cores
+                  Rectangle {
+                    required property var modelData
+                    required property int index
+                    width: view.cores.length ? Math.max(0, (coreRow.width - coreRow.spacing * (view.cores.length - 1)) / view.cores.length) : 0
+                    height: coreRow.height
+                    radius: FoamyStyle.rounded ? Style.space(2) : 0
+                    color: view.coreLoad(modelData) >= r.preference("cpuWarning") ? r.urgent : view.cpuColor
+                    opacity: modelData === null ? 0.08 : view.hoveredCore === index ? 1 : 0.15 + 0.75 * view.coreLoad(modelData) / 100
+                  }
                 }
               }
-            }
-            MouseArea {
-              id: coresMouse
-              anchors.fill: coreRow
-              hoverEnabled: true
-              onPositionChanged: function(mouse) {
-                cursor.hover(view.coresStop)
-                view.hoveredCore = Math.min(view.cores.length - 1, Math.max(0, Math.floor((FoamyI18n.rightToLeft ? width - mouse.x : mouse.x) / Math.max(1, width) * view.cores.length)))
+              MouseArea {
+                id: coresMouse
+                anchors.fill: coreRow
+                hoverEnabled: true
+                onPositionChanged: function(mouse) {
+                  cursor.hover(view.coresStop)
+                  view.hoveredCore = Math.min(view.cores.length - 1, Math.max(0, Math.floor((FoamyI18n.rightToLeft ? width - mouse.x : mouse.x) / Math.max(1, width) * view.cores.length)))
+                }
+                onExited: if (!cursor.at(view.coresStop)) view.hoveredCore = -1
               }
-              onExited: if (!cursor.at(view.coresStop)) view.hoveredCore = -1
+            }
+          }
+
+          Column {
+            width: details.columnWidth
+            spacing: FoamyStyle.gapLarge
+            SectionHeading { title: FoamyI18n.t("Storage") }
+            Caption { width: parent.width; visible: VitalsService.diskStatus !== ""; text: FoamyI18n.t(VitalsService.diskStatus) }
+            Repeater {
+              model: view.disks
+              Column {
+                required property var modelData
+                width: details.columnWidth
+                spacing: FoamyStyle.gap
+                DataRow { label: parent.modelData.mount === "/" ? FoamyI18n.t("Root filesystem") : parent.modelData.mount; value: view.diskCapacity(parent.modelData.usedKb, parent.modelData.totalKb) }
+                Meter { width: parent.width; value: 100 * parent.modelData.usedKb / parent.modelData.totalKb }
+              }
             }
           }
         }
 
-        Column {
-          width: details.columnWidth
-          spacing: FoamyStyle.gapLarge
-          SectionHeading { title: FoamyI18n.t("Storage") }
-          Caption { width: parent.width; visible: VitalsService.diskStatus !== ""; text: FoamyI18n.t(VitalsService.diskStatus) }
-          Repeater {
-            model: view.disks
-            Column {
-              required property var modelData
-              width: details.columnWidth
-              spacing: FoamyStyle.gap
-              DataRow { label: parent.modelData.mount === "/" ? FoamyI18n.t("Root filesystem") : parent.modelData.mount; value: view.diskCapacity(parent.modelData.usedKb, parent.modelData.totalKb) }
-              Meter { width: parent.width; value: 100 * parent.modelData.usedKb / parent.modelData.totalKb }
-            }
-          }
+        Rectangle { width: content.inner; height: 1; color: FoamyPalette.divider }
+        FoamyAction {
+          id: btopButton
+          iconName: "terminal"
+          label: "btop"
+          tooltipText: FoamyI18n.t("Open btop")
+          foreground: view.dim
+          hasCursor: cursor.at(view.btopStop)
+          onHoveredChanged: if (hovered) cursor.hover(view.btopStop)
+          onClicked: view.btopRequested()
         }
-      }
-
-      Rectangle { width: content.inner; height: 1; color: FoamyPalette.divider }
-      FoamyAction {
-        id: btopButton
-        iconName: "terminal"
-        label: "btop"
-        tooltipText: FoamyI18n.t("Open btop")
-        foreground: view.dim
-        hasCursor: cursor.at(view.btopStop)
-        onHoveredChanged: if (hovered) cursor.hover(view.btopStop)
-        onClicked: view.btopRequested()
       }
     }
   }

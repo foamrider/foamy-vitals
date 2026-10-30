@@ -67,5 +67,6 @@
   "Select all": "Select all",
   "Clipboard paste timed out. Copy the text again.": "Clipboard paste timed out. Copy the text again.",
   "Clipboard text is too large or contains invalid characters.": "Clipboard text is too large or contains invalid characters.",
-  "Could not paste clipboard text. Copy plain text and try again.": "Could not paste clipboard text. Copy plain text and try again."
+  "Could not paste clipboard text. Copy plain text and try again.": "Could not paste clipboard text. Copy plain text and try again.",
+  "Vitals": "Vitals"
 }

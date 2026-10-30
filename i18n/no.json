@@ -67,5 +67,6 @@
   "Select all": "Velg alt",
   "Clipboard paste timed out. Copy the text again.": "Innliming tok for lang tid. Kopier teksten på nytt.",
   "Clipboard text is too large or contains invalid characters.": "Utklippstavleteksten er for stor eller inneholder ugyldige tegn.",
-  "Could not paste clipboard text. Copy plain text and try again.": "Kunne ikke lime inn teksten. Kopier ren tekst og prøv igjen."
+  "Could not paste clipboard text. Copy plain text and try again.": "Kunne ikke lime inn teksten. Kopier ren tekst og prøv igjen.",
+  "Vitals": "Vitals"
 }

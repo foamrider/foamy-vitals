@@ -156,9 +156,10 @@ ShellRoot {
           var body = a.popup.bodyItem
           check(body !== null, "leader popup built")
           check(Vitals.VitalsService.statsProcess.running || shell.fullSamples > 0, "open again: full samples")
+          check(body.band.x === 0 && body.band.width === body.width, "the hero band is full bleed")
+          check(body.band.hasHero, "the band carries the host line")
           // The 4.5 run uses Arabic: the popup mirrors, Settings moves to the left edge.
-          var header = null
-          for (var i = 0; i < body.children.length; i++) if (body.children[i].settingsButton !== undefined) header = body.children[i]
+          var header = body.band
           check(header && body.LayoutMirroring.enabled, "RTL: the popup body is mirrored")
           var at = header.settingsButton.mapToItem(body, 0, 0)
           check(at.x < body.width / 2, "RTL: Settings sits at the leading (left) edge (" + Math.round(at.x) + ")")

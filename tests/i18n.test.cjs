@@ -21,12 +21,10 @@ assert.deepEqual(Object.keys(no).sort(), Object.keys(en).sort());
 
 // Every literal the plugin and the kit pass to FoamyI18n.t/tn has an entry; tn keys are plurals.
 const files = [...fs.readdirSync(root).filter(f => f.endsWith('.qml')), ...fs.readdirSync(path.join(root, 'kit')).filter(f => /\.(qml|js)$/.test(f)).map(f => 'kit/' + f)];
-const demo = new Set(['%1 connected', '%1 devices', '30 seconds', 'Displays', 'Refresh', 'Refresh every', 'Search',
-  'Show … in the bar', 'Show percentage in the bar', 'Updated %1 minutes ago']);  // kit doc comments
 for (const file of files) {
-  const source = fs.readFileSync(path.join(root, file), 'utf8');
+  // Kit files document their API with example strings in comments; skip comment lines.
+  const source = fs.readFileSync(path.join(root, file), 'utf8').split('\n').filter(line => !/^\s*\/\//.test(line)).join('\n');
   for (const [, fn, key] of source.matchAll(/FoamyI18n\.(tn?)\("((?:[^"\\]|\\.)*)"/g)) {
-    if (file.startsWith('kit/') && demo.has(key)) continue;
     assert.ok(Object.hasOwn(en, key), `missing catalog key in ${file}: ${key}`);
     if (fn === 'tn') assert.equal(typeof en[key], 'object', `tn key needs a plural entry: ${key}`);
   }
