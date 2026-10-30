@@ -700,35 +700,21 @@ PanelKeyCatcher {
     }
   }
 
-  // An integer setting: label, field, unit. Esc in the field restores the
-  // saved value before leaving Settings; Enter or leaving the field saves.
-  component NumberRow: RowLayout {
+  // An integer setting: the kit field shows the saved value (following
+  // changes from other monitors or the CLI), keeps a draft while editing,
+  // and commits a valid changed number once; Escape restores it.
+  component NumberRow: FoamyNumberField {
     id: numberRow
     property string key: ""
-    readonly property var field: Prefs.field(Schema.fields, key)
-    readonly property var current: Prefs.value(Schema.fields, view.settings, key)
+    readonly property var schemaField: Prefs.field(Schema.fields, key)
     width: parent.width
-    spacing: FoamyStyle.gap
-    onVisibleChanged: input.text = String(current)
-    Label { Layout.fillWidth: true; text: FoamyI18n.t(numberRow.field.label) }
-    SafeTextField {
-      id: input
-      Layout.preferredWidth: Style.space(68)
-      Layout.preferredHeight: FoamyStyle.controlHeight
-      text: String(numberRow.current)
-      horizontalAlignment: TextEdit.AlignRight
-      translate: FoamyI18n.t
-      Accessible.name: FoamyI18n.t(numberRow.field.group || "") + " " + FoamyI18n.t(numberRow.field.label)
-      onPasteErrorChanged: if (pasteError !== "") view.pasteFailed(FoamyI18n.t(pasteError))
-      onKeyPressed: function(event) { if (event.key === Qt.Key_Escape) input.text = String(numberRow.current) }
-      onEditingFinished: {
-        if (!numberRow.visible) return
-        var next = text.trim() === "" ? NaN : Number(text)
-        if (next !== numberRow.current) view.saveRequested(numberRow.key, next)
-      }
-      HoverHandler { id: numberHover }
-      PanelToolTip { visible: numberHover.hovered || input.inputActiveFocus; text: FoamyI18n.t("%1 to %2", [numberRow.field.min, numberRow.field.max]); fontFamily: FoamyStyle.fontFamily }
-    }
-    Caption { Layout.preferredWidth: Style.space(20); text: numberRow.field.unit || "" }
+    label: FoamyI18n.t(schemaField.label)
+    unit: schemaField.unit || ""
+    value: Prefs.value(Schema.fields, view.settings, key)
+    from: schemaField.min
+    to: schemaField.max
+    stepSize: schemaField.step || 1
+    field.Accessible.name: FoamyI18n.t(schemaField.group || "") + " " + FoamyI18n.t(schemaField.label)
+    onCommitted: function(v) { view.saveRequested(key, v) }
   }
 }

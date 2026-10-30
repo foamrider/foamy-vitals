@@ -43,6 +43,14 @@ ShellRoot {
   // PanelKeyCatcher (host code) turns keys into these signals; drive them
   // directly, since offscreen windows get no keyboard focus.
   function down(view) { view.moveRequested(0, 1) }
+  // The first FoamyNumberField under item (the CPU usage warning).
+  function numberField(item) {
+    if (!item) return null
+    if (item.committed !== undefined && item.field !== undefined && item.stepSize !== undefined) return item
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) { var found = numberField(kids[i]); if (found) return found }
+    return null
+  }
   MockBar {
     id: bar
     moduleName: "foamy.vitals"
@@ -111,6 +119,17 @@ ShellRoot {
         break
       case 3:
         var page = b.popup.bodyItem.settingsPage
+        var cpuField = shell.numberField(page)
+        check(cpuField && cpuField.value === 1, "the CPU warning field shows the saved value")
+        var savesBefore = bar.saved.length
+        b.settings = ({ cpuWarning: 77 })  // another monitor or the CLI changed it
+        check(cpuField.value === 77 && cpuField.field.text === "77", "an external change shows while Settings is open (" + cpuField.field.text + ")")
+        cpuField.field.focusInput()
+        cpuField.field.editingFinished()   // focus then leave without typing
+        check(bar.saved.length === savesBefore, "leaving the field unchanged saves nothing")
+        check(cpuField.value === 77 && cpuField.field.text === "77", "the field keeps following the setting")
+        b.settings = ({ cpuWarning: 66 })
+        check(cpuField.field.text === "66", "and keeps following after an edit cycle")
         check(b.popup.bodyItem.editingSettings && page.implicitHeight > 0, "settings page in place of the dashboard")
         b.save("cpuWarning", 80)
         var saved = bar.saved[bar.saved.length - 1]

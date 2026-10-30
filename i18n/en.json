@@ -55,7 +55,6 @@
   "Warns at or above these percentages.": "Warns at or above these percentages.",
   "Temperature warning margin": "Temperature warning margin",
   "Warn this many °C below the hardware limit.": "Warn this many °C below the hardware limit.",
-  "%1 to %2": "%1 to %2",
   "Couldn't save the setting.": "Couldn't save the setting.",
   "That value isn't allowed.": "That value isn't allowed.",
   "Settings can't be saved: this widget has no bar entry.": "Settings can't be saved: this widget has no bar entry.",
@@ -68,5 +67,6 @@
   "Clipboard paste timed out. Copy the text again.": "Clipboard paste timed out. Copy the text again.",
   "Clipboard text is too large or contains invalid characters.": "Clipboard text is too large or contains invalid characters.",
   "Could not paste clipboard text. Copy plain text and try again.": "Could not paste clipboard text. Copy plain text and try again.",
-  "Vitals": "Vitals"
+  "Vitals": "Vitals",
+  "Enter a number from %1 to %2": "Enter a number from %1 to %2"
 }

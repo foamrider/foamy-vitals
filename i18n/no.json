@@ -55,7 +55,6 @@
   "Warns at or above these percentages.": "Varsler ved disse prosentene eller høyere.",
   "Temperature warning margin": "Margin for temperaturvarsel",
   "Warn this many °C below the hardware limit.": "Varsler så mange °C under maskinvarens temperaturgrense.",
-  "%1 to %2": "%1 til %2",
   "Couldn't save the setting.": "Kunne ikke lagre innstillingen.",
   "That value isn't allowed.": "Den verdien er ikke tillatt.",
   "Settings can't be saved: this widget has no bar entry.": "Innstillingene kan ikke lagres: denne modulen finnes ikke i linjen.",
@@ -68,5 +67,6 @@
   "Clipboard paste timed out. Copy the text again.": "Innliming tok for lang tid. Kopier teksten på nytt.",
   "Clipboard text is too large or contains invalid characters.": "Utklippstavleteksten er for stor eller inneholder ugyldige tegn.",
   "Could not paste clipboard text. Copy plain text and try again.": "Kunne ikke lime inn teksten. Kopier ren tekst og prøv igjen.",
-  "Vitals": "Vitals"
+  "Vitals": "Vitals",
+  "Enter a number from %1 to %2": "Skriv et tall fra %1 til %2"
 }
