@@ -519,8 +519,10 @@ if [[ -n $nvidia_address ]]; then
     gpu_suspended=true
   else
     nv_file="$state_dir/nvidia"
-    nv_at=-1 nv_util="" nv_used="" nv_total="" nv_temp="" nv_crit="" nv_boot=""
-    [[ -r $nv_file ]] && read -r nv_at nv_util nv_used nv_total nv_temp nv_crit nv_boot _ <"$nv_file" 2>/dev/null
+    nv_at=-1 nv_util="" nv_used="" nv_total="" nv_temp="" nv_crit="" nv_boot="" nv_retry=0 nv_fails=0
+    [[ -r $nv_file ]] && read -r nv_at nv_util nv_used nv_total nv_temp nv_crit nv_boot nv_retry nv_fails _ <"$nv_file" 2>/dev/null
+    [[ $nv_retry =~ ^[0-9]+$ ]] || nv_retry=0
+    [[ $nv_fails =~ ^[0-9]+$ ]] || nv_fails=0
     [[ $nv_at =~ ^[0-9]+$ ]] || nv_at=-1
     boot_id=""
     read -r boot_id <"$proc/sys/kernel/random/boot_id" 2>/dev/null || true
@@ -548,23 +550,37 @@ if [[ -n $nvidia_address ]]; then
         nv_at=-1
       else
         nv_at=$now
-        # The shutdown threshold is fixed per GPU: ask for it once per boot.
-        if [[ $nv_boot != "${boot_id:-none}" || ! $nv_crit =~ ^(null|[0-9]+)$ ]]; then
-          nv_crit=null
-          xml="$(timeout --kill-after=0.2s 1.5s nvidia-smi -q -x -d TEMPERATURE 2>/dev/null)"
-          # Walk the <gpu id="…"> blocks and read the limit of this GPU only.
-          while [[ $xml == *'<gpu id="'* ]]; do
-            xml="${xml#*'<gpu id="'}"
-            pci_key have "${xml%%\"*}"
-            [[ $have == "$want" ]] || continue
-            block="${xml%%'</gpu>'*}"
-            if [[ $block =~ \<gpu_temp_max_threshold\>[[:space:]]*([0-9]+)[[:space:]]*C[[:space:]]*\< ]] && ((10#${BASH_REMATCH[1]} > 0)); then
-              nv_crit="${BASH_REMATCH[1]}"
-            fi
-            break
-          done
+        # The shutdown threshold is fixed per GPU: once a probe answers (a
+        # limit, or "none" when this GPU reports none), keep it for the boot.
+        # A failed probe (timeout, error, this GPU missing from the reply) is
+        # not an answer: retry it, backing off from 30 s up to 32 min.
+        if [[ $nv_boot != "${boot_id:-none}" ]]; then
+          nv_crit=unknown nv_retry=0 nv_fails=0
         fi
-        printf '%s %s %s %s %s %s %s\n' "$nv_at" "$nv_util" "$nv_used" "$nv_total" "$nv_temp" "$nv_crit" "${boot_id:-none}" >"$nv_file" 2>/dev/null
+        if [[ ! $nv_crit =~ ^([0-9]+|none)$ ]] && ((now >= nv_retry)); then
+          nv_crit=unknown
+          if xml="$(timeout --kill-after=0.2s 1.5s nvidia-smi -q -x -d TEMPERATURE 2>/dev/null)"; then
+            # Walk the <gpu id="…"> blocks and read the limit of this GPU only.
+            while [[ $xml == *'<gpu id="'* ]]; do
+              xml="${xml#*'<gpu id="'}"
+              pci_key have "${xml%%\"*}"
+              [[ $have == "$want" ]] || continue
+              block="${xml%%'</gpu>'*}"
+              nv_crit=none
+              if [[ $block =~ \<gpu_temp_max_threshold\>[[:space:]]*([0-9]+)[[:space:]]*C[[:space:]]*\< ]] && ((10#${BASH_REMATCH[1]} > 0)); then
+                nv_crit="${BASH_REMATCH[1]}"
+              fi
+              break
+            done
+          fi
+          if [[ $nv_crit == unknown ]]; then
+            ((nv_fails < 7)) && nv_fails=$((nv_fails + 1))
+            nv_retry=$((now + 30000 * (1 << (nv_fails - 1))))
+          else
+            nv_retry=0 nv_fails=0
+          fi
+        fi
+        printf '%s %s %s %s %s %s %s %s %s\n' "$nv_at" "$nv_util" "$nv_used" "$nv_total" "$nv_temp" "${nv_crit:-unknown}" "${boot_id:-none}" "$nv_retry" "$nv_fails" >"$nv_file" 2>/dev/null
       fi
     fi
     if ((nv_at >= 0)); then

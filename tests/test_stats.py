@@ -97,6 +97,7 @@ class Tree:
         log = self.bin.parent / "nvidia-smi.log"
         reply = self.bin.parent / "nvidia-smi.reply"
         xml = self.bin.parent / "nvidia-smi.xml"
+        failtemp = self.bin.parent / "nvidia-smi.failtemp"
         reply.write_text("00000000:01:00.0, 37, 1178, 8192, 51\n")
         script = self.bin / "nvidia-smi"
         script.write_text(textwrap.dedent(f"""\
@@ -104,7 +105,7 @@ class Tree:
             printf '%s\\n' "$*" >>'{log}'
             case "$*" in
               *--query-gpu*) [ -s '{reply}' ] || exit 6; cat '{reply}' ;;
-              *TEMPERATURE*) [ -s '{xml}' ] && exec cat '{xml}'; printf '<?xml version="1.0"?>\\n<nvidia_smi_log><gpu id="00000000:01:00.0"><temperature><gpu_temp>51 C</gpu_temp><gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\\n' ;;
+              *TEMPERATURE*) [ -e '{failtemp}' ] && exit 9; [ -s '{xml}' ] && exec cat '{xml}'; printf '<?xml version="1.0"?>\\n<nvidia_smi_log><gpu id="00000000:01:00.0"><temperature><gpu_temp>51 C</gpu_temp><gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\\n' ;;
             esac
             """))
         script.chmod(0o755)
@@ -270,6 +271,58 @@ class FakeTreeTest(unittest.TestCase):
         sample, _ = self.tree.run()
         self.assertIsNone(sample["gpuBusy"], "only another domain's GPU answered")
         self.assertEqual(sample["gpuError"], "NVIDIA readings unavailable. Check nvidia-smi.")
+
+    def test_failed_limit_probe_is_retried_with_backoff(self):
+        log, _ = self.tree.nvidia(status="active", control="on")
+        failtemp = self.base / "nvidia-smi.failtemp"
+        failtemp.write_text("")
+        limit_probes = lambda: sum("TEMPERATURE" in call for call in log.read_text().splitlines())
+        sample, _ = self.tree.run()
+        self.assertIsNone(sample["gpuThermals"][0]["critical"])
+        self.assertEqual(sample["gpuBusy"], 37, "a failed limit probe never hides the readings")
+        self.assertEqual(limit_probes(), 1)
+        self.advance(1, 10)
+        self.tree.run()
+        self.assertEqual(limit_probes(), 1, "backs off for 30 s after a failure")
+        failtemp.unlink()
+        self.advance(2, 31)
+        sample, _ = self.tree.run()
+        self.assertEqual(limit_probes(), 2, "retried after the backoff")
+        self.assertEqual(sample["gpuThermals"][0]["critical"], 98, "the limit arrives once the probe answers")
+        self.advance(3, 400)
+        sample, _ = self.tree.run()
+        self.assertEqual(limit_probes(), 2, "an answered probe is kept for the boot")
+        self.assertEqual(sample["gpuThermals"][0]["critical"], 98)
+        # A new boot asks again.
+        (self.tree.proc / "sys/kernel/random/boot_id").write_text("boot-2\n")
+        self.advance(4, 410)
+        self.tree.run()
+        self.assertEqual(limit_probes(), 3)
+
+    def test_failed_limit_probes_back_off_exponentially(self):
+        log, _ = self.tree.nvidia(status="active", control="on")
+        (self.base / "nvidia-smi.failtemp").write_text("")
+        limit_probes = lambda: sum("TEMPERATURE" in call for call in log.read_text().splitlines())
+        seconds, tick = 0, 0
+        for expected_gap in (30, 60, 120):
+            self.tree.run()
+            probes = limit_probes()
+            tick += 1
+            self.advance(tick, seconds + expected_gap - 3)  # 3 s: past the 2 s sample cache
+            self.tree.run()
+            self.assertEqual(limit_probes(), probes, f"no retry before {expected_gap} s")
+            seconds += expected_gap
+            tick += 1
+            self.advance(tick, seconds)
+
+    def test_gpu_without_a_limit_is_an_answer(self):
+        log, _ = self.tree.nvidia(status="active", control="on")
+        (self.base / "nvidia-smi.xml").write_text('<nvidia_smi_log><gpu id="00000000:01:00.0"><temperature><gpu_temp_max_threshold>N/A</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\n')
+        sample, _ = self.tree.run()
+        self.assertIsNone(sample["gpuThermals"][0]["critical"])
+        self.advance(1, 120)
+        self.tree.run()
+        self.assertEqual(sum("TEMPERATURE" in call for call in log.read_text().splitlines()), 1, "a reported missing limit is not retried")
 
     def test_bar_samples_let_a_runtime_pm_gpu_sleep(self):
         log, _ = self.tree.nvidia(status="active", control="auto")
