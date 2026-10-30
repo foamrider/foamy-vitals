@@ -123,6 +123,10 @@ ShellRoot {
         check(hidden !== null && !hidden.live, "the closed body is kept but no longer live")
         check(hidden.processes.length === 0 && hidden.cores.length === 0, "hidden lists read constants")
         check(!b.member.demanded, "demand drops when the popup closes")
+        s.detail = { processes: [{ name: "stale", where: "", pct: 50 }], memoryProcesses: [] }
+        s.fail("Telemetry unavailable. Retrying…")
+        check(s.detail.processes.length === 0 && s.detail.memoryProcesses.length === 0, "a failed sample clears the rankings")
+        s.detail = { processes: [{ name: "stale", where: "", pct: 50 }], memoryProcesses: [] }
         shell.detailChanges = 0
         shell.barSamples = 0
         break
@@ -130,7 +134,7 @@ ShellRoot {
         break  // about five seconds of closed popups
       case 12:
         check(shell.barSamples >= 1, "bar samples continue while closed (" + shell.barSamples + ")")
-        check(shell.detailChanges === 0, "no detail updates (so no list rebuilds) while every popup is closed")
+        check(shell.detailChanges === 1 && s.detail.processes.length === 0, "the first bar sample drops old rankings once, then no detail updates while closed (" + shell.detailChanges + ")")
         if (shell.modern) {
           a.open()
         }

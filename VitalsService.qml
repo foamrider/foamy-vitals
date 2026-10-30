@@ -93,6 +93,8 @@ QtObject {
 
   function fail(message) {
     stats = ({})
+    // Rankings from an earlier sample must not pass for current activity.
+    detail = { processes: [], memoryProcesses: [] }
     telemetryError = message
     networkSnapshot = null
     networkUp = NaN
@@ -124,6 +126,9 @@ QtObject {
     telemetryError = ""
     samples++
     if (parsed.mode !== "bar") detail = { processes: parsed.processes, memoryProcesses: parsed.memoryProcesses }
+    // Bar samples carry no rankings: drop the last ones once, so a popup
+    // opened later never shows minutes-old activity as current.
+    else if (detail.processes.length || detail.memoryProcesses.length) detail = { processes: [], memoryProcesses: [] }
     recordSample(parsed)
   }
 
