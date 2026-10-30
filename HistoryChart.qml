@@ -1,4 +1,5 @@
 import QtQuick
+import qs.Commons as Commons
 
 Canvas {
   id: chart
@@ -6,7 +7,7 @@ Canvas {
   property real endTime: 0
   property real maximum: 100
   property bool centered: false
-  property color gridColor: "#404040"
+  property color gridColor: Qt.alpha(Commons.Color.popups.text, 0.14)
   property color zeroColor: gridColor
 
   antialiasing: true

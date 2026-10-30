@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "foamy.vitals",
   "name": "Foamy Vitals",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "foamrider",
   "description": "System activity, memory, graphics and temperatures",
   "license": "MIT",
@@ -32,7 +32,7 @@
       {
         "key": "barDisplay",
         "type": "enum",
-        "label": "Bar display",
+        "label": "Show in the bar",
         "defaultValue": "adaptive",
         "options": [
           "adaptive",

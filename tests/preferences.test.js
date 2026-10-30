@@ -1,6 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const preferences = require('../Preferences.js');
+const schema = require('../Preferences.js');
+const fs = require('node:fs');
+const vm = require('node:vm');
+// FoamyPrefs.js starts with QML's `.pragma library`; load it without that line.
+const prefsModule = {exports: {}};
+vm.runInNewContext(fs.readFileSync(require.resolve('../kit/FoamyPrefs.js'), 'utf8').replace(/^\.pragma library$/m, ''), {module: prefsModule, console});
+const prefs = prefsModule.exports;
+// The schema is plain data; validation and defaults are foamy-kit's engine.
+const preferences = {fields: schema.fields, value: (settings, key) => prefs.value(schema.fields, settings, key), valid: (key, value) => prefs.valid(schema.fields, key, value)};
 const manifest = require('../manifest.json');
 
 test('manifest and runtime use the same setting defaults and constraints', () => {
