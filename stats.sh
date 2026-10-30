@@ -464,6 +464,29 @@ gpu_suspended=false
 gpu_extra='"gpuIntel":false,"gpuMemoryPrivate":null,"gpuFrequencyMHz":null,"gpuEngines":{}'
 gpu_json=""
 
+# var <- a PCI address as "domain:bus:device.function" with the domain as a
+# number and the rest lowercase, so sysfs ("0000:01:00.0") and nvidia-smi
+# ("00000000:01:00.0") spellings compare equal and domains never collide.
+pci_key() {
+  local raw="${2//[[:space:]]/}" domain rest
+  domain="${raw%%:*}"
+  rest="${raw#*:}"
+  if [[ $raw == *:*:* && $domain =~ ^[0-9A-Fa-f]{1,8}$ ]]; then
+    printf -v "$1" '%x:%s' "$((16#$domain))" "${rest,,}"
+  else
+    printf -v "$1" 'invalid:%s' "${raw,,}"
+  fi
+}
+
+# var <- one nvidia-smi CSV value as digits, or "na" ("[N/A]", "[Not
+# Supported]", anything else), so the space-separated cache stays aligned.
+nv_field() {
+  local value="${2#"${2%%[![:space:]]*}"}"
+  value="${value%"${value##*[![:space:]]}"}"
+  [[ $value =~ ^[0-9]+$ ]] || value=na
+  printf -v "$1" '%s' "$value"
+}
+
 nvidia_address=""
 if [[ $gpu_busy == null ]]; then
   # Glob order is PCI address order: the lowest-addressed NVIDIA GPU.
@@ -506,15 +529,22 @@ if [[ -n $nvidia_address ]]; then
     if [[ $mode == bar && $runtime_control == auto ]] && ((nv_at >= 0 && now - nv_at >= 0 && now - nv_at < 30000)); then
       :
     else
-      nv_util="" nv_used="" nv_total="" nv_temp=""
-      short="${nvidia_address#*:}"
-      while IFS=', ' read -r bus util used total temp _; do
-        [[ ${bus,,} == *":${short,,}" ]] || continue
-        nv_util="$util" nv_used="$used" nv_total="$total" nv_temp="$temp"
+      nv_util="" nv_used="" nv_total="" nv_temp="" nv_found=0 want="" have=""
+      pci_key want "$nvidia_address"
+      # CSV fields are split on commas only: "[Not Supported]" holds a space,
+      # and splitting on spaces too would shift every later column.
+      while IFS=',' read -r bus util used total temp _; do
+        pci_key have "$bus"
+        [[ $have == "$want" ]] || continue
+        nv_field nv_util "$util"
+        nv_field nv_used "$used"
+        nv_field nv_total "$total"
+        nv_field nv_temp "$temp"
+        nv_found=1
         break
       done < <(timeout --kill-after=0.2s 1.5s nvidia-smi --query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total,temperature.gpu \
         --format=csv,noheader,nounits 2>/dev/null)
-      if [[ -z $nv_util ]]; then
+      if ((!nv_found)); then
         nv_at=-1
       else
         nv_at=$now
@@ -522,10 +552,17 @@ if [[ -n $nvidia_address ]]; then
         if [[ $nv_boot != "${boot_id:-none}" || ! $nv_crit =~ ^(null|[0-9]+)$ ]]; then
           nv_crit=null
           xml="$(timeout --kill-after=0.2s 1.5s nvidia-smi -q -x -d TEMPERATURE 2>/dev/null)"
-          xml="${xml#*"${short}\""}"
-          if [[ $xml =~ \<gpu_temp_max_threshold\>[[:space:]]*([0-9]+)[[:space:]]*C[[:space:]]*\< ]] && ((10#${BASH_REMATCH[1]} > 0)); then
-            nv_crit="${BASH_REMATCH[1]}"
-          fi
+          # Walk the <gpu id="…"> blocks and read the limit of this GPU only.
+          while [[ $xml == *'<gpu id="'* ]]; do
+            xml="${xml#*'<gpu id="'}"
+            pci_key have "${xml%%\"*}"
+            [[ $have == "$want" ]] || continue
+            block="${xml%%'</gpu>'*}"
+            if [[ $block =~ \<gpu_temp_max_threshold\>[[:space:]]*([0-9]+)[[:space:]]*C[[:space:]]*\< ]] && ((10#${BASH_REMATCH[1]} > 0)); then
+              nv_crit="${BASH_REMATCH[1]}"
+            fi
+            break
+          done
         fi
         printf '%s %s %s %s %s %s %s\n' "$nv_at" "$nv_util" "$nv_used" "$nv_total" "$nv_temp" "$nv_crit" "${boot_id:-none}" >"$nv_file" 2>/dev/null
       fi

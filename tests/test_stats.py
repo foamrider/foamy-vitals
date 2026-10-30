@@ -96,6 +96,7 @@ class Tree:
         (power / "control").write_text(control + "\n")
         log = self.bin.parent / "nvidia-smi.log"
         reply = self.bin.parent / "nvidia-smi.reply"
+        xml = self.bin.parent / "nvidia-smi.xml"
         reply.write_text("00000000:01:00.0, 37, 1178, 8192, 51\n")
         script = self.bin / "nvidia-smi"
         script.write_text(textwrap.dedent(f"""\
@@ -103,7 +104,7 @@ class Tree:
             printf '%s\\n' "$*" >>'{log}'
             case "$*" in
               *--query-gpu*) [ -s '{reply}' ] || exit 6; cat '{reply}' ;;
-              *TEMPERATURE*) printf '<?xml version="1.0"?>\\n<nvidia_smi_log><gpu id="00000000:01:00.0"><temperature><gpu_temp>51 C</gpu_temp><gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\\n' ;;
+              *TEMPERATURE*) [ -s '{xml}' ] && exec cat '{xml}'; printf '<?xml version="1.0"?>\\n<nvidia_smi_log><gpu id="00000000:01:00.0"><temperature><gpu_temp>51 C</gpu_temp><gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\\n' ;;
             esac
             """))
         script.chmod(0o755)
@@ -241,6 +242,33 @@ class FakeTreeTest(unittest.TestCase):
         self.advance(3, 9)
         sample, _ = self.tree.run()
         self.assertIsNone(sample["gpuBusy"])
+        self.assertEqual(sample["gpuError"], "NVIDIA readings unavailable. Check nvidia-smi.")
+
+    def test_unsupported_nvidia_field_keeps_later_columns(self):
+        _, reply = self.tree.nvidia(status="active", control="on")
+        reply.write_text("00000000:01:00.0, [Not Supported], 1178, 8192, 51\n")
+        sample, _ = self.tree.run()
+        self.assertEqual((sample["gpuBusy"], sample["vramUsed"], sample["vramTotal"], sample["gpuTemp"]),
+                         (None, 1178 * 1048576, 8192 * 1048576, 51))
+        self.assertEqual(sample["gpuThermals"], [{"temperature": 51, "critical": 98, "label": "GPU"}])
+        self.assertEqual(sample["gpuError"], "")
+        # The cache line stays aligned for throttled bar samples too.
+        cached = (self.tree.runtime / f"foamy-vitals-{os.geteuid()}/nvidia").read_text().split()
+        self.assertEqual(cached[1:6], ["na", "1178", "8192", "51", "98"])
+
+    def test_nvidia_gpus_in_other_pci_domains_never_match(self):
+        _, reply = self.tree.nvidia(status="active", control="on")
+        reply.write_text("00000001:01:00.0, 99, 10, 20, 90\n00000000:01:00.0, 37, 1178, 8192, 51\n")
+        (self.base / "nvidia-smi.xml").write_text(
+            '<nvidia_smi_log><gpu id="00000001:01:00.0"><temperature><gpu_temp_max_threshold>70 C</gpu_temp_max_threshold></temperature></gpu>'
+            '<gpu id="00000000:01:00.0"><temperature><gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\n')
+        sample, _ = self.tree.run()
+        self.assertEqual((sample["gpuBusy"], sample["gpuTemp"]), (37, 51))
+        self.assertEqual(sample["gpuThermals"][0]["critical"], 98)
+        reply.write_text("00000001:01:00.0, 99, 10, 20, 90\n")
+        self.advance(1, 3)
+        sample, _ = self.tree.run()
+        self.assertIsNone(sample["gpuBusy"], "only another domain's GPU answered")
         self.assertEqual(sample["gpuError"], "NVIDIA readings unavailable. Check nvidia-smi.")
 
     def test_bar_samples_let_a_runtime_pm_gpu_sleep(self):
