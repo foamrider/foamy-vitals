@@ -112,7 +112,8 @@ PanelKeyCatcher {
   onActivateRequested: activate(cursor.index)
   onCloseRequested: closeRequestedByView()
   onTabRequested: function(direction) { switchPanelRequested(direction) }
-  onTextKey: function(text) {
+  onTextKey: function(text, modifiers) {
+    if (!cursor.plain(modifiers)) return  // Ctrl/Alt/Super shortcuts are not ours
     if (text === "s") settingsRequested()
     else if (text === "r") refreshRequested()
     else if (text === "b") btopRequested()
@@ -286,30 +287,30 @@ PanelKeyCatcher {
         columnSpacing: Style.space(22)
         rowSpacing: FoamyStyle.padding
         Overview {
-          glyph: ""; label: "CPU"; value: view.percent(r.cpu); meterValue: r.cpu; warning: r.cpuWarning
+          glyph: "\u{f2db}"; label: "CPU"; value: view.percent(r.cpu); meterValue: r.cpu; warning: r.cpuWarning
           detail: view.cores.length ? FoamyI18n.tn("%1 threads", view.cores.length) : "--"
         }
         Overview {
-          glyph: "󰍛"; label: "RAM"; value: view.percent(r.memory); meterValue: r.memory; warning: r.memoryWarning
+          glyph: "\u{f035b}"; label: "RAM"; value: view.percent(r.memory); meterValue: r.memory; warning: r.memoryWarning
           detail: view.pair(r.reading("memUsedKb") / 1048576, r.reading("memTotalKb") / 1048576)
         }
         Overview {
-          glyph: ""; label: FoamyI18n.t("CPU temperature"); value: view.degrees(r.cpuThermal.temperature)
+          glyph: "\u{f2c9}"; label: FoamyI18n.t("CPU temperature"); value: view.degrees(r.cpuThermal.temperature)
           detail: view.temperatureDetail(r.cpuThermal); meterValue: r.cpuThermal.meter; warning: r.cpuThermal.hot
         }
         Overview {
-          glyph: ""; label: "GPU"; value: view.percent(r.gpu); meterValue: r.gpu; warning: r.gpuWarning
+          glyph: "\u{f108}"; label: "GPU"; value: view.percent(r.gpu); meterValue: r.gpu; warning: r.gpuWarning
           detail: r.gpuSuspended ? FoamyI18n.t("Sleeping")
             : r.intelGpu && !isNaN(r.reading("gpuFrequencyMHz")) ? FoamyI18n.number(Math.round(r.reading("gpuFrequencyMHz"))) + " MHz" : ""
         }
         Overview {
-          glyph: "󰍛"; label: r.intelGpu ? FoamyI18n.t("GPU memory") : "VRAM"
+          glyph: "\u{f035b}"; label: r.intelGpu ? FoamyI18n.t("GPU memory") : "VRAM"
           value: r.intelGpu ? view.memoryAmount(r.reading("gpuMemoryPrivate") / 1024) : view.percent(r.vram)
           detail: r.intelGpu ? FoamyI18n.t("Private") : view.pair(r.reading("vramUsed") / 1073741824, r.reading("vramTotal") / 1073741824)
           meterValue: r.vram; warning: r.vramWarning
         }
         Overview {
-          glyph: ""; label: FoamyI18n.t("GPU temperature"); value: view.degrees(r.gpuThermal.temperature)
+          glyph: "\u{f2c9}"; label: FoamyI18n.t("GPU temperature"); value: view.degrees(r.gpuThermal.temperature)
           detail: r.gpuSuspended ? FoamyI18n.t("Sleeping")
             : r.intelGpu && isNaN(r.gpuThermal.temperature) ? FoamyI18n.t("Not exposed") : view.temperatureDetail(r.gpuThermal)
           meterValue: r.gpuThermal.meter; warning: r.gpuThermal.hot

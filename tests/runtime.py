@@ -102,7 +102,11 @@ ShellRoot {
         check(view.hoveredCore === 2, "Right picks a thread on the cores strip")
         view.tabRequested(1)
         check(shell.switched === 1, "Tab switches to the next bar panel")
-        if (shell.modern) view.textKey("s", 0); else view.textKey("s")  // 4.5 adds modifiers
+        if (shell.modern) {  // 4.0's catcher passes no modifiers
+          view.cursor.emitTextKey(view, "s", Qt.ControlModifier)
+          check(!b.editingSettings, "Ctrl+S is not the s shortcut")
+        }
+        view.cursor.emitTextKey(view, "s")
         check(b.editingSettings && view.editingSettings, "s opens Settings")
         break
       case 3:
@@ -111,12 +115,20 @@ ShellRoot {
         b.save("cpuWarning", 80)
         var saved = bar.saved[bar.saved.length - 1]
         check(saved && saved.id === "foamy.vitals" && saved.settings.cpuWarning === 80, "inline save of the full entry")
+        check(b.readings.preference("cpuWarning") === 80, "the saved value applies before the host reflects it")
+        b.save("barDisplay", "memory")
+        saved = bar.saved[bar.saved.length - 1]
+        check(saved.settings.cpuWarning === 80 && saved.settings.barDisplay === "memory", "a second quick save keeps the first")
         b.save("cpuWarning", 0)
         check(b.settingsError !== "", "out-of-range value refused: " + b.settingsError)
         page.back()
         check(!b.editingSettings, "Esc leaves Settings")
         b.popup.bodyItem.closeRequested()
         check(!b.opened, "Esc closes the popup")
+        a.openSettings()
+        check(a.opened && a.editingSettings, "openSettings() on a closed popup lands on Settings")
+        a.close()
+        check(!a.editingSettings, "closing resets to the dashboard")
         break
       case 4:
         var hidden = b.popup.bodyItem
