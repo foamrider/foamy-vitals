@@ -51,6 +51,15 @@ ShellRoot {
     for (var i = 0; i < kids.length; i++) { var found = numberField(kids[i]); if (found) return found }
     return null
   }
+  // The text of the kit field's error line (a Text shown while its `message`
+  // is set), or "". The offscreen popup itself isn't visible, so don't ask.
+  function alertText(item) {
+    if (!item) return ""
+    if (item.message !== undefined && item.text !== undefined && item.message !== "") return String(item.text)
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) { var found = alertText(kids[i]); if (found !== "") return found }
+    return ""
+  }
   MockBar {
     id: bar
     moduleName: "foamy.vitals"
@@ -130,11 +139,11 @@ ShellRoot {
         check(cpuField.value === 77 && cpuField.field.text === "77", "the field keeps following the setting")
         b.settings = ({ cpuWarning: 66 })
         check(cpuField.field.text === "66", "and keeps following after an edit cycle")
-        check(b.pasteError === "", "no paste error before a paste")
         cpuField.field.pasteError = "Clipboard paste timed out. Copy the text again."
-        check(b.pasteError !== "" && b.settingsError === b.pasteError, "a refused paste in a number field shows in Settings (" + b.settingsError + ")")
+        check(shell.alertText(cpuField) === "Clipboard paste timed out. Copy the text again.", "a refused paste in a number field shows in the field (" + shell.alertText(cpuField) + ")")
+        check(b.settingsError === "", "and not as a settings save error")
         cpuField.field.pasteError = ""
-        b.pasteError = ""
+        check(shell.alertText(cpuField) === "", "the field's error line clears with it")
         check(b.popup.bodyItem.editingSettings && page.implicitHeight > 0, "settings page in place of the dashboard")
         b.save("cpuWarning", 80)
         var saved = bar.saved[bar.saved.length - 1]

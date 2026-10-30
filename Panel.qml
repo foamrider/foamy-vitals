@@ -23,9 +23,8 @@ Panel {
   readonly property color barUrgent: readings.warningColor(barSurface, bar ? bar.urgent : Commons.Color.urgent)
 
   readonly property bool editingSettings: settingsState.editing
-  // Paste errors from the settings fields; save errors live in the queue.
-  property string pasteError: ""
-  readonly property string settingsError: pasteError || (prefs.error ? FoamyI18n.t(prefs.error) : "")
+  // Save errors live in the queue; a refused paste shows in its own field.
+  readonly property string settingsError: prefs.error ? FoamyI18n.t(prefs.error) : ""
   property string launchError: ""
   readonly property bool saving: prefs.busy
   readonly property alias popup: popup
@@ -41,7 +40,7 @@ Panel {
     fields: Schema.fields
     settings: root.settings
   }
-  FoamySettingsState { id: settingsState; panel: root; onHidden: root.pasteError = "" }
+  FoamySettingsState { id: settingsState; panel: root }
 
   VitalsReadings { id: readings; settings: prefs.effectiveSettings }
 
@@ -100,7 +99,6 @@ Panel {
   }
 
   function save(key, next) {
-    pasteError = ""
     prefs.save(key, next)
   }
 
@@ -155,7 +153,7 @@ Panel {
         editingSettings: root.editingSettings
         saving: root.saving
         settingsError: root.settingsError
-        retryable: root.pasteError === "" && prefs.canRetry
+        retryable: prefs.canRetry
         launchError: root.launchError
         onCloseRequestedByView: root.editingSettings ? root.closeSettings() : root.close()
         onSettingsRequested: root.openSettings()
@@ -165,7 +163,6 @@ Panel {
         onSaveRequested: function(key, value) { root.save(key, value) }
         onRetryRequested: prefs.retry()
         onSwitchPanelRequested: function(direction) { root.switchPanel(direction) }
-        onPasteFailed: function(message) { root.pasteError = message }
       }
     }
   }
