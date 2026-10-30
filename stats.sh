@@ -499,7 +499,9 @@ fi
 
 intel=0
 if [[ $gpu_busy == null && -z $nvidia_address ]]; then
-  for bound in "$sys"/bus/pci/drivers/i915/0000:* "$sys"/bus/pci/drivers/xe/0000:*; do
+  # Bound devices are named by PCI address, in any domain ("0001:03:00.0");
+  # the driver's control files (bind, new_id, uevent…) have no colon.
+  for bound in "$sys"/bus/pci/drivers/i915/*:* "$sys"/bus/pci/drivers/xe/*:*; do
     [[ -e $bound ]] && intel=1 && break
   done
 fi

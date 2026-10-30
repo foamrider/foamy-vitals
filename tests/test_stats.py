@@ -356,6 +356,32 @@ class FakeTreeTest(unittest.TestCase):
         self.assertEqual(sample["gpuError"], "Intel GPU readings unavailable. Retrying…")
         self.assertIn("Intel telemetry:", stderr, "the lock must not swallow the script's stderr")
 
+    def test_intel_gpu_in_a_nonzero_pci_domain(self):
+        """An Intel GPU outside PCI domain 0000 (multi-domain, VMD) is still found."""
+        tree = self.tree
+        (tree.sys / "bus/pci/drivers/xe/0001:03:00.0").mkdir(parents=True)
+        for name in ("bind", "unbind", "new_id", "uevent"):
+            (tree.sys / "bus/pci/drivers/xe" / name).touch()
+        device = tree.sys / "devices/pci0001:00/0001:03:00.0"
+        device.mkdir(parents=True)
+        (device / "driver").symlink_to(tree.sys / "bus/pci/drivers/xe")
+        card = tree.sys / "class/drm/card0"
+        (card / "gt/gt0").mkdir(parents=True)
+        (card / "device").symlink_to(device)
+        (card / "gt/gt0/rps_act_freq_mhz").write_text("800\n")
+        sample, _ = tree.run("--bar")
+        self.assertTrue(sample["gpuIntel"])
+        self.assertEqual(sample["gpuFrequencyMHz"], 800)
+
+    def test_driver_control_files_are_not_a_bound_intel_gpu(self):
+        tree = self.tree
+        driver = tree.sys / "bus/pci/drivers/i915"
+        driver.mkdir(parents=True)
+        for name in ("bind", "unbind", "new_id", "remove_id", "uevent", "module"):
+            (driver / name).touch()
+        sample, _ = tree.run("--bar")
+        self.assertFalse(sample["gpuIntel"])
+
     def test_state_directory_rejects_unsafe_fallbacks(self):
         os.chmod(self.tree.runtime, 0o755)
         target = self.base / "elsewhere"
