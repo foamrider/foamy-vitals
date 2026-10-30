@@ -130,6 +130,11 @@ ShellRoot {
         check(cpuField.value === 77 && cpuField.field.text === "77", "the field keeps following the setting")
         b.settings = ({ cpuWarning: 66 })
         check(cpuField.field.text === "66", "and keeps following after an edit cycle")
+        check(b.pasteError === "", "no paste error before a paste")
+        cpuField.field.pasteError = "Clipboard paste timed out. Copy the text again."
+        check(b.pasteError !== "" && b.settingsError === b.pasteError, "a refused paste in a number field shows in Settings (" + b.settingsError + ")")
+        cpuField.field.pasteError = ""
+        b.pasteError = ""
         check(b.popup.bodyItem.editingSettings && page.implicitHeight > 0, "settings page in place of the dashboard")
         b.save("cpuWarning", 80)
         var saved = bar.saved[bar.saved.length - 1]

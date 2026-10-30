@@ -716,5 +716,12 @@ PanelKeyCatcher {
     stepSize: schemaField.step || 1
     field.Accessible.name: FoamyI18n.t(schemaField.group || "") + " " + FoamyI18n.t(schemaField.label)
     onCommitted: function(v) { view.saveRequested(key, v) }
+    // The kit field doesn't show a refused paste; Settings' error line does.
+    Connections {
+      target: numberRow.field
+      function onPasteErrorChanged() {
+        if (numberRow.field.pasteError !== "") view.pasteFailed(FoamyI18n.t(numberRow.field.pasteError))
+      }
+    }
   }
 }
