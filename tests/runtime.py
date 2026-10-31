@@ -44,6 +44,13 @@ ShellRoot {
   // directly, since offscreen windows get no keyboard focus.
   function down(view) { view.moveRequested(0, 1) }
   // The first FoamyNumberField under item (the CPU usage warning).
+  function named(item, name) {
+    if (!item) return null
+    if (item.objectName === name) return item
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) { var found = named(kids[i], name); if (found) return found }
+    return null
+  }
   function numberField(item) {
     if (!item) return null
     if (item.committed !== undefined && item.field !== undefined && item.stepSize !== undefined) return item
@@ -145,6 +152,9 @@ ShellRoot {
         cpuField.field.pasteError = ""
         check(shell.alertText(cpuField) === "", "the field's error line clears with it")
         check(b.popup.bodyItem.editingSettings && page.implicitHeight > 0, "settings page in place of the dashboard")
+        var barChoice = shell.named(page, "barDisplay")
+        check(barChoice && barChoice.compact && barChoice.label === "Show in the bar", "Show in the bar is the kit dropdown row")
+        check(barChoice && Math.abs(barChoice.height - cpuField.height) <= 1, "the dropdown row is as tall as a number row (" + (barChoice ? barChoice.height : -1) + " vs " + cpuField.height + ")")
         b.save("cpuWarning", 80)
         var saved = bar.saved[bar.saved.length - 1]
         check(saved && saved.id === "foamy.vitals" && saved.settings.cpuWarning === 80, "inline save of the full entry")

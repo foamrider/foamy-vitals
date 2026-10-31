@@ -510,35 +510,16 @@ PanelKeyCatcher {
     FoamySettingsSection {
       width: parent.width
       title: FoamyI18n.t("Bar")
-      // Short choices: the label on the start and a dropdown sized to its
-      // options on the end, in line with the compact number rows below.
-      RowLayout {
+      // A short choice: the kit row form, in line with the toggle below and
+      // the compact number rows.
+      FoamyDropdown {
+        objectName: "barDisplay"
         width: parent.width
-        spacing: FoamyStyle.gap
-        Text {
-          Layout.fillWidth: true
-          Layout.alignment: Qt.AlignVCenter
-          text: barDisplay.label
-          textFormat: Text.PlainText
-          horizontalAlignment: Text.AlignLeft
-          elide: Text.ElideRight
-          color: FoamyPalette.text
-          font.family: FoamyStyle.fontFamily
-          font.pixelSize: FoamyStyle.font.subtitle
-        }
-        FoamyDropdown {
-          id: barDisplay
-          showLabel: false
-          label: FoamyI18n.t("Show in the bar")
-          Accessible.name: label
-          value: String(r.preference("barDisplay"))
-          options: Prefs.field(Schema.fields, "barDisplay").options.map(function(v) { return { value: v, label: FoamyI18n.t(Schema.optionLabel(v)) } })
-          // The longest option, the chevron and the trigger's padding.
-          Layout.preferredWidth: Math.ceil(options.reduce(function(widest, o) { return Math.max(widest, optionMetrics.advanceWidth(o.label)) }, 0))
-            + FoamyStyle.controlPaddingX + FoamyStyle.iconSize + FoamyStyle.gapLarge * 2 + FoamyStyle.borderWidth * 2
-          onChanged: function(value) { view.saveRequested("barDisplay", value) }
-          FontMetrics { id: optionMetrics; font.family: FoamyStyle.fontFamily; font.pixelSize: FoamyStyle.font.body }
-        }
+        compact: true
+        label: FoamyI18n.t("Show in the bar")
+        value: String(r.preference("barDisplay"))
+        options: Prefs.field(Schema.fields, "barDisplay").options.map(function(v) { return { value: v, label: FoamyI18n.t(Schema.optionLabel(v)) } })
+        onChanged: function(value) { view.saveRequested("barDisplay", value) }
       }
       FoamyToggle {
         width: parent.width
