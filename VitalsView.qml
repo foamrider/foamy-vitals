@@ -229,6 +229,9 @@ PanelKeyCatcher {
     onHeightChanged: contentY = Math.max(0, Math.min(contentY, contentHeight - height))
     Controls.ScrollBar.vertical: Controls.ScrollBar { policy: Controls.ScrollBar.AsNeeded }
 
+    // A wheel notch scrolls about three rows, however the mouse splits it.
+    FoamyWheelScroll { id: wheel; target: flick }
+
     Column {
       id: page
       width: flick.width
