@@ -25,6 +25,16 @@ drm-shared-system0: 1024 KiB
 '''
 
 
+def descriptor(proc, pid, number, text, target="/dev/dri/renderD128"):
+    """One open file of a fake process: its fd link and its fdinfo."""
+    (proc / str(pid) / "fd").mkdir(parents=True, exist_ok=True)
+    (proc / str(pid) / "fdinfo").mkdir(parents=True, exist_ok=True)
+    link = proc / str(pid) / "fd" / str(number)
+    if not link.is_symlink():
+        link.symlink_to(target)
+    (proc / str(pid) / "fdinfo" / str(number)).write_text(text)
+
+
 def snapshot(at, *records):
     return dict(device=DEVICE, boot="boot", time=at,
                 clients=dict(INTEL.parse_client(record, DEVICE) for record in records))
@@ -71,10 +81,8 @@ class IntelTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             proc = Path(directory)
             for pid in (1, 2):
-                fds = proc / str(pid) / "fdinfo"
-                fds.mkdir(parents=True)
-                (fds / "3").write_text(fdinfo())
-                (fds / "4").write_text(fdinfo())
+                descriptor(proc, pid, 3, fdinfo())
+                descriptor(proc, pid, 4, fdinfo())
             self.assertEqual(len(INTEL.read_clients(DEVICE, proc)), 1)
             with patch.object(INTEL.time, "monotonic", side_effect=[0, 2]):
                 with self.assertRaises(TimeoutError):
@@ -98,9 +106,8 @@ class IntelTest(unittest.TestCase):
             boot = proc / "sys/kernel/random/boot_id"
             boot.parent.mkdir(parents=True)
             boot.write_text("boot")
+            descriptor(proc, 1, 3, fdinfo())
             fds = proc / "1/fdinfo"
-            fds.mkdir(parents=True)
-            (fds / "3").write_text(fdinfo())
             state = root / "intel.json"
             with patch.object(INTEL.time, "monotonic_ns", return_value=1_000_000_000):
                 first = INTEL.collect(state, drm, proc)
@@ -129,6 +136,23 @@ class IntelTest(unittest.TestCase):
                 self.assertIsNone(INTEL.collect(state, drm, proc)["gpuBusy"])
             (card / "device").unlink()
             self.assertFalse(INTEL.collect(state, drm, proc)["gpuIntel"])
+
+    def test_only_dri_descriptors_are_read(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proc = Path(directory)
+            # fdinfo of a socket or a plain file is never opened, whatever it holds.
+            descriptor(proc, 1, 5, fdinfo(7), target="socket:[1234]")
+            descriptor(proc, 1, 6, fdinfo(8), target="/home/user/notes.txt")
+            descriptor(proc, 1, 7, fdinfo(9), target="/dev/dri/card1")
+            reads = []
+            real = Path.read_text
+            def spy(path, *args, **kwargs):
+                reads.append(path.name)
+                return real(path, *args, **kwargs)
+            with patch.object(Path, "read_text", spy):
+                clients = INTEL.read_clients(DEVICE, proc)
+            self.assertEqual(list(clients), ["9"])
+            self.assertEqual(reads, ["7"])
 
     def test_changed_capacity_and_missing_counters_are_not_invented(self):
         before = snapshot(1_000_000_000, fdinfo())

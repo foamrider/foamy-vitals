@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const preferences = require('../Preferences.js');
+const schema = require('../Preferences.js');
+const prefs = require('../kit/node-loader.cjs').load('FoamyPrefs');
+// The schema is plain data; validation and defaults are foamy-kit's engine.
+const preferences = {fields: schema.fields, value: (settings, key) => prefs.value(schema.fields, settings, key), valid: (key, value) => prefs.valid(schema.fields, key, value)};
 const manifest = require('../manifest.json');
 
 test('manifest and runtime use the same setting defaults and constraints', () => {

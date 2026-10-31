@@ -95,11 +95,16 @@ def read_clients(device: str, proc: Path = Path("/proc")) -> dict[str, Client]:
         try:
             if process.stat().st_uid != os.getuid():
                 continue
-            for fd in (process / "fdinfo").iterdir():
+            for fd in (process / "fd").iterdir():
                 if time.monotonic() > deadline:
                     raise TimeoutError("Intel descriptor scan exceeded its budget")
                 try:
-                    parsed = parse_client(fd.read_text(), device)
+                    # Only DRM device files have DRM client fdinfo. Checking the
+                    # link first skips the read for every socket, pipe and file
+                    # (thousands per desktop session).
+                    if not os.readlink(fd).startswith("/dev/dri/"):
+                        continue
+                    parsed = parse_client((process / "fdinfo" / fd.name).read_text(), device)
                 except (FileNotFoundError, ProcessLookupError, PermissionError):
                     continue
                 if parsed:
@@ -223,5 +228,7 @@ def collect(state: Path, drm: Path = Path("/sys/class/drm"), proc: Path = Path("
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("state", type=Path)
+    parser.add_argument("--proc", type=Path, default=Path("/proc"), help=argparse.SUPPRESS)
+    parser.add_argument("--drm", type=Path, default=Path("/sys/class/drm"), help=argparse.SUPPRESS)
     args = parser.parse_args()
-    print(json.dumps(collect(args.state), separators=(",", ":"), allow_nan=False))
+    print(json.dumps(collect(args.state, args.drm, args.proc), separators=(",", ":"), allow_nan=False))
