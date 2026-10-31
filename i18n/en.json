@@ -68,5 +68,7 @@
   "Clipboard text is too large or contains invalid characters.": "Clipboard text is too large or contains invalid characters.",
   "Could not paste clipboard text. Copy plain text and try again.": "Could not paste clipboard text. Copy plain text and try again.",
   "Vitals": "Vitals",
-  "Enter a number from %1 to %2": "Enter a number from %1 to %2"
+  "Enter a number from %1 to %2": "Enter a number from %1 to %2",
+  "More options": "More options",
+  "More information": "More information"
 }

@@ -68,5 +68,7 @@
   "Clipboard text is too large or contains invalid characters.": "Utklippstavleteksten er for stor eller inneholder ugyldige tegn.",
   "Could not paste clipboard text. Copy plain text and try again.": "Kunne ikke lime inn teksten. Kopier ren tekst og prøv igjen.",
   "Vitals": "Vitals",
-  "Enter a number from %1 to %2": "Skriv et tall fra %1 til %2"
+  "Enter a number from %1 to %2": "Skriv et tall fra %1 til %2",
+  "More options": "Flere valg",
+  "More information": "Mer informasjon"
 }
