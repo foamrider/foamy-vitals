@@ -96,6 +96,8 @@ displays the plugin in English. Missing translations fall back to English.
 
 ## Development
 
+`kit/` holds shared components copied from [foamy-kit](https://github.com/foamrider/foamy-kit); edit them there, not here.
+
 Shared controls come from [foamy-kit](https://github.com/foamrider/foamy-kit),
 copied into `kit/` (do not edit; run its `sync.sh`).
 
