@@ -8,7 +8,7 @@ Item {
   id: preview
   required property QtObject bar
   required property Item anchorItem
-  property var previewStates: ["dashboard", "warning", "intel", "nvidia-sleeping", "keyboard", "error", "settings", "settings-error"]
+  property var previewStates: ["dashboard", "warning", "intel", "nvidia-sleeping", "graphics", "keyboard", "error", "settings", "settings-error"]
   property string previewState: "dashboard"
   property int settleMs: 700
   readonly property Item popup: popup
@@ -48,6 +48,16 @@ Item {
     } else if (state === "nvidia-sleeping") {
       stats.gpus = [{
         id: "0000:01:00.0", vendor: "nvidia", driver: "nvidia", name: "GeForce RTX 4070 Max-Q / Mobile", type: "discrete", asleep: true,
+        busy: null, vramUsed: null, vramTotal: null, memoryPrivate: null, frequencyMHz: null, thermals: [], error: ""
+      }]
+    } else if (state === "graphics") {
+      // An APU, the pinned discrete card and a sleeping NVIDIA card.
+      stats.gpus = [{
+        id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: "Radeon 780M", type: "integrated", asleep: false,
+        busy: 31, vramUsed: 1073741824, vramTotal: 8589934592, memoryPrivate: null, frequencyMHz: null,
+        thermals: [{ temperature: 51, critical: 100, label: "Edge" }], error: ""
+      }, stats.gpus[0], {
+        id: "0000:05:00.0", vendor: "nvidia", driver: "nvidia", name: "GeForce RTX 4070", type: "discrete", asleep: true,
         busy: null, vramUsed: null, vramTotal: null, memoryPrivate: null, frequencyMHz: null, thermals: [], error: ""
       }]
     }
@@ -111,7 +121,8 @@ Item {
     body: Component {
       Vitals.VitalsView {
         live: true
-        settings: preview.previewState === "warning" ? ({ cpuWarning: 90 }) : ({})
+        settings: preview.previewState === "warning" ? ({ cpuWarning: 90 })
+          : preview.previewState === "graphics" ? ({ pinnedGpu: "0000:03:00.0" }) : ({})
         editingSettings: preview.previewState.indexOf("settings") === 0
         settingsError: preview.previewState === "settings-error" ? "Couldn't save the setting." : ""
         retryable: preview.previewState === "settings-error"
