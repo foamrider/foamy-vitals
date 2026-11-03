@@ -136,6 +136,23 @@ ShellRoot {
         var pinSaved = bar.saved[bar.saved.length - 1]
         check(bar.saved.length === pinSaves + 1 && pinSaved.settings.pinnedGpu === "0000:c1:00.0", "Enter on a GPU row pins it (" + JSON.stringify(pinSaved && pinSaved.settings) + ")")
         check(b.readings.barGpu && b.readings.barGpu.id === "0000:c1:00.0", "the bar follows the pinned GPU once saved")
+        // The cursor is on the second GPU row; losing a GPU must not leave it on a process row.
+        view.cursor.hover(2)
+        s.parse(JSON.stringify(Object.assign({}, s.stats, {
+          mode: "full", sampleTimeMs: s.sampledAt + 2, gpus: s.stats.gpus.slice(0, 1)
+        })))
+        check(view.graphicsStops === 0 && view.cursor.index < view.cpuStart, "one GPU left: the cursor is not on a process row (" + view.cursor.index + ", cpuStart " + view.cpuStart + ")")
+        check(view.cursor.index === -1, "no GPU rows left: the cursor resets (" + view.cursor.index + ")")
+        s.parse(JSON.stringify(Object.assign({}, s.stats, {
+          mode: "full", sampleTimeMs: s.sampledAt + 3,
+          gpus: [
+            { id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "integrated", asleep: false, busy: 12,
+              vramUsed: 536870912, vramTotal: 4294967296, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" },
+            { id: "0000:05:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "discrete", asleep: false, busy: 40,
+              vramUsed: 2147483648, vramTotal: 17179869184, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" }
+          ]
+        })))
+        view.cursor.hover(1)
         shell.down(view)
         shell.down(view)
         check(view.cursor.index === view.cpuStart, "next: first CPU process row")

@@ -30,12 +30,12 @@ assert.ok(missing, 'VitalsReadings has pinnedMissing');
 const failedRow = readings.match(/readonly property string gpuError: \{([\s\S]*?)\n  \}/);
 assert.ok(failedRow, 'VitalsReadings has gpuError');
 const Gpus = vm.createContext({});
-vm.runInContext(fs.readFileSync(path.join(__dirname, '../Gpus.js'), 'utf8').replace(/^\.import .*$/m, ''), Gpus);
-function pinnedMissing(stats, telemetryError = '') {
+vm.runInContext(fs.readFileSync(path.join(__dirname, '../Gpus.js'), 'utf8').replace(/^\.import .*$/gm, ''), Gpus);
+function pinnedMissing(stats, telemetryError = '', pin = '0000:05:00.0') {
   const rows = Gpus.order(stats.gpus);
   const scope = vm.createContext({
     VitalsService: { telemetryError: telemetryError }, stats: stats, Gpus: Gpus,
-    gpus: rows, gpuRows: rows, pinnedGpu: '0000:05:00.0',
+    gpus: rows, gpuRows: rows, pinnedGpu: pin,
   });
   scope.gpuError = vm.runInContext('(function() {' + failedRow[1] + '\n})()', scope);
   return vm.runInContext(missing[1], scope);
@@ -48,6 +48,35 @@ assert.equal(pinnedMissing({ gpus: [Object.assign({}, other, { error: 'NVIDIA re
 assert.equal(pinnedMissing({ gpus: [] }), true, 'no GPUs at all');
 assert.equal(pinnedMissing({ gpus: [other] }), true, 'pin absent');
 assert.equal(pinnedMissing({ gpus: [other, present] }), false, 'pin present');
+assert.equal(pinnedMissing({ gpus: [other] }, '', ''), false, 'empty pin');
+
+// One chart line per GPU: slot 0 keeps the single-GPU color, later slots cycle through the tints.
+const tints = view.match(/  readonly property var gpuTints: (\[.*\])\n/);
+assert.ok(tints, 'VitalsView has gpuTints');
+assert.ok(view.includes('[Qt.rgba(0.95, 0.95, 0.24, 0.8), Qt.rgba(0.24, 0.95, 0.95, 0.8), Qt.rgba(0.95, 0.24, 0.77, 0.8)]'), 'tint values');
+const slotFn = view.match(/  function gpuSlotColor\(slot\) \{.*\}\n/);
+assert.ok(slotFn, 'VitalsView has a one-line gpuSlotColor(slot)');
+const chartIds = view.match(/  readonly property var gpuChartIds: (Object[\s\S]*?\n  \}\))/);
+assert.ok(chartIds, 'VitalsView has gpuChartIds');
+const chartScope = vm.createContext({
+  Qt: { rgba: (r, g, b, a) => ['rgba', r, g, b, a], tint: (base, tint) => ['tint', base, tint] },
+  Commons: { Color: { accent: 'accent' } },
+  gpuColor: 'gpuColor',
+  Gpus: Gpus,
+  r: { gpus: [{ id: 'b' }, { id: 'a' }] },
+  history: { gpus: { gone: [], a: [], b: [] } },
+});
+vm.runInContext('var gpuTints = ' + tints[1], chartScope);
+vm.runInContext(slotFn[0], chartScope);
+const t = vm.runInContext('gpuTints', chartScope);
+assert.equal(t.length, 3);
+const colors = [0, 1, 2, 3, 4].map((s) => vm.runInContext('gpuSlotColor(' + s + ')', chartScope));
+assert.equal(colors[0], 'gpuColor');
+assert.deepEqual(colors.slice(1), [t[0], t[1], t[2], t[0]].map((x) => ['tint', 'accent', x]));
+assert.deepEqual(vm.runInContext('JSON.stringify(' + chartIds[1] + ')', chartScope), JSON.stringify(['b', 'a', 'gone']), 'a vanished id sorts after the current rows');
+
+// A shrinking GPU list must not leave the cursor on a process row.
+assert.ok(/onGraphicsStopsChanged:/.test(view), 'VitalsView reacts to graphicsStops changing');
 
 // New strings: English is the key, Norwegian as agreed, and the view uses each one.
 const strings = {
