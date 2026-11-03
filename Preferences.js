@@ -9,7 +9,9 @@ var fields = [
   {key: "gpuWarning", type: "integer", label: "GPU", group: "Usage warnings", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
   {key: "vramWarning", type: "integer", label: "VRAM", group: "Usage warnings", unit: "%", defaultValue: 95, min: 1, max: 100, step: 1},
   {key: "cpuTemperatureMargin", type: "integer", label: "CPU", group: "Temperature warning margin", unit: "°C", defaultValue: 15, min: 0, max: 100, step: 1},
-  {key: "gpuTemperatureMargin", type: "integer", label: "GPU", group: "Temperature warning margin", unit: "°C", defaultValue: 15, min: 0, max: 100, step: 1}
+  {key: "gpuTemperatureMargin", type: "integer", label: "GPU", group: "Temperature warning margin", unit: "°C", defaultValue: 15, min: 0, max: 100, step: 1},
+  // Not on the settings page: saved from the popup's pin control.
+  {key: "pinnedGpu", type: "string", defaultValue: "", pattern: "^(|[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7])$", hidden: true}
 ]
 
 function optionLabel(value) {
