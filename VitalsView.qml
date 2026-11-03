@@ -70,6 +70,18 @@ PanelKeyCatcher {
   readonly property color cpuColor: Commons.Color.accent
   readonly property color memoryColor: Qt.darker(Commons.Color.accent, 1.5)
   readonly property color gpuColor: Qt.tint(Commons.Color.accent, Qt.alpha(Commons.Color.urgent, 0.6))
+  // Later GPU slots: Qt.tint(Commons.Color.accent, Qt.rgba(0.95, 0.95, 0.24, 0.8)), Qt.rgba(0.24, 0.95, 0.95, 0.8), Qt.rgba(0.95, 0.24, 0.77, 0.8) (ΔE ≥ 24 from CPU, RAM, GPU and each other in every bundled theme).
+  readonly property var gpuTints: [Qt.rgba(0.95, 0.95, 0.24, 0.8), Qt.rgba(0.24, 0.95, 0.95, 0.8), Qt.rgba(0.95, 0.24, 0.77, 0.8)]
+  function gpuSlotColor(slot) { return slot <= 0 ? gpuColor : Qt.tint(Commons.Color.accent, gpuTints[(slot - 1) % gpuTints.length]) }
+  // History lines in color-slot order: current rows first, then vanished GPUs.
+  readonly property var gpuChartIds: Object.keys(history.gpus).sort(function(a, b) {
+    return Gpus.colorSlot(r.gpus, history.gpus, a) - Gpus.colorSlot(r.gpus, history.gpus, b)
+  })
+  // Legend text: a current row's short name, else a vanished GPU's address.
+  function gpuLegend(id) {
+    var row = r.gpuRows.filter(function(gpu) { return gpu.id === id })[0]
+    return Gpus.shortName(row || { id: id, vendor: "" })
+  }
   readonly property real networkScale: Math.pow(2, Math.ceil(Math.log(Math.max(1024, History.peak(history.up), History.peak(history.down)) * 1.1) / Math.LN2))
   readonly property real cellWidth: (content.width - FoamyStyle.padding * 2 - overview.columnSpacing * (overview.columns - 1)) / overview.columns
 
@@ -94,6 +106,18 @@ PanelKeyCatcher {
   }
 
   onLiveChanged: if (!live) { cursor.reset(); hoveredCore = -1; flick.contentY = 0 }
+
+  // When GPU rows vanish under the cursor, the numeric index would land on a
+  // process row (Enter opens btop): move to the first GPU row, or reset.
+  property int previousGraphicsStops: 0
+  onGraphicsStopsChanged: {
+    var was = previousGraphicsStops
+    previousGraphicsStops = graphicsStops
+    if (cursor.index >= graphicsStart && cursor.index < graphicsStart + was && cursor.index >= graphicsStart + graphicsStops) {
+      if (graphicsStops > 0) cursor.index = graphicsStart
+      else cursor.reset()
+    }
+  }
   onEditingSettingsChanged: {
     cursor.reset()
     if (editingSettings) {
@@ -386,16 +410,36 @@ PanelKeyCatcher {
             spacing: FoamyStyle.gapLarge
             SectionHeading { title: FoamyI18n.t("Resource usage"); detail: FoamyI18n.t("Last 2 minutes") }
             Row {
+              visible: !r.multiGpu
               spacing: FoamyStyle.sectionGap
               Legend { text: "CPU"; dotColor: view.cpuColor }
               Legend { text: "RAM"; dotColor: view.memoryColor; dashed: true }
               Legend { text: "GPU"; dotColor: view.gpuColor }
             }
+            // One entry per GPU line; entries wrap and long names elide.
+            Flow {
+              visible: r.multiGpu
+              width: parent.width
+              spacing: FoamyStyle.sectionGap
+              Legend { text: "CPU"; dotColor: view.cpuColor }
+              Legend { text: "RAM"; dotColor: view.memoryColor; dashed: true }
+              Repeater {
+                model: r.multiGpu ? view.gpuChartIds : []
+                Legend {
+                  required property string modelData
+                  text: view.gpuLegend(modelData)
+                  textWidth: Style.space(90)
+                  dotColor: view.gpuSlotColor(Gpus.colorSlot(r.gpus, view.history.gpus, modelData))
+                }
+              }
+            }
             HistoryPlot {
               width: parent.width; height: Style.space(90)
               topLabel: view.percent(100); middleLabel: view.percent(50); bottomLabel: view.percent(0)
               maximum: 100
-              series: view.live ? [{ points: view.history.cpu, color: view.cpuColor }, { points: view.history.memory, color: view.memoryColor, dashed: true }, { points: view.history.gpus[r.gpus.length ? r.gpus[0].id : ""] || [], color: view.gpuColor }] : []
+              series: !view.live ? [] : [{ points: view.history.cpu, color: view.cpuColor }, { points: view.history.memory, color: view.memoryColor, dashed: true }].concat(r.multiGpu
+                ? view.gpuChartIds.map(function(id) { return { points: view.history.gpus[id], color: view.gpuSlotColor(Gpus.colorSlot(r.gpus, view.history.gpus, id)) } })
+                : [{ points: view.history.gpus[r.gpus.length ? r.gpus[0].id : ""] || [], color: view.gpuColor }])
             }
           }
 
@@ -654,6 +698,7 @@ PanelKeyCatcher {
   component Legend: Row {
     id: legend
     property string text: ""
+    property real textWidth: -1  // > 0 caps the label, eliding with an ellipsis
     property color dotColor: view.cpuColor
     property bool dashed: false
     spacing: Style.space(6)
@@ -665,7 +710,7 @@ PanelKeyCatcher {
         Rectangle { width: Style.space(legend.dashed ? 4 : 16); height: Style.space(2); radius: FoamyStyle.pillRadius(height); color: legend.dotColor }
       }
     }
-    Caption { text: legend.text }
+    Caption { text: legend.text; elide: Text.ElideRight; width: legend.textWidth > 0 ? Math.min(implicitWidth, legend.textWidth) : implicitWidth }
   }
 
   component SectionHeading: Item {

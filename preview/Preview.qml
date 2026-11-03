@@ -64,10 +64,15 @@ Item {
     return stats
   }
 
-  // GPU history is keyed by PCI address: the mock GPU's line.
+  // GPU history is keyed by PCI address: one line per mock GPU.
   function gpuHistory(state) {
     var history = {}
-    history[sample(state).gpus[0].id] = series(12, 9, 2)
+    var gpus = sample(state).gpus
+    if (state === "graphics") {
+      for (var i = 0; i < gpus.length; i++) history[gpus[i].id] = series(10 + i * 18, 9, 2 + i * 2)
+      return history
+    }
+    history[gpus[0].id] = series(12, 9, 2)
     return history
   }
 
