@@ -8,13 +8,15 @@ import "kit"
 import "kit/FoamyPrefs.js" as Prefs
 import "Preferences.js" as Schema
 import "History.js" as History
+import "Gpus.js" as Gpus
 
 // The Vitals popup body: hero band, readings dashboard and the settings page.
 // Data comes from VitalsService (or the preview's mock values); the Panel
 // owns sampling, saving and closing.
 //
 // Keyboard (one cursor, shared with the pointer): Up/Down/j/k walk Settings,
-// each process row, the CPU cores strip and btop, scrolling them into view;
+// the GPU rows (Enter pins), each process row, the CPU cores strip and btop,
+// scrolling them into view;
 // Left/Right/h/l pick a thread on the cores strip; Enter opens Settings or
 // btop; s Settings, r refresh, b btop, Esc closes, Tab switches bar panels.
 //
@@ -77,8 +79,10 @@ PanelKeyCatcher {
     watch: "watch", embedded: "cpu", vm: "box", container: "box"
   })[VitalsService.chassis] || "monitor"
 
-  // --- cursor stops: Settings, CPU process rows, memory rows, cores, btop --------
-  readonly property int cpuStart: 1
+  // --- cursor stops: Settings, GPU rows, CPU process rows, memory rows, cores, btop
+  readonly property int graphicsStart: 1
+  readonly property int graphicsStops: live && r.multiGpu ? r.gpuRows.length : 0
+  readonly property int cpuStart: graphicsStart + graphicsStops
   readonly property int memoryStart: cpuStart + processes.length
   readonly property int coresStop: cores.length ? memoryStart + memoryProcesses.length : -1
   readonly property int btopStop: memoryStart + memoryProcesses.length + (cores.length ? 1 : 0)
@@ -121,11 +125,16 @@ PanelKeyCatcher {
 
   function activate(index) {
     if (index === 0) settingsRequested()
+    else if (index >= graphicsStart && index < cpuStart) togglePin(r.gpuRows[index - graphicsStart].id)
     else if (index > 0 && index !== coresStop && index <= btopStop) btopRequested()
   }
 
+  // A row click or Enter pins that GPU to the bar, or unpins it.
+  function togglePin(id) { saveRequested("pinnedGpu", r.pinnedGpu === id ? "" : id) }
+
   function stopItem(index) {
     if (index <= 0) return null
+    if (index < cpuStart) return gpuRows.itemAt(index - graphicsStart)
     if (index < memoryStart) return cpuRows.itemAt(index - cpuStart)
     if (index < memoryStart + memoryProcesses.length) return memoryRows.itemAt(index - memoryStart)
     if (index === coresStop) return coresStrip
@@ -328,13 +337,16 @@ PanelKeyCatcher {
             glyph: "\u{f2c9}"; label: FoamyI18n.t("CPU temperature"); value: view.degrees(r.cpuThermal.temperature)
             detail: view.temperatureDetail(r.cpuThermal); meterValue: r.cpuThermal.meter; warning: r.cpuThermal.hot
           }
+          // With two or more GPUs the Graphics table below replaces these tiles.
           Overview {
+            visible: !r.multiGpu
             glyph: "\u{f108}"; label: "GPU"; value: view.percent(r.gpu); meterValue: r.gpu; warning: r.gpuWarning
             detail: r.gpuSuspended ? FoamyI18n.t("Sleeping")
               : r.intelGpu && !isNaN(r.gpuReading("frequencyMHz")) ? FoamyI18n.number(Math.round(r.gpuReading("frequencyMHz"))) + " MHz" : ""
           }
           Overview {
             // An APU's memory is its VRAM carve-out plus GTT (system RAM), not VRAM.
+            visible: !r.multiGpu
             glyph: "\u{f035b}"
             label: r.intelGpu || (r.barGpu && r.barGpu.vendor === "amd" && r.barGpu.type === "integrated") ? FoamyI18n.t("GPU memory") : "VRAM"
             value: r.intelGpu ? view.memoryAmount(r.gpuReading("memoryPrivate") / 1024) : view.percent(r.vram)
@@ -342,11 +354,23 @@ PanelKeyCatcher {
             meterValue: r.vram; warning: r.vramWarning
           }
           Overview {
+            visible: !r.multiGpu
             glyph: "\u{f2c9}"; label: FoamyI18n.t("GPU temperature"); value: view.degrees(r.gpuThermal.temperature)
             detail: r.gpuSuspended ? FoamyI18n.t("Sleeping")
               : r.intelGpu && isNaN(r.gpuThermal.temperature) ? FoamyI18n.t("Not exposed") : view.temperatureDetail(r.gpuThermal)
             meterValue: r.gpuThermal.meter; warning: r.gpuThermal.hot
           }
+        }
+
+        GraphicsSection {
+          id: graphics
+          Repeater { id: gpuRows; model: r.multiGpu ? r.gpuRows : []; GpuRow { section: graphics } }
+        }
+        Caption {
+          width: content.inner
+          visible: r.pinnedMissing
+          text: FoamyI18n.t("Pinned GPU not connected")
+          wrapMode: Text.WordWrap
         }
 
         Grid {
@@ -704,6 +728,137 @@ PanelKeyCatcher {
     PanelToolTip {
       visible: row.hasCursor
       text: view.processLabel(row.modelData) + (row.section && row.section.memoryMode ? "" : " · " + FoamyI18n.t("100% = 1 thread"))
+      fontFamily: FoamyStyle.fontFamily
+    }
+  }
+
+  // Every GPU in one table, shown in place of the GPU tiles once there are two.
+  component GraphicsSection: Column {
+    id: section
+    // Name, busy, temperature and VRAM columns, as fractions of the row.
+    readonly property var columns: [0.40, 0.24, 0.13, 0.23]
+    function columnWidth(i) { return width * columns[i] }
+    width: content.inner
+    visible: r.multiGpu
+    spacing: FoamyStyle.gapSmall
+    SectionHeading { title: FoamyI18n.t("Graphics"); detail: FoamyI18n.tn("%1 GPUs", r.gpus.length) }
+    Row {
+      width: parent.width
+      Caption { width: section.columnWidth(0); text: FoamyI18n.t("GPU") }
+      Caption { width: section.columnWidth(1); text: FoamyI18n.t("Busy") }
+      Caption { width: section.columnWidth(2); text: FoamyI18n.t("Temp"); horizontalAlignment: Text.AlignRight }
+      Caption { width: section.columnWidth(3); text: FoamyI18n.t("VRAM"); horizontalAlignment: Text.AlignRight }
+    }
+    // The GpuRow repeater goes here, declared where its id is visible to the view.
+  }
+
+  // One GPU; part of the panel cursor. Enter or a click pins it to the bar.
+  component GpuRow: FoamyCursorSurface {
+    id: row
+    required property var modelData
+    required property int index
+    property var section
+    readonly property int stop: view.graphicsStart + index
+    readonly property string name: modelData.name || Gpus.shortName(modelData)
+    readonly property bool pinned: r.pinnedGpu === modelData.id
+    readonly property bool onBar: !!r.barGpu && r.barGpu.id === modelData.id
+    readonly property bool asleep: modelData.asleep === true
+    readonly property bool intel: modelData.vendor === "intel"
+    readonly property string action: pinned ? FoamyI18n.t("Click to unpin") : FoamyI18n.t("Click to pin to bar")
+    function value(key) { return VitalsService.reading(modelData, key) }
+    width: section ? section.width + FoamyStyle.gap * 2 : 0
+    x: -FoamyStyle.gap
+    height: nameCell.implicitHeight + FoamyStyle.gapSmall * 2
+    hasCursor: cursor.at(stop)
+    onHovered: cursor.hover(stop)
+    onClicked: view.togglePin(modelData.id)
+    Accessible.role: Accessible.Button
+    Accessible.name: name + " · " + action
+
+    Row {
+      anchors.left: parent.left; anchors.leftMargin: FoamyStyle.gap
+      anchors.verticalCenter: parent.verticalCenter
+      Column {
+        id: nameCell
+        width: row.section ? row.section.columnWidth(0) : 0
+        spacing: FoamyStyle.gapTiny
+        Row {
+          id: nameLine
+          // Full cell width, so RTL lays the name out from the leading edge.
+          width: parent.width
+          spacing: Style.space(6)
+          // The tag follows the name; only the name elides.
+          Label { width: Math.min(implicitWidth, nameCell.width - FoamyStyle.gap - (barTag.visible ? barTag.width + nameLine.spacing : 0)); text: row.name }
+          Item {
+            id: barTag
+            visible: row.onBar
+            anchors.verticalCenter: parent.verticalCenter
+            width: row.pinned ? pinGlyph.width : barPill.width
+            height: row.pinned ? pinGlyph.height : barPill.height
+            OpticalGlyph {
+              id: pinGlyph
+              visible: row.pinned
+              width: Style.space(12); height: Style.space(12)
+              text: "\u{f0403}"; fontFamily: FoamyStyle.monoFamily; fontSize: Style.space(12)
+              color: view.dim
+            }
+            Rectangle {
+              id: barPill
+              visible: !row.pinned
+              width: barText.implicitWidth + Style.space(10); height: barText.implicitHeight + Style.space(2)
+              radius: FoamyStyle.pillRadius(height)
+              color: "transparent"
+              border.width: 1; border.color: FoamyPalette.divider
+              Caption { id: barText; anchors.centerIn: parent; text: FoamyI18n.t("bar"); font.pixelSize: FoamyStyle.font.caption }
+            }
+          }
+        }
+        Caption {
+          width: parent.width
+          text: row.modelData.type === "integrated" ? FoamyI18n.t("Integrated") : row.modelData.type === "discrete" ? FoamyI18n.t("Discrete") : ""
+        }
+      }
+      Row {
+        width: row.section ? row.section.columnWidth(1) : 0
+        anchors.verticalCenter: parent.verticalCenter
+        spacing: FoamyStyle.gap
+        Meter {
+          visible: !row.asleep
+          width: Style.space(40); anchors.verticalCenter: parent.verticalCenter
+          value: row.value("busy"); fillColor: row.modelData.busyWarning ? r.urgent : view.foreground
+        }
+        Label {
+          text: row.asleep ? FoamyI18n.t("Sleeping") : view.percent(row.value("busy"))
+          color: row.asleep ? view.dim : row.modelData.busyWarning ? r.urgent : view.foreground
+        }
+      }
+      Label {
+        width: row.section ? row.section.columnWidth(2) : 0
+        anchors.verticalCenter: parent.verticalCenter
+        horizontalAlignment: Text.AlignRight
+        text: row.asleep ? FoamyI18n.t("Sleeping") : view.degrees(row.modelData.thermal.temperature)
+        color: row.asleep ? view.dim : row.modelData.hot ? r.urgent : view.foreground
+      }
+      Label {
+        width: row.section ? row.section.columnWidth(3) : 0
+        anchors.verticalCenter: parent.verticalCenter
+        horizontalAlignment: Text.AlignRight
+        text: row.asleep ? FoamyI18n.t("Sleeping")
+          : row.intel ? view.memoryAmount(row.value("memoryPrivate") / 1024)
+          : view.pair(row.value("vramUsed") / 1073741824, row.value("vramTotal") / 1073741824)
+        color: row.asleep ? view.dim : row.modelData.vramWarning ? r.urgent : view.foreground
+      }
+    }
+    PanelToolTip {
+      visible: row.hasCursor
+      text: [
+        row.name,
+        row.modelData.id,
+        view.temperatureDetail(row.modelData.thermal),
+        isNaN(row.value("frequencyMHz")) ? "" : FoamyI18n.number(Math.round(row.value("frequencyMHz"))) + " MHz",
+        row.intel ? FoamyI18n.t("Intel GPU: busiest engine and private allocations from accessible processes for this user.") : "",
+        row.action
+      ].filter(function(line) { return line !== "" }).join("\n")
       fontFamily: FoamyStyle.fontFamily
     }
   }
