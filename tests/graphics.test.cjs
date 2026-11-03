@@ -24,7 +24,8 @@ assert.deepEqual(click('', '0000:05:00.0'), [['pinnedGpu', '0000:05:00.0']]);
 assert.deepEqual(click('0000:05:00.0', '0000:05:00.0'), [['pinnedGpu', '']]);
 assert.deepEqual(click('0000:05:00.0', '0000:c1:00.0'), [['pinnedGpu', '0000:c1:00.0']]);
 
-// A failed sample lists no GPUs, or a failed probe errors a row: neither is a missing pin.
+// A failed sample lists no GPUs: that is not a missing pin. A failed probe
+// errors a row but never drops one, so it says nothing about the pin.
 const missing = readings.match(/readonly property bool pinnedMissing: (.*(?:\n {4,}.*)*)/);
 assert.ok(missing, 'VitalsReadings has pinnedMissing');
 const failedRow = readings.match(/readonly property string gpuError: \{([\s\S]*?)\n  \}/);
@@ -44,7 +45,8 @@ const present = { id: '0000:05:00.0', type: 'discrete', error: '' };
 const other = { id: '0000:c1:00.0', type: 'integrated', error: '' };
 assert.equal(pinnedMissing({ gpus: [other] }, 'Telemetry unavailable. Retrying…'), false, 'telemetry error');
 assert.equal(pinnedMissing({}), false, 'no gpus array');
-assert.equal(pinnedMissing({ gpus: [Object.assign({}, other, { error: 'NVIDIA readings unavailable. Check nvidia-smi.' })] }), false, 'row error');
+assert.equal(pinnedMissing({ gpus: [Object.assign({}, other, { error: 'NVIDIA readings unavailable. Check nvidia-smi.' })] }), true, 'row error, pin absent');
+assert.equal(pinnedMissing({ gpus: [other, Object.assign({}, present, { error: 'NVIDIA readings unavailable. Check nvidia-smi.' })] }), false, 'row error, pin present');
 assert.equal(pinnedMissing({ gpus: [] }), true, 'no GPUs at all');
 assert.equal(pinnedMissing({ gpus: [other] }), true, 'pin absent');
 assert.equal(pinnedMissing({ gpus: [other, present] }), false, 'pin present');
