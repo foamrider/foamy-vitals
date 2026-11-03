@@ -24,11 +24,43 @@ STATS = Path(os.environ.get("FOAMY_VITALS_STATS", ROOT / "stats.sh"))
 PAGE_KB = os.sysconf("SC_PAGE_SIZE") // 1024
 EVIL = 'evil\x01na"me\\\x1b[31m'
 NVIDIA_ADDRESS = "0000:01:00.0"
+# Tree.gpu file contents: None makes a directory (unreadable, like EIO), FIFO a named pipe (blocks if opened).
+FIFO = object()
+GPU_KEYS = ["id", "vendor", "driver", "name", "type", "asleep", "busy", "vramUsed", "vramTotal",
+            "memoryPrivate", "frequencyMHz", "thermals", "error"]
+NVIDIA_ERROR = "NVIDIA readings unavailable. Check nvidia-smi."
+INTEL_ERROR = "Intel GPU readings unavailable. Retrying…"
+GIB = 1073741824
 
 
 def strict(text):
     """json.loads with strict=True rejects raw control characters, as JSON.parse does."""
     return json.loads(text, strict=True)
+
+
+def nv_bus(address):
+    """nvidia-smi's spelling of a sysfs PCI address: an 8-digit domain."""
+    return "%08x:%s" % (int(address[:4], 16), address[5:])
+
+
+def by_id(sample):
+    return {gpu["id"]: gpu for gpu in sample["gpus"]}
+
+
+def only(sample):
+    assert len(sample["gpus"]) == 1, sample["gpus"]
+    return sample["gpus"][0]
+
+
+def temperature(gpu):
+    return gpu["thermals"][0]["temperature"] if gpu["thermals"] else None
+
+
+def amd_files(busy, used, total, discrete=False):
+    files = {"gpu_busy_percent": f"{busy}\n", "mem_info_vram_used": f"{used}\n", "mem_info_vram_total": f"{total}\n"}
+    if discrete:
+        files["mem_info_vram_vendor"] = "samsung\n"
+    return files
 
 
 class Tree:
@@ -88,40 +120,95 @@ class Tree:
             if label:
                 (directory / f"temp{number}_label").write_text(label + "\n")
 
-    def nvidia(self, status="active", control="auto"):
-        (self.proc / f"driver/nvidia/gpus/{NVIDIA_ADDRESS}").mkdir(parents=True)
-        power = self.sys / f"bus/pci/devices/{NVIDIA_ADDRESS}/power"
-        power.mkdir(parents=True)
-        (power / "runtime_status").write_text(status + "\n")
-        (power / "control").write_text(control + "\n")
+    def device(self, address):
+        return self.sys / f"devices/pci{address[:7]}/{address}"
+
+    def gpu(self, address, driver, class_="0x030000", control="on", status="active", files={}, hwmon=[],
+            vendor="0x1002", device="0x150e"):
+        """A PCI device, bound to driver (None: unbound) through sys/bus/pci/drivers/<driver>/<address>."""
+        path = self.device(address)
+        (path / "power").mkdir(parents=True)
+        (path / "class").write_text(class_ + "\n")
+        (path / "vendor").write_text(vendor + "\n")
+        (path / "device").write_text(device + "\n")
+        (path / "power/control").write_text(control + "\n")
+        (path / "power/runtime_status").write_text(status + "\n")
+        devices = self.sys / "bus/pci/devices"
+        devices.mkdir(parents=True, exist_ok=True)
+        (devices / address).symlink_to(path)
+        if driver:
+            bound = self.sys / "bus/pci/drivers" / driver
+            bound.mkdir(parents=True, exist_ok=True)
+            (bound / address).symlink_to(path)
+            (path / "driver").symlink_to(bound)
+        contents = {}
+        for number, (label, milli, crit_milli) in enumerate(hwmon, 1):
+            contents[f"hwmon/hwmon0/temp{number}_input"] = f"{milli}\n"
+            if label:
+                contents[f"hwmon/hwmon0/temp{number}_label"] = label + "\n"
+            if crit_milli is not None:
+                contents[f"hwmon/hwmon0/temp{number}_crit"] = f"{crit_milli}\n"
+        contents.update(files)
+        for name, content in contents.items():
+            target = path / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if content is None:
+                target.mkdir()
+            elif content is FIFO:
+                os.mkfifo(target)
+            else:
+                target.write_text(content)
+        return path
+
+    def nvidia(self, addresses=[NVIDIA_ADDRESS], status="active", control="auto"):
+        """Proprietary-driver GPUs and a fake nvidia-smi that logs its arguments."""
+        for address in addresses:
+            (self.proc / f"driver/nvidia/gpus/{address}").mkdir(parents=True)
+            self.gpu(address, "nvidia", control=control, status=status, vendor="0x10de", device="0x2786")
         log = self.bin.parent / "nvidia-smi.log"
         reply = self.bin.parent / "nvidia-smi.reply"
         xml = self.bin.parent / "nvidia-smi.xml"
         failtemp = self.bin.parent / "nvidia-smi.failtemp"
-        reply.write_text("00000000:01:00.0, 37, 1178, 8192, 51\n")
+        reply.write_text("".join(f"{nv_bus(address)}, 37, 1178, 8192, 51\n" for address in addresses))
+        blocks = "".join(f'<gpu id="{nv_bus(address)}"><temperature><gpu_temp>51 C</gpu_temp><gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu>'
+                         for address in addresses)
         script = self.bin / "nvidia-smi"
         script.write_text(textwrap.dedent(f"""\
             #!/bin/sh
             printf '%s\\n' "$*" >>'{log}'
             case "$*" in
               *--query-gpu*) [ -s '{reply}' ] || exit 6; cat '{reply}' ;;
-              *TEMPERATURE*) [ -e '{failtemp}' ] && exit 9; [ -s '{xml}' ] && exec cat '{xml}'; printf '<?xml version="1.0"?>\\n<nvidia_smi_log><gpu id="00000000:01:00.0"><temperature><gpu_temp>51 C</gpu_temp><gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\\n' ;;
+              *TEMPERATURE*) [ -e '{failtemp}' ] && exit 9; [ -s '{xml}' ] && exec cat '{xml}'; printf '%s\\n' '<?xml version="1.0"?>' '<nvidia_smi_log>{blocks}</nvidia_smi_log>' ;;
             esac
             """))
         script.chmod(0o755)
         return log, reply
 
-    def run(self, *args, check=True):
+    def python(self, lines=(), status=0):
+        """A stub python3 for the Intel helper: logs its arguments, prints lines, exits with status."""
+        log = self.bin.parent / "python3.log"
+        reply = self.bin.parent / "python3.reply"
+        reply.write_text("".join(line + "\n" for line in lines))
+        script = self.bin / "python3"
+        script.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >>'{log}'\ncat '{reply}'\nexit {status}\n")
+        script.chmod(0o755)
+        return log
+
+    def state(self):
+        return self.runtime / f"foamy-vitals-{os.geteuid()}"
+
+    def run(self, *args, check=True, timeout=20):
         env = dict(os.environ, FOAMY_VITALS_PROC=str(self.proc), FOAMY_VITALS_SYS=str(self.sys),
+                   FOAMY_VITALS_PCI_IDS=str(self.bin.parent / "pci.ids"),
                    XDG_RUNTIME_DIR=str(self.runtime), PATH=f"{self.bin}:{os.environ['PATH']}")
-        result = subprocess.run([str(STATS), *args], env=env, capture_output=True, timeout=20)
+        result = subprocess.run([str(STATS), *args], env=env, capture_output=True, timeout=timeout)
         if check:
             self_check = result.returncode == 0
             assert self_check, result.stderr.decode(errors="replace")
         return strict(result.stdout.decode("utf-8", "replace")), result.stderr.decode("utf-8", "replace")
 
 
-class FakeTreeTest(unittest.TestCase):
+class TreeCase(unittest.TestCase):
     def setUp(self):
         self.base = Path(tempfile.mkdtemp(prefix="foamy-vitals-stats-"))
         self.tree = Tree(self.base)
@@ -132,6 +219,9 @@ class FakeTreeTest(unittest.TestCase):
     def advance(self, tick, seconds):
         self.tree.cpu(tick)
         self.tree.uptime(1000.0 + seconds)
+
+
+class FakeTreeTest(TreeCase):
 
     def test_hostile_names_stay_valid_json(self):
         tree = self.tree
@@ -199,35 +289,38 @@ class FakeTreeTest(unittest.TestCase):
         tree = self.tree
         tree.hwmon(0, "nvme", [("Composite", 40000, 80000)])
         tree.hwmon(1, "k10temp", [("Tccd1", 70000, None), ("Tctl", 55400, 95000)])
-        tree.hwmon(2, "amdgpu", [("edge", 48000, 100000), ("junction", 61000, 110000), ("mem", 70000, 105000)])
-        card = tree.sys / "class/drm/card1/device"
-        card.mkdir(parents=True)
-        (card / "gpu_busy_percent").write_text("42\n")
-        (card / "mem_info_vram_used").write_text("1024\n")
-        (card / "mem_info_vram_total").write_text("4096\n")
+        tree.gpu("0000:03:00.0", "amdgpu", files=amd_files(42, 1024, 4096, discrete=True),
+                 hwmon=[("edge", 48000, 100000), ("junction", 61000, 110000), ("mem", 70000, 105000)])
         sample, _ = tree.run("--bar")
         self.assertEqual((sample["cpuTemp"], sample["cpuTempCrit"]), (55, 95))
-        self.assertEqual((sample["gpuBusy"], sample["vramUsed"], sample["vramTotal"], sample["gpuTemp"]), (42, 1024, 4096, 48))
-        self.assertEqual([t["label"] for t in sample["gpuThermals"]], ["Edge", "Hotspot", "Memory"])
+        gpu = only(sample)
+        self.assertEqual((gpu["busy"], gpu["vramUsed"], gpu["vramTotal"], temperature(gpu)), (42, 1024, 4096, 48))
+        self.assertEqual([t["label"] for t in gpu["thermals"]], ["Edge", "Hotspot", "Memory"])
+        self.assertEqual([t["critical"] for t in gpu["thermals"]], [100, 110, 105])
+        for key in ("gpuBusy", "vramUsed", "vramTotal", "gpuTemp", "gpuThermals", "gpuError", "gpuSuspended",
+                    "gpuIntel", "gpuMemoryPrivate", "gpuFrequencyMHz", "gpuEngines"):
+            self.assertNotIn(key, sample)
 
     def test_suspended_nvidia_gpu_is_never_woken(self):
         log, _ = self.tree.nvidia(status="suspended")
         for args in ((), ("--bar",)):
             self.advance(len(log.read_text()) if log.exists() else 0, 3 * (2 if args else 1))
             sample, _ = self.tree.run(*args)
-            self.assertTrue(sample["gpuSuspended"])
-            self.assertEqual(sample["gpuBusy"], 0)
-            self.assertIsNone(sample["vramUsed"])
-            self.assertEqual(sample["gpuError"], "")
+            gpu = only(sample)
+            self.assertTrue(gpu["asleep"])
+            self.assertIsNone(gpu["busy"])
+            self.assertIsNone(gpu["vramUsed"])
+            self.assertEqual(gpu["error"], "")
         self.assertFalse(log.exists(), "nvidia-smi must not run while the GPU is suspended")
 
     def test_active_nvidia_gpu_uses_query_gpu_and_reads_the_limit_once(self):
         log, reply = self.tree.nvidia(status="active", control="on")
         sample, _ = self.tree.run()
-        self.assertEqual((sample["gpuBusy"], sample["vramUsed"], sample["vramTotal"], sample["gpuTemp"]),
+        gpu = only(sample)
+        self.assertEqual((gpu["busy"], gpu["vramUsed"], gpu["vramTotal"], temperature(gpu)),
                          (37, 1178 * 1048576, 8192 * 1048576, 51))
-        self.assertEqual(sample["gpuThermals"], [{"temperature": 51, "critical": 98, "label": "GPU"}])
-        self.assertFalse(sample["gpuSuspended"])
+        self.assertEqual(gpu["thermals"], [{"temperature": 51, "critical": 98, "label": "GPU"}])
+        self.assertEqual((gpu["vendor"], gpu["driver"], gpu["type"], gpu["asleep"]), ("nvidia", "nvidia", "discrete", False))
         calls = log.read_text().splitlines()
         self.assertTrue(any("--query-gpu=" in call for call in calls))
         self.assertTrue(all(" -q " not in f" {call} " or "TEMPERATURE" in call for call in calls), "no full -q query")
@@ -238,24 +331,28 @@ class FakeTreeTest(unittest.TestCase):
         reply.write_text("00000000:01:00.0, [N/A], 9000, 8192, [Not Supported]\n")
         self.advance(2, 6)
         sample, _ = self.tree.run()
-        self.assertEqual((sample["gpuBusy"], sample["vramUsed"], sample["vramTotal"], sample["gpuTemp"]), (None, None, None, None))
+        gpu = only(sample)
+        self.assertEqual((gpu["busy"], gpu["vramUsed"], gpu["vramTotal"], temperature(gpu)), (None, None, None, None))
         reply.write_text("")
         self.advance(3, 9)
         sample, _ = self.tree.run()
-        self.assertIsNone(sample["gpuBusy"])
-        self.assertEqual(sample["gpuError"], "NVIDIA readings unavailable. Check nvidia-smi.")
+        self.assertIsNone(only(sample)["busy"])
+        self.assertEqual(only(sample)["error"], NVIDIA_ERROR)
 
     def test_unsupported_nvidia_field_keeps_later_columns(self):
-        _, reply = self.tree.nvidia(status="active", control="on")
+        _, reply = self.tree.nvidia(status="active", control="auto")
         reply.write_text("00000000:01:00.0, [Not Supported], 1178, 8192, 51\n")
         sample, _ = self.tree.run()
-        self.assertEqual((sample["gpuBusy"], sample["vramUsed"], sample["vramTotal"], sample["gpuTemp"]),
+        gpu = only(sample)
+        self.assertEqual((gpu["busy"], gpu["vramUsed"], gpu["vramTotal"], temperature(gpu)),
                          (None, 1178 * 1048576, 8192 * 1048576, 51))
-        self.assertEqual(sample["gpuThermals"], [{"temperature": 51, "critical": 98, "label": "GPU"}])
-        self.assertEqual(sample["gpuError"], "")
-        # The cache line stays aligned for throttled bar samples too.
-        cached = (self.tree.runtime / f"foamy-vitals-{os.geteuid()}/nvidia").read_text().split()
-        self.assertEqual(cached[1:6], ["na", "1178", "8192", "51", "98"])
+        self.assertEqual(gpu["thermals"], [{"temperature": 51, "critical": 98, "label": "GPU"}])
+        self.assertEqual(gpu["error"], "")
+        # The carried reading stays aligned for throttled bar samples too.
+        reply.write_text("00000000:01:00.0, 99, 1, 8192, 1\n")
+        self.advance(1, 5)
+        carried, _ = self.tree.run("--bar")
+        self.assertEqual(only(carried), gpu)
 
     def test_nvidia_gpus_in_other_pci_domains_never_match(self):
         _, reply = self.tree.nvidia(status="active", control="on")
@@ -264,13 +361,14 @@ class FakeTreeTest(unittest.TestCase):
             '<nvidia_smi_log><gpu id="00000001:01:00.0"><temperature><gpu_temp_max_threshold>70 C</gpu_temp_max_threshold></temperature></gpu>'
             '<gpu id="00000000:01:00.0"><temperature><gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\n')
         sample, _ = self.tree.run()
-        self.assertEqual((sample["gpuBusy"], sample["gpuTemp"]), (37, 51))
-        self.assertEqual(sample["gpuThermals"][0]["critical"], 98)
+        gpu = only(sample)
+        self.assertEqual((gpu["busy"], temperature(gpu)), (37, 51))
+        self.assertEqual(gpu["thermals"][0]["critical"], 98)
         reply.write_text("00000001:01:00.0, 99, 10, 20, 90\n")
         self.advance(1, 3)
         sample, _ = self.tree.run()
-        self.assertIsNone(sample["gpuBusy"], "only another domain's GPU answered")
-        self.assertEqual(sample["gpuError"], "NVIDIA readings unavailable. Check nvidia-smi.")
+        self.assertIsNone(only(sample)["busy"], "only another domain's GPU answered")
+        self.assertEqual(only(sample)["error"], NVIDIA_ERROR)
 
     def test_failed_limit_probe_is_retried_with_backoff(self):
         log, _ = self.tree.nvidia(status="active", control="on")
@@ -278,8 +376,8 @@ class FakeTreeTest(unittest.TestCase):
         failtemp.write_text("")
         limit_probes = lambda: sum("TEMPERATURE" in call for call in log.read_text().splitlines())
         sample, _ = self.tree.run()
-        self.assertIsNone(sample["gpuThermals"][0]["critical"])
-        self.assertEqual(sample["gpuBusy"], 37, "a failed limit probe never hides the readings")
+        self.assertIsNone(only(sample)["thermals"][0]["critical"])
+        self.assertEqual(only(sample)["busy"], 37, "a failed limit probe never hides the readings")
         self.assertEqual(limit_probes(), 1)
         self.advance(1, 10)
         self.tree.run()
@@ -288,11 +386,11 @@ class FakeTreeTest(unittest.TestCase):
         self.advance(2, 31)
         sample, _ = self.tree.run()
         self.assertEqual(limit_probes(), 2, "retried after the backoff")
-        self.assertEqual(sample["gpuThermals"][0]["critical"], 98, "the limit arrives once the probe answers")
+        self.assertEqual(only(sample)["thermals"][0]["critical"], 98, "the limit arrives once the probe answers")
         self.advance(3, 400)
         sample, _ = self.tree.run()
         self.assertEqual(limit_probes(), 2, "an answered probe is kept for the boot")
-        self.assertEqual(sample["gpuThermals"][0]["critical"], 98)
+        self.assertEqual(only(sample)["thermals"][0]["critical"], 98)
         # A new boot asks again.
         (self.tree.proc / "sys/kernel/random/boot_id").write_text("boot-2\n")
         self.advance(4, 410)
@@ -319,7 +417,7 @@ class FakeTreeTest(unittest.TestCase):
         log, _ = self.tree.nvidia(status="active", control="on")
         (self.base / "nvidia-smi.xml").write_text('<nvidia_smi_log><gpu id="00000000:01:00.0"><temperature><gpu_temp_max_threshold>N/A</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\n')
         sample, _ = self.tree.run()
-        self.assertIsNone(sample["gpuThermals"][0]["critical"])
+        self.assertIsNone(only(sample)["thermals"][0]["critical"])
         self.advance(1, 120)
         self.tree.run()
         self.assertEqual(sum("TEMPERATURE" in call for call in log.read_text().splitlines()), 1, "a reported missing limit is not retried")
@@ -330,7 +428,7 @@ class FakeTreeTest(unittest.TestCase):
         for step in range(1, 5):
             self.advance(step, 5 * step)
             sample, _ = self.tree.run("--bar")
-            self.assertEqual(sample["gpuBusy"], 37, "throttled samples reuse the last reading")
+            self.assertEqual(only(sample)["busy"], 37, "throttled samples reuse the last reading")
         queries = lambda: sum("--query-gpu" in call for call in log.read_text().splitlines())
         self.assertEqual(queries(), 1, "at most one query per 30 s while closed")
         self.advance(5, 31)
@@ -342,36 +440,25 @@ class FakeTreeTest(unittest.TestCase):
 
     def test_helper_diagnostics_reach_stderr(self):
         tree = self.tree
-        bound = tree.sys / "bus/pci/drivers/i915/0000:00:02.0"
-        bound.mkdir(parents=True)
-        device = tree.base_device = tree.sys / "devices/pci0000:00/0000:00:02.0"
-        (device / "driver").parent.mkdir(parents=True)
-        (device / "driver").symlink_to(tree.sys / "bus/pci/drivers/i915")
-        card = tree.sys / "class/drm/card0"
-        card.mkdir(parents=True)
-        (card / "device").symlink_to(device)
+        tree.gpu("0000:00:02.0", "i915", vendor="0x8086", device="0x7d55")
         (tree.proc / "sys/kernel/random/boot_id").unlink()
         sample, stderr = tree.run()
-        self.assertTrue(sample["gpuIntel"])
-        self.assertEqual(sample["gpuError"], "Intel GPU readings unavailable. Retrying…")
+        gpu = only(sample)
+        self.assertEqual((gpu["vendor"], gpu["driver"], gpu["type"]), ("intel", "i915", "integrated"))
+        self.assertEqual(gpu["error"], INTEL_ERROR)
         self.assertIn("Intel telemetry:", stderr, "the lock must not swallow the script's stderr")
 
     def test_intel_gpu_in_a_nonzero_pci_domain(self):
         """An Intel GPU outside PCI domain 0000 (multi-domain, VMD) is still found."""
         tree = self.tree
-        (tree.sys / "bus/pci/drivers/xe/0001:03:00.0").mkdir(parents=True)
+        tree.gpu("0001:03:00.0", "xe", vendor="0x8086", device="0xe20b",
+                 files={"drm/card0/gt/gt0/rps_act_freq_mhz": "800\n"})
         for name in ("bind", "unbind", "new_id", "uevent"):
             (tree.sys / "bus/pci/drivers/xe" / name).touch()
-        device = tree.sys / "devices/pci0001:00/0001:03:00.0"
-        device.mkdir(parents=True)
-        (device / "driver").symlink_to(tree.sys / "bus/pci/drivers/xe")
-        card = tree.sys / "class/drm/card0"
-        (card / "gt/gt0").mkdir(parents=True)
-        (card / "device").symlink_to(device)
-        (card / "gt/gt0/rps_act_freq_mhz").write_text("800\n")
         sample, _ = tree.run("--bar")
-        self.assertTrue(sample["gpuIntel"])
-        self.assertEqual(sample["gpuFrequencyMHz"], 800)
+        gpu = only(sample)
+        self.assertEqual((gpu["id"], gpu["vendor"], gpu["type"], gpu["error"]), ("0001:03:00.0", "intel", "discrete", ""))
+        self.assertEqual(gpu["frequencyMHz"], 800)
 
     def test_driver_control_files_are_not_a_bound_intel_gpu(self):
         tree = self.tree
@@ -379,8 +466,10 @@ class FakeTreeTest(unittest.TestCase):
         driver.mkdir(parents=True)
         for name in ("bind", "unbind", "new_id", "remove_id", "uevent", "module"):
             (driver / name).touch()
+        log = tree.python()
         sample, _ = tree.run("--bar")
-        self.assertFalse(sample["gpuIntel"])
+        self.assertEqual(sample["gpus"], [])
+        self.assertFalse(log.exists(), "no Intel GPU, no helper")
 
     def test_state_directory_rejects_unsafe_fallbacks(self):
         os.chmod(self.tree.runtime, 0o755)
@@ -392,7 +481,298 @@ class FakeTreeTest(unittest.TestCase):
         self.assertEqual(list(target.iterdir()), [], "never writes through a planted symlink")
 
 
+INTEL_LINE = ('{id}\t{{"busy":5.5,"memoryPrivate":1048576,"frequencyMHz":900,'
+              '"thermals":[{{"temperature":44.0,"critical":null,"label":"GPU"}}],"error":""}}')
+PCI_IDS = ("# fixture\n"
+           "1002  Advanced Micro Devices, Inc. [AMD/ATI]\n"
+           "\t150e  Strix [Radeon 880M / 890M]\n"
+           "\t7590  Navi 44 [Radeon RX 9050 / 9060 XT]\n"
+           "\t\t1002 0001  Subsystem [Not This]\n"
+           "\t7591  Evil \"quote\" \\ back\\slash\n"
+           "10de  NVIDIA Corporation\n"
+           "\t2786  AD104 [GeForce RTX 4070]\n"
+           "C 03  Display controller\n"
+           "\t00  VGA compatible controller\n")
+
+
+class GpuTest(TreeCase):
+    def nvidia_calls(self, log, kind):
+        """The -i argument of every logged nvidia-smi call of one kind."""
+        calls = [call.split() for call in log.read_text().splitlines() if kind in call] if log.exists() else []
+        return [call[call.index("-i") + 1] if "-i" in call else "" for call in calls]
+
+    def test_discovers_only_gpu_drivers(self):
+        tree = self.tree
+        tree.python([INTEL_LINE.format(id="0000:00:02.0")])
+        tree.nvidia(addresses=["0000:02:00.0"], control="on")
+        tree.gpu("0000:01:00.0", "amdgpu", files=amd_files(1, 1, 2, discrete=True))
+        tree.gpu("0000:03:00.0", "nouveau", vendor="0x10de")
+        tree.gpu("0000:00:02.0", "i915", vendor="0x8086")
+        tree.gpu("0000:04:00.0", "ast", vendor="0x1a03")
+        tree.gpu("0000:07:00.0", "vfio-pci", vendor="0x10de")
+        tree.gpu("0000:08:00.0", None)
+        tree.gpu("0000:09:00.0", "amdgpu", class_="0x040300")
+        sample, _ = tree.run()
+        self.assertEqual(sorted((gpu["id"], gpu["vendor"], gpu["driver"]) for gpu in sample["gpus"]),
+                         [("0000:00:02.0", "intel", "i915"), ("0000:01:00.0", "amd", "amdgpu"),
+                          ("0000:02:00.0", "nvidia", "nvidia"), ("0000:03:00.0", "nvidia", "nouveau")])
+        for gpu in sample["gpus"]:
+            self.assertEqual(list(gpu), GPU_KEYS)
+
+    def test_amd_pair_reads_each_cards_own_hwmon(self):
+        tree = self.tree
+        tree.gpu("0000:05:00.0", "amdgpu", device="0x7590", files=amd_files(70, GIB, 8 * GIB, discrete=True),
+                 hwmon=[("edge", 50000, 100000), ("junction", 61000, 110000), ("mem", 72000, None)])
+        tree.gpu("0000:c1:00.0", "amdgpu", class_="0x038000", files=amd_files(12, 256, 512),
+                 hwmon=[("edge", 57000, None)])
+        gpus = by_id(tree.run()[0])
+        dgpu, igpu = gpus["0000:05:00.0"], gpus["0000:c1:00.0"]
+        self.assertEqual((dgpu["type"], dgpu["busy"], dgpu["vramUsed"], dgpu["vramTotal"]), ("discrete", 70, GIB, 8 * GIB))
+        self.assertEqual(dgpu["thermals"], [{"temperature": 50, "critical": 100, "label": "Edge"},
+                                            {"temperature": 61, "critical": 110, "label": "Hotspot"},
+                                            {"temperature": 72, "critical": None, "label": "Memory"}])
+        self.assertEqual((igpu["type"], igpu["busy"], igpu["vramUsed"], igpu["vramTotal"]), ("integrated", 12, 256, 512))
+        self.assertEqual(igpu["thermals"], [{"temperature": 57, "critical": None, "label": "Edge"}])
+        self.assertEqual((dgpu["vendor"], dgpu["driver"], dgpu["asleep"], dgpu["error"]), ("amd", "amdgpu", False, ""))
+        self.assertEqual((dgpu["memoryPrivate"], dgpu["frequencyMHz"]), (None, None))
+
+    def test_vendorless_dgpu_with_bar_window_is_discrete(self):
+        # Mac Pro 6,1 FirePro D700 (Tahiti): no memory vendor, a 256 MiB BAR of 8 GiB.
+        tahiti = amd_files(3, 1024, 8 * GIB)
+        tahiti.update({"mem_info_vis_vram_total": f"{256 * 1048576}\n",
+                       "mem_info_gtt_used": "100\n", "mem_info_gtt_total": f"{60 * GIB}\n"})
+        apu = amd_files(7, 491, 512)
+        apu["mem_info_vis_vram_total"] = "512\n"
+        self.tree.gpu("0000:02:00.0", "amdgpu", files=tahiti)
+        self.tree.gpu("0000:c1:00.0", "amdgpu", class_="0x038000", files=apu)
+        self.tree.gpu("0000:03:00.0", "radeon", files=amd_files(5, 1, 2))
+        gpus = by_id(self.tree.run()[0])
+        dgpu, igpu, radeon = gpus["0000:02:00.0"], gpus["0000:c1:00.0"], gpus["0000:03:00.0"]
+        self.assertEqual((dgpu["type"], dgpu["vramUsed"], dgpu["vramTotal"]), ("discrete", 1024, 8 * GIB), "no GTT on a dGPU")
+        self.assertEqual(igpu["type"], "integrated")
+        self.assertEqual((radeon["vendor"], radeon["type"]), ("amd", None))
+
+    def test_apu_memory_adds_gtt_to_vram_carve_out(self):
+        apu = amd_files(7, 512 * 1048576, GIB // 2)
+        apu.update({"mem_info_gtt_used": f"{3 * GIB}\n", "mem_info_gtt_total": f"{15 * GIB}\n"})
+        self.tree.gpu("0000:c1:00.0", "amdgpu", class_="0x038000", files=apu)
+        gpu = only(self.tree.run()[0])
+        self.assertEqual((gpu["type"], gpu["vramUsed"], gpu["vramTotal"]), ("integrated", 3.5 * GIB, 15.5 * GIB))
+
+    def test_apu_without_gtt_keeps_vram_carve_out(self):
+        self.tree.gpu("0000:c1:00.0", "amdgpu", class_="0x038000", files=amd_files(7, 491, 512))
+        broken = amd_files(7, 491, 512)
+        broken.update({"mem_info_gtt_used": "900\n", "mem_info_gtt_total": "800\n"})  # used > total: not a pair
+        self.tree.gpu("0001:c1:00.0", "amdgpu", class_="0x038000", files=broken)
+        for gpu in self.tree.run()[0]["gpus"]:
+            self.assertEqual((gpu["type"], gpu["vramUsed"], gpu["vramTotal"]), ("integrated", 491, 512))
+
+    def test_suspended_gpus_are_never_opened(self):
+        tree = self.tree
+        files = amd_files(1, 1, 2, discrete=True)
+        files.update({"gpu_busy_percent": FIFO, "hwmon/hwmon0/temp1_input": FIFO})
+        tree.gpu("0000:05:00.0", "amdgpu", control="auto", status="suspended", files=files)
+        log, _ = tree.nvidia(addresses=["0000:01:00.0", "0000:02:00.0"], control="on")
+        (tree.device("0000:02:00.0") / "power/runtime_status").write_text("suspended\n")
+        python = tree.python([INTEL_LINE.format(id="0000:00:02.0")])
+        tree.gpu("0000:00:02.0", "i915", control="auto", status="suspended", vendor="0x8086")
+        for step, args in enumerate(((), ("--bar",), ())):
+            self.advance(step, 3 * step)
+            sample, _ = tree.run(*args, timeout=5)
+            gpus = by_id(sample)
+            for address in ("0000:05:00.0", "0000:02:00.0", "0000:00:02.0"):
+                gpu = gpus[address]
+                self.assertTrue(gpu["asleep"], address)
+                self.assertEqual((gpu["busy"], gpu["vramUsed"], gpu["thermals"], gpu["error"]), (None, None, [], ""))
+            self.assertFalse(gpus["0000:01:00.0"]["asleep"])
+            self.assertEqual(gpus["0000:01:00.0"]["busy"], 37)
+        calls = self.nvidia_calls(log, "--query-gpu") + self.nvidia_calls(log, "TEMPERATURE")
+        self.assertTrue(calls)
+        for ids in calls:
+            self.assertEqual(ids, "00000000:01:00.0", "a suspended GPU is never passed to nvidia-smi")
+        self.assertFalse(python.exists(), "a suspended Intel GPU starts no helper")
+
+    def test_one_bad_file_loses_one_value(self):
+        files = amd_files(40, 1, 2, discrete=True)
+        files.update({"mem_info_vram_used": None, "hwmon/hwmon0/temp2_input": None})
+        self.tree.gpu("0000:05:00.0", "amdgpu", files=files,
+                      hwmon=[("edge", 50000, 100000), ("junction", 61000, None), ("mem", 72000, 95000)])
+        sample, stderr = self.tree.run()
+        gpu = only(sample)
+        self.assertEqual((gpu["busy"], gpu["vramUsed"], gpu["vramTotal"], gpu["error"]), (40, None, None, ""))
+        self.assertEqual(gpu["thermals"], [{"temperature": 50, "critical": 100, "label": "Edge"},
+                                           {"temperature": 72, "critical": 95, "label": "Memory"}])
+        for name in ("mem_info", "temp2_input", "_crit", "_label", "hwmon0"):
+            self.assertNotIn(name, stderr, "an unreadable or missing sysfs file is not a diagnostic")
+
+    def test_gpu_gone_between_samples_drops_its_row(self):
+        self.tree.gpu("0000:05:00.0", "amdgpu", files=amd_files(1, 1, 2, discrete=True))
+        self.tree.gpu("0000:c1:00.0", "amdgpu", files=amd_files(2, 1, 2))
+        self.assertEqual(len(self.tree.run()[0]["gpus"]), 2)
+        (self.tree.sys / "bus/pci/drivers/amdgpu/0000:05:00.0").unlink()
+        self.advance(1, 3)
+        self.assertEqual(only(self.tree.run()[0])["id"], "0000:c1:00.0")
+
+    def test_nouveau_row_has_temperature_only(self):
+        log, _ = self.tree.nvidia(addresses=[])
+        self.tree.gpu("0000:01:00.0", "nouveau", vendor="0x10de", device="0x2786", hwmon=[(None, 45000, None)])
+        gpu = only(self.tree.run()[0])
+        self.assertEqual((gpu["vendor"], gpu["driver"], gpu["type"], gpu["busy"], gpu["vramUsed"], gpu["vramTotal"], gpu["error"]),
+                         ("nvidia", "nouveau", "discrete", None, None, None, ""))
+        self.assertEqual(gpu["thermals"], [{"temperature": 45, "critical": None, "label": "Sensor 1"}])
+        self.assertFalse(log.exists(), "nouveau is never asked through nvidia-smi")
+
+    def test_two_nvidia_gpus_one_query_per_sample(self):
+        tree = self.tree
+        both = "00000000:01:00.0,00000000:02:00.0"
+        log, reply = tree.nvidia(addresses=["0000:01:00.0", "0000:02:00.0"], control="on")
+        (tree.device("0000:02:00.0") / "power/control").write_text("auto\n")
+        xml = self.base / "nvidia-smi.xml"
+        xml.write_text('<nvidia_smi_log><gpu id="00000000:01:00.0"><temperature><gpu_temp_max_threshold>98 C'
+                       '</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\n')
+        gpus = by_id(tree.run()[0])
+        self.assertEqual(self.nvidia_calls(log, "--query-gpu"), [both])
+        self.assertEqual(self.nvidia_calls(log, "TEMPERATURE"), [both])
+        self.assertEqual([gpus[a]["busy"] for a in ("0000:01:00.0", "0000:02:00.0")], [37, 37])
+        self.assertEqual([gpus[a]["thermals"][0]["critical"] for a in ("0000:01:00.0", "0000:02:00.0")], [98, None])
+
+        self.advance(1, 5)
+        gpus = by_id(tree.run("--bar")[0])
+        self.assertEqual(self.nvidia_calls(log, "--query-gpu"), [both, "00000000:01:00.0"], "the auto GPU is spaced out")
+        self.assertEqual(gpus["0000:02:00.0"]["busy"], 37, "and carries its last reading")
+        self.assertEqual(len(self.nvidia_calls(log, "TEMPERATURE")), 1, "the failed limit backs off")
+
+        xml.unlink()
+        self.advance(2, 31)
+        gpus = by_id(tree.run()[0])
+        self.assertEqual(self.nvidia_calls(log, "--query-gpu")[2:], [both])
+        self.assertEqual(self.nvidia_calls(log, "TEMPERATURE")[1:], ["00000000:02:00.0"], "only unknown limits are probed")
+        self.assertEqual(gpus["0000:02:00.0"]["thermals"][0]["critical"], 98)
+
+        reply.write_text("00000000:01:00.0, 37, 1178, 8192, 51\n")
+        self.advance(3, 40)
+        gpus = by_id(tree.run()[0])
+        self.assertEqual(self.nvidia_calls(log, "--query-gpu")[3:], [both])
+        self.assertEqual((gpus["0000:01:00.0"]["busy"], gpus["0000:01:00.0"]["error"]), (37, ""))
+        self.assertEqual((gpus["0000:02:00.0"]["busy"], gpus["0000:02:00.0"]["error"]), (None, NVIDIA_ERROR))
+
+    def test_integrated_runtime_pm_gpu_keeps_the_bar_cadence(self):
+        igpu = self.tree.gpu("0000:c1:00.0", "amdgpu", control="auto", files=amd_files(10, 1, 2))
+        dgpu = self.tree.gpu("0000:05:00.0", "amdgpu", control="auto", files=amd_files(20, 1, 2, discrete=True))
+        gpus = by_id(self.tree.run("--bar")[0])
+        self.assertEqual((gpus["0000:c1:00.0"]["type"], gpus["0000:c1:00.0"]["busy"]), ("integrated", 10))
+        (igpu / "gpu_busy_percent").write_text("50\n")
+        (dgpu / "gpu_busy_percent").write_text("60\n")
+        self.advance(1, 5)
+        gpus = by_id(self.tree.run("--bar")[0])
+        self.assertEqual(gpus["0000:c1:00.0"]["busy"], 50, "an integrated GPU is read on every bar sample")
+        self.assertEqual(gpus["0000:05:00.0"]["busy"], 20, "a discrete runtime-PM GPU is spaced out")
+
+    def test_mixed_vendors_all_listed(self):
+        tree = self.tree
+        python = tree.python([INTEL_LINE.format(id="0000:00:02.0"), INTEL_LINE.format(id="0000:09:00.0")])
+        tree.gpu("0000:00:02.0", "i915", vendor="0x8086")
+        tree.nvidia(addresses=["0000:01:00.0"], control="on")
+        tree.gpu("0000:05:00.0", "amdgpu", files=amd_files(33, 1, 2, discrete=True))
+        sample, _ = tree.run()
+        gpus = by_id(sample)
+        self.assertEqual(sorted(gpus), ["0000:00:02.0", "0000:01:00.0", "0000:05:00.0"])
+        intel, green, red = gpus["0000:00:02.0"], gpus["0000:01:00.0"], gpus["0000:05:00.0"]
+        self.assertEqual((intel["vendor"], intel["type"], intel["busy"], intel["vramUsed"], intel["vramTotal"],
+                          intel["memoryPrivate"], intel["frequencyMHz"], intel["error"]),
+                         ("intel", "integrated", 5.5, None, None, 1048576, 900, ""))
+        self.assertEqual(intel["thermals"], [{"temperature": 44.0, "critical": None, "label": "GPU"}])
+        self.assertEqual((green["vendor"], green["type"], green["busy"], green["vramTotal"]), ("nvidia", "discrete", 37, 8192 * 1048576))
+        self.assertEqual((red["vendor"], red["type"], red["busy"]), ("amd", "discrete", 33))
+        for gpu in sample["gpus"]:
+            self.assertEqual(list(gpu), GPU_KEYS)
+        calls = python.read_text().splitlines()
+        self.assertEqual(len(calls), 1, "one helper run for every due Intel GPU")
+        self.assertIn(f"intel_stats.py --proc {tree.proc} --sys {tree.sys} ", calls[0])
+        self.assertTrue(calls[0].endswith(f"{tree.state()} 0000:00:02.0"), calls[0])
+        self.assertNotIn("--spaced", calls[0], "an integrated GPU keeps the normal baseline window")
+
+    def test_intel_helper_failure_is_unavailable(self):
+        tree = self.tree
+        lines = [INTEL_LINE.format(id="0000:00:02.0"), INTEL_LINE.format(id="0000:03:00.0")]
+        python = tree.python(lines, status=3)
+        tree.gpu("0000:00:02.0", "i915", vendor="0x8086")
+        tree.gpu("0000:03:00.0", "xe", control="auto", vendor="0x8086")
+        gpus = by_id(tree.run()[0])
+        for gpu in gpus.values():
+            self.assertEqual((gpu["busy"], gpu["memoryPrivate"], gpu["frequencyMHz"], gpu["thermals"], gpu["error"]),
+                             (None, None, None, [], INTEL_ERROR))
+        self.assertIn("--spaced 0000:03:00.0 ", python.read_text())
+        self.assertNotIn("--spaced 0000:00:02.0", python.read_text())
+
+        tree.python([lines[0], "0000:03:00.0\tnot json", '0000:03:00.0\t{"busy":1}\tx'])
+        self.advance(1, 3)
+        gpus = by_id(tree.run("--bar")[0])
+        self.assertEqual(len(python.read_text().splitlines()), 2, "a failed read is not carried forward")
+        self.assertEqual((gpus["0000:00:02.0"]["busy"], gpus["0000:00:02.0"]["error"]), (5.5, ""))
+        self.assertEqual((gpus["0000:03:00.0"]["busy"], gpus["0000:03:00.0"]["error"]), (None, INTEL_ERROR))
+
+    def test_names_from_pci_ids_are_cached_and_clean(self):
+        tree = self.tree
+        ids = self.base / "pci.ids"
+        ids.write_text(PCI_IDS)
+        for address, device in (("0000:05:00.0", "0x7590"), ("0000:06:00.0", "0x7591"), ("0000:07:00.0", "0x7592")):
+            tree.gpu(address, "amdgpu", device=device, files=amd_files(1, 1, 2, discrete=True))
+        names = lambda: {gpu["id"]: gpu["name"] for gpu in tree.run()[0]["gpus"]}
+        self.assertEqual(names(), {"0000:05:00.0": "Radeon RX 9050 / 9060 XT",
+                                   "0000:06:00.0": "Evil quote  backslash",
+                                   "0000:07:00.0": None})
+        ids.write_text(PCI_IDS.replace("Navi 44 [Radeon RX 9050 / 9060 XT]", "Changed [Other]")
+                       .replace("\t7591", "\t7592  Now Known\n\t7591"))
+        self.advance(1, 3)
+        self.assertEqual(names(), {"0000:05:00.0": "Radeon RX 9050 / 9060 XT",
+                                   "0000:06:00.0": "Evil quote  backslash",
+                                   "0000:07:00.0": None}, "cached for the boot, misses included")
+        (tree.proc / "sys/kernel/random/boot_id").write_text("boot-2\n")
+        self.advance(2, 6)
+        self.assertEqual(names()["0000:05:00.0"], "Other")
+        self.assertEqual(names()["0000:07:00.0"], "Now Known")
+
+    def test_gpu_cache_survives_a_killed_writer(self):
+        device = self.tree.gpu("0000:05:00.0", "amdgpu", control="auto", files=amd_files(10, 1, 2, discrete=True))
+        self.assertEqual(only(self.tree.run("--bar")[0])["busy"], 10)
+        (device / "gpu_busy_percent").write_text("50\n")
+        self.advance(1, 5)
+        self.assertEqual(only(self.tree.run("--bar")[0])["busy"], 10, "carried while spaced out")
+        generation = (self.tree.state() / "current").read_text().split()[6]
+        state = self.tree.state() / f"gpus.{generation}"
+        text = state.read_text()
+        state.write_text(text[:len(text) - 12])
+        self.advance(2, 10)
+        self.assertEqual(only(self.tree.run("--bar")[0])["busy"], 50, "a truncated line is not a reading")
+        state = self.tree.state() / f"gpus.{(self.tree.state() / 'current').read_text().split()[6]}"
+        state.write_text("garbage\n")
+        (device / "gpu_busy_percent").write_text("70\n")
+        self.advance(3, 15)
+        self.assertEqual(only(self.tree.run("--bar")[0])["busy"], 70)
+
+
 class RealSystemTest(unittest.TestCase):
+    def test_real_gpus_are_valid_json(self):
+        runtime = Path(tempfile.mkdtemp(prefix="foamy-vitals-real-"))
+        os.chmod(runtime, 0o700)
+        try:
+            output = subprocess.run([str(STATS)], env=dict(os.environ, XDG_RUNTIME_DIR=str(runtime)),
+                                    capture_output=True, check=True, timeout=20).stdout
+        finally:
+            shutil.rmtree(runtime, ignore_errors=True)
+        sample = strict(output.decode("utf-8", "replace"))
+        self.assertIsInstance(sample["gpus"], list)
+        for gpu in sample["gpus"]:
+            self.assertEqual(list(gpu), GPU_KEYS)
+            self.assertRegex(gpu["id"], r"^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$")
+            self.assertIn(gpu["vendor"], ("amd", "intel", "nvidia"))
+            self.assertIn(gpu["type"], ("integrated", "discrete", None))
+            self.assertIsInstance(gpu["asleep"], bool)
+            self.assertIsInstance(gpu["error"], str)
+            for thermal in gpu["thermals"]:
+                self.assertEqual(list(thermal), ["temperature", "critical", "label"])
+
     def test_real_process_with_control_characters(self):
         """The bug as reported: a busy process renames itself with a control byte."""
         runtime = Path(tempfile.mkdtemp(prefix="foamy-vitals-real-"))

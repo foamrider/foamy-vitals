@@ -3,6 +3,7 @@ import QtQuick
 import Quickshell.Io
 import "History.js" as History
 import "Filesystems.js" as Filesystems
+import "Gpus.js" as Gpus
 
 // Telemetry for every Vitals bar instance (4.5 draws one bar per monitor).
 // A plugin qmldir singleton is one object per shell, so stats.sh, df and the
@@ -12,7 +13,8 @@ import "Filesystems.js" as Filesystems
 //   stats        the latest sample (bar and popup readings)
 //   detail       the latest full sample: process rankings for the popup. Bar
 //                samples never touch it, so lists stay put while hidden
-//   history      two minutes of CPU, RAM, GPU and network readings
+//   history      two minutes of CPU, RAM, network and per-GPU readings
+//                (gpus: { PCI address: points })
 QtObject {
   id: service
 
@@ -21,7 +23,7 @@ QtObject {
 
   property var stats: ({})
   property var detail: ({ processes: [], memoryProcesses: [] })
-  property var history: ({ cpu: [], memory: [], gpu: [], up: [], down: [] })
+  property var history: ({ cpu: [], memory: [], gpus: {}, up: [], down: [] })
   property var networkSnapshot: null
   property real sampledAt: 0
   property real networkUp: NaN
@@ -85,7 +87,7 @@ QtObject {
     history = {
       cpu: History.append(history.cpu, time, reading(parsed, "cpu")),
       memory: History.append(history.memory, time, total > 0 ? 100 * reading(parsed, "memUsedKb") / total : NaN),
-      gpu: History.append(history.gpu, time, reading(parsed, "gpuBusy")),
+      gpus: Gpus.appendHistory(history.gpus, Gpus.order(parsed.gpus), time),
       up: History.append(net.changed ? [] : history.up, time, net.up),
       down: History.append(net.changed ? [] : history.down, time, net.down)
     }
@@ -103,7 +105,7 @@ QtObject {
     var at = sampledAt + (fullSample ? 2000 : 5000)
     history = {
       cpu: History.append(history.cpu, at, NaN), memory: History.append(history.memory, at, NaN),
-      gpu: History.append(history.gpu, at, NaN), up: History.append(history.up, at, NaN), down: History.append(history.down, at, NaN)
+      gpus: Gpus.appendHistory(history.gpus, [], at), up: History.append(history.up, at, NaN), down: History.append(history.down, at, NaN)
     }
     console.warn("foamy.vitals: " + message)
   }

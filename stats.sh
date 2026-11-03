@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One JSON object of processor, memory, graphics and thermal readings for the
 # vitals bar plugin. Reads procfs, sysfs, Intel DRM clients and nvidia-smi.
-# None of the telemetry paths needs privileges.
+# None of the telemetry paths needs privileges. Every GPU gets its own entry
+# in "gpus"; which one the bar shows is the panel's choice.
 #
 #   stats.sh          everything the popup shows
 #   stats.sh --bar    what the bar needs (usage, memory, GPU, temperatures),
@@ -13,7 +14,10 @@
 # Cost matters: this runs every few seconds for as long as the shell runs. It
 # uses shell builtins for every file read and keeps the process count to the
 # lock, one awk for the system counters, and (full samples only) one awk for
-# the process rankings and one find for their working directories. No jq.
+# the process rankings and one find for their working directories. AMD and
+# nouveau GPUs are read from sysfs with builtins. Only when such a GPU is due:
+# one nvidia-smi query for every NVIDIA GPU, one Intel helper run for every
+# Intel GPU, and once per boot one awk over pci.ids for the names. No jq.
 set -uo pipefail
 # Byte-wise text handling: process names are arbitrary bytes, and [[:cntrl:]]
 # must mean the ASCII control characters for the JSON sanitising below.
@@ -25,6 +29,7 @@ mode=full
 # Overridable for tests only; the plugin never sets these.
 proc="${FOAMY_VITALS_PROC:-/proc}"
 sys="${FOAMY_VITALS_SYS:-/sys}"
+pci_ids="${FOAMY_VITALS_PCI_IDS:-/usr/share/hwdata/pci.ids}"
 here="${BASH_SOURCE[0]%/*}"
 [[ $here == "${BASH_SOURCE[0]}" ]] && here=.
 
@@ -88,12 +93,14 @@ uptime_ms now
 # 1-g, and only then records the new generations in one short write to the
 # pointer. A run killed half way leaves the previous complete state in use,
 # never a truncated file (no mv needed, so no extra processes).
-cpu_gen=0 proc_gen=0 proc_at=0 cache_gen=0 cache_at=-1 cache_mode=none
+cpu_gen=0 proc_gen=0 proc_at=0 cache_gen=0 cache_at=-1 cache_mode=none gpu_gen=0
 if [[ -r $pointer ]]; then
-  p1="" p2="" p3="" p4="" p5="" p6=""
-  read -r p1 p2 p3 p4 p5 p6 _ <"$pointer" || true
+  p1="" p2="" p3="" p4="" p5="" p6="" p7=""
+  read -r p1 p2 p3 p4 p5 p6 p7 _ <"$pointer" || true
   if [[ $p1 =~ ^[01]$ && $p2 =~ ^[01]$ && $p3 =~ ^[0-9]+$ && $p4 =~ ^[01]$ && $p5 =~ ^-?[0-9]+$ ]]; then
     cpu_gen=$p1 proc_gen=$p2 proc_at=$p3 cache_gen=$p4 cache_at=$p5 cache_mode=${p6:-none}
+    # Pointers written before the GPU state existed have no 7th field.
+    [[ $p7 =~ ^[01]$ ]] && gpu_gen=$p7
   fi
 fi
 
@@ -114,11 +121,12 @@ clean() {
   printf -v "$1" '%s' "$value"
 }
 
-# var <- whole degrees from a millidegree file, or null.
+# var <- whole degrees from a millidegree file, or null. stderr is redirected
+# before the file is opened, so a missing file is quiet too.
 degrees() {
   local raw=""
   printf -v "$1" 'null'
-  read -r raw <"$2" 2>/dev/null || [[ -n $raw ]] || return 0
+  read -r raw 2>/dev/null <"$2" || [[ -n $raw ]] || return 0
   [[ $raw =~ ^-?[0-9]+$ ]] || return 0
   printf -v "$1" '%d' $(((raw + 500) / 1000))
 }
@@ -127,7 +135,7 @@ degrees() {
 integer() {
   local raw=""
   printf -v "$1" 'null'
-  read -r raw <"$2" 2>/dev/null || [[ -n $raw ]] || return 0
+  read -r raw 2>/dev/null <"$2" || [[ -n $raw ]] || return 0
   [[ $raw =~ ^[0-9]+$ ]] || return 0
   printf -v "$1" '%s' "$raw"
 }
@@ -422,47 +430,102 @@ if [[ $cpu_temp == null ]]; then
   done
 fi
 
-gpu_temp=null
-gpu_thermals='['
-if hwmon_named dir amdgpu radeon i915 xe nouveau; then
-  degrees gpu_temp "$dir/temp1_input"
-  for input in "$dir"/temp*_input; do
-    [[ -r $input ]] || continue
-    temperature=null critical=null
+# --- graphics -------------------------------------------------------------------
+# A GPU is a PCI display device (class 0x03xxxx) bound to a GPU driver. Each
+# one is read from its own device directory, so a pair of cards never mixes
+# one card's load with the other's temperatures.
+#
+# Never wake a GPU. One that runtime power management has suspended (hybrid
+# laptops, idle dGPUs) is listed as asleep, and none of its counters, sensors,
+# DRM clients or nvidia-smi entries is touched. While every popup is closed, a
+# GPU that may runtime-suspend is read at most every 30 s, so polling alone
+# never keeps it awake. Integrated GPUs keep the bar cadence: they suspend
+# between frames anyway, and spacing them would slow a lone iGPU's bar.
+gpu_spacing_ms=30000
+pci_address='^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
+
+# True for a sysfs used/total pair worth showing.
+gpu_pair() {
+  [[ $1 =~ ^[0-9]{1,18}$ && $2 =~ ^[0-9]{1,18}$ ]] && ((10#$2 > 0 && 10#$1 <= 10#$2))
+}
+
+# var <- integrated, discrete or null (unknown) for GPU id at dev.
+gpu_type() { # var dev driver id
+  local visible total
+  case $3 in
+    amdgpu | radeon)
+      # Only dedicated VRAM has a memory vendor; APU carve-outs do not. Older
+      # chips (Tahiti) report none, but a dGPU without resizable BAR shows the
+      # CPU only a window of its VRAM, while a carve-out is wholly visible.
+      if [[ -e $2/mem_info_vram_vendor ]]; then
+        printf -v "$1" discrete
+        return 0
+      fi
+      integer visible "$2/mem_info_vis_vram_total"
+      integer total "$2/mem_info_vram_total"
+      if gpu_pair "$visible" "$total" && ((10#$visible > 0 && 10#$visible < 10#$total)); then
+        printf -v "$1" discrete
+      elif [[ $3 == amdgpu ]]; then
+        printf -v "$1" integrated
+      else
+        printf -v "$1" null
+      fi
+      ;;
+    # Intel's iGPU is device 2 on bus 0, in whatever PCI domain.
+    i915 | xe) if [[ ${4#*:} == 00:02.0 ]]; then printf -v "$1" integrated; else printf -v "$1" discrete; fi ;;
+    *) printf -v "$1" discrete ;;
+  esac
+}
+
+# var <- a reading with nothing read, and its error ("" for a GPU asleep).
+gpu_blank() {
+  printf -v "$1" '"busy":null,"vramUsed":null,"vramTotal":null,"memoryPrivate":null,"frequencyMHz":null,"thermals":[],"error":"%s"' "$2"
+}
+
+# var <- the reading of an amdgpu, radeon or nouveau GPU from its own sysfs
+# files. Each value is read on its own: one unreadable file (EIO, EINVAL)
+# costs only that value or sensor, never the whole GPU.
+sysfs_reading() { # var dev type
+  local busy used total gtt_used gtt_total thermals="" input temperature critical label driver_label
+  integer busy "$2/gpu_busy_percent"
+  [[ $busy =~ ^[0-9]{1,3}$ ]] && ((10#$busy <= 100)) && busy=$((10#$busy)) || busy=null
+  integer used "$2/mem_info_vram_used"
+  integer total "$2/mem_info_vram_total"
+  if gpu_pair "$used" "$total"; then
+    used=$((10#$used)) total=$((10#$total))
+    # An APU's VRAM is a small firmware carve-out that fills first and then
+    # spills into GTT (system RAM), so only their sum reflects GPU memory.
+    if [[ $3 == integrated ]]; then
+      integer gtt_used "$2/mem_info_gtt_used"
+      integer gtt_total "$2/mem_info_gtt_total"
+      if gpu_pair "$gtt_used" "$gtt_total"; then
+        used=$((used + 10#$gtt_used)) total=$((total + 10#$gtt_total))
+      fi
+    fi
+  else
+    used=null total=null
+  fi
+  for input in "$2"/hwmon/hwmon*/temp*_input; do
     degrees temperature "$input"
-    degrees critical "${input%_input}_crit"
+    [[ $temperature != null ]] || continue
     # Stable display labels; arbitrary driver strings stay out of JSON.
-    label="Sensor ${input##*/temp}"
-    label="${label%_input}"
+    label="${input##*/temp}"
+    label="Sensor ${label%_input}"
+    [[ $label =~ ^Sensor\ [0-9]+$ ]] || continue
     driver_label=""
-    read -r driver_label <"${input%_input}_label" 2>/dev/null || true
+    read -r driver_label 2>/dev/null <"${input%_input}_label" || true
     case $driver_label in
       edge) label=Edge ;;
       junction) label=Hotspot ;;
       mem) label=Memory ;;
     esac
-    [[ $gpu_thermals == '[' ]] || gpu_thermals+=','
-    gpu_thermals+="{\"temperature\":$temperature,\"critical\":$critical,\"label\":\"$label\"}"
+    degrees critical "${input%_input}_crit"
+    [[ $critical != null ]] && ((critical > 0)) || critical=null
+    thermals+="${thermals:+,}{\"temperature\":$temperature,\"critical\":$critical,\"label\":\"$label\"}"
   done
-fi
-gpu_thermals+=']'
-
-# --- graphics -------------------------------------------------------------------
-gpu_busy=null
-vram_used=null
-vram_total=null
-for busy in "$sys"/class/drm/card*/device/gpu_busy_percent; do
-  [[ -r $busy ]] || continue
-  integer gpu_busy "$busy"
-  integer vram_used "${busy%/*}/mem_info_vram_used"
-  integer vram_total "${busy%/*}/mem_info_vram_total"
-  break
-done
-
-gpu_error=""
-gpu_suspended=false
-gpu_extra='"gpuIntel":false,"gpuMemoryPrivate":null,"gpuFrequencyMHz":null,"gpuEngines":{}'
-gpu_json=""
+  printf -v "$1" '"busy":%s,"vramUsed":%s,"vramTotal":%s,"memoryPrivate":null,"frequencyMHz":null,"thermals":[%s],"error":""' \
+    "$busy" "$used" "$total" "$thermals"
+}
 
 # var <- a PCI address as "domain:bus:device.function" with the domain as a
 # number and the rest lowercase, so sysfs ("0000:01:00.0") and nvidia-smi
@@ -487,147 +550,293 @@ nv_field() {
   printf -v "$1" '%s' "$value"
 }
 
-nvidia_address=""
-if [[ $gpu_busy == null ]]; then
-  # Glob order is PCI address order: the lowest-addressed NVIDIA GPU.
-  for entry in "$proc"/driver/nvidia/gpus/*; do
-    [[ -d $entry ]] || continue
-    nvidia_address="${entry##*/}"
-    break
-  done
-fi
+boot_id=""
+read -r boot_id 2>/dev/null <"$proc/sys/kernel/random/boot_id" || true
+boot_id="${boot_id:-none}"
 
-intel=0
-if [[ $gpu_busy == null && -z $nvidia_address ]]; then
-  # Bound devices are named by PCI address, in any domain ("0001:03:00.0");
-  # the driver's control files (bind, new_id, uevent…) have no colon.
-  for bound in "$sys"/bus/pci/drivers/i915/*:* "$sys"/bus/pci/drivers/xe/*:*; do
-    [[ -e $bound ]] && intel=1 && break
+# Bound devices are named by PCI address, in any domain ("0001:03:00.0");
+# the driver's control files (bind, new_id, uevent…) have no colon.
+gpu_ids=()
+declare -A gpu_dev=() gpu_driver=()
+for driver in amdgpu radeon i915 xe nvidia nouveau; do
+  for dev in "$sys/bus/pci/drivers/$driver"/*:*; do
+    [[ -e $dev ]] || continue
+    id="${dev##*/}"
+    id="${id,,}"
+    [[ $id =~ $pci_address && -z ${gpu_driver[$id]:-} ]] || continue
+    class=""
+    read -r class 2>/dev/null <"$dev/class" || true
+    [[ $class == 0x03* ]] || continue
+    gpu_ids+=("$id")
+    gpu_dev[$id]="$dev"
+    gpu_driver[$id]="$driver"
   done
-fi
+done
 
-if [[ -n $nvidia_address ]]; then
-  # Keep load, memory and temperature from one GPU. Never wake a GPU that
-  # runtime power management has suspended (hybrid laptops): nvidia-smi would
-  # resume it and keep it from sleeping. A suspended GPU is idle.
-  power="$sys/bus/pci/devices/$nvidia_address/power"
-  runtime_status="" runtime_control=""
-  read -r runtime_status <"$power/runtime_status" 2>/dev/null || true
-  read -r runtime_control <"$power/control" 2>/dev/null || true
-  gpu_thermals='[]'
-  gpu_temp=null
-  if [[ $runtime_status == suspended ]]; then
-    gpu_busy=0
-    gpu_suspended=true
+# The previous sample's readings, double-buffered like the counters. After a
+# "boot<TAB>id" line, one line per GPU:
+#   id  readAt (-1: nothing to carry)  limit (unknown|none|°C|-)  retryAt  failures  reading
+# Another boot's state is ignored. A line cut short by a killed run has no
+# newline, and read never returns it.
+declare -A gpu_at=() gpu_crit=() gpu_retry=() gpu_fails=() gpu_frag=()
+{
+  if IFS= read -r line && [[ $line == "boot"$'\t'"$boot_id" ]]; then
+    while IFS=$'\t' read -r id at crit retry fails fragment; do
+      [[ $id =~ $pci_address && $at =~ ^(-1|[0-9]{1,18})$ && $crit =~ ^(unknown|none|[0-9]{1,6}|-)$ &&
+        $retry =~ ^[0-9]{1,18}$ && $fails =~ ^[0-7]$ && $fragment == '"busy":'*',"error":"'*'"' ]] || continue
+      gpu_at[$id]=$at gpu_crit[$id]=$crit gpu_retry[$id]=$retry gpu_fails[$id]=$fails gpu_frag[$id]=$fragment
+    done
+  fi
+} 2>/dev/null <"$state_dir/gpus.$gpu_gen"
+
+# This sample, by id: the reading and the state to keep with it.
+declare -A gpu_kind=() gpu_asleep=() out_frag=() out_at=() out_crit=() out_retry=() out_fails=()
+nv_due=() intel_due=() intel_spaced=()
+for id in "${gpu_ids[@]}"; do
+  dev="${gpu_dev[$id]}"
+  driver="${gpu_driver[$id]}"
+  status="" control=""
+  read -r status 2>/dev/null <"$dev/power/runtime_status" || true
+  read -r control 2>/dev/null <"$dev/power/control" || true
+  gpu_type type "$dev" "$driver" "$id"
+  gpu_kind[$id]=$type
+  gpu_asleep[$id]=false
+  at=${gpu_at[$id]:--1}
+  out_crit[$id]=${gpu_crit[$id]:--} out_retry[$id]=${gpu_retry[$id]:-0} out_fails[$id]=${gpu_fails[$id]:-0}
+  [[ $driver == nvidia && ${out_crit[$id]} == - ]] && out_crit[$id]=unknown
+  if [[ $status == suspended ]]; then
+    # Asleep is idle. The last reading is dropped, so a GPU that wakes is
+    # read right away instead of showing a stale value.
+    gpu_asleep[$id]=true
+    gpu_blank fragment ""
+    out_frag[$id]=$fragment out_at[$id]=-1
+  elif [[ $mode == bar && $control == auto && $type != integrated ]] && ((at >= 0 && now - at >= 0 && now - at < gpu_spacing_ms)); then
+    out_frag[$id]=${gpu_frag[$id]} out_at[$id]=$at
   else
-    nv_file="$state_dir/nvidia"
-    nv_at=-1 nv_util="" nv_used="" nv_total="" nv_temp="" nv_crit="" nv_boot="" nv_retry=0 nv_fails=0
-    [[ -r $nv_file ]] && read -r nv_at nv_util nv_used nv_total nv_temp nv_crit nv_boot nv_retry nv_fails _ <"$nv_file" 2>/dev/null
-    [[ $nv_retry =~ ^[0-9]+$ ]] || nv_retry=0
-    [[ $nv_fails =~ ^[0-9]+$ ]] || nv_fails=0
-    [[ $nv_at =~ ^[0-9]+$ ]] || nv_at=-1
-    boot_id=""
-    read -r boot_id <"$proc/sys/kernel/random/boot_id" 2>/dev/null || true
-    # While every popup is closed, a GPU that may runtime-suspend is sampled
-    # at most every 30 s, so polling alone never keeps it awake.
-    if [[ $mode == bar && $runtime_control == auto ]] && ((nv_at >= 0 && now - nv_at >= 0 && now - nv_at < 30000)); then
-      :
-    else
-      nv_util="" nv_used="" nv_total="" nv_temp="" nv_found=0 want="" have=""
-      pci_key want "$nvidia_address"
-      # CSV fields are split on commas only: "[Not Supported]" holds a space,
-      # and splitting on spaces too would shift every later column.
-      while IFS=',' read -r bus util used total temp _; do
-        pci_key have "$bus"
-        [[ $have == "$want" ]] || continue
-        nv_field nv_util "$util"
-        nv_field nv_used "$used"
-        nv_field nv_total "$total"
-        nv_field nv_temp "$temp"
-        nv_found=1
-        break
-      done < <(timeout --kill-after=0.2s 1.5s nvidia-smi --query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total,temperature.gpu \
-        --format=csv,noheader,nounits 2>/dev/null)
-      if ((!nv_found)); then
-        nv_at=-1
-      else
-        nv_at=$now
-        # The shutdown threshold is fixed per GPU: once a probe answers (a
-        # limit, or "none" when this GPU reports none), keep it for the boot.
-        # A failed probe (timeout, error, this GPU missing from the reply) is
-        # not an answer: retry it, backing off from 30 s up to 32 min.
-        if [[ $nv_boot != "${boot_id:-none}" ]]; then
-          nv_crit=unknown nv_retry=0 nv_fails=0
-        fi
-        if [[ ! $nv_crit =~ ^([0-9]+|none)$ ]] && ((now >= nv_retry)); then
-          nv_crit=unknown
-          if xml="$(timeout --kill-after=0.2s 1.5s nvidia-smi -q -x -d TEMPERATURE 2>/dev/null)"; then
-            # Walk the <gpu id="…"> blocks and read the limit of this GPU only.
-            while [[ $xml == *'<gpu id="'* ]]; do
-              xml="${xml#*'<gpu id="'}"
-              pci_key have "${xml%%\"*}"
-              [[ $have == "$want" ]] || continue
-              block="${xml%%'</gpu>'*}"
-              nv_crit=none
-              if [[ $block =~ \<gpu_temp_max_threshold\>[[:space:]]*([0-9]+)[[:space:]]*C[[:space:]]*\< ]] && ((10#${BASH_REMATCH[1]} > 0)); then
-                nv_crit="${BASH_REMATCH[1]}"
-              fi
-              break
-            done
-          fi
-          if [[ $nv_crit == unknown ]]; then
-            ((nv_fails < 7)) && nv_fails=$((nv_fails + 1))
-            nv_retry=$((now + 30000 * (1 << (nv_fails - 1))))
-          else
-            nv_retry=0 nv_fails=0
-          fi
-        fi
-        printf '%s %s %s %s %s %s %s %s %s\n' "$nv_at" "$nv_util" "$nv_used" "$nv_total" "$nv_temp" "${nv_crit:-unknown}" "${boot_id:-none}" "$nv_retry" "$nv_fails" >"$nv_file" 2>/dev/null
+    case $driver in
+      nvidia) nv_due+=("$id") ;;
+      i915 | xe)
+        intel_due+=("$id")
+        # Spaced-out reads keep a baseline window long enough to span the gap.
+        [[ $control == auto && $type != integrated ]] && intel_spaced+=(--spaced "$id")
+        ;;
+      *)
+        sysfs_reading fragment "$dev" "$type"
+        out_frag[$id]=$fragment out_at[$id]=$now
+        ;;
+    esac
+  fi
+done
+
+if ((${#nv_due[@]})); then
+  # One query for every due NVIDIA GPU, named in nvidia-smi's 8-digit-domain
+  # spelling; rows are matched back by pci_key.
+  declare -A nv_id=() nv_row=() nv_asked=()
+  nv_ask=""
+  for id in "${nv_due[@]}"; do
+    pci_key key "$id"
+    nv_id[$key]=$id
+    printf -v bus '%08x:%s' "$((16#${id%%:*}))" "${id#*:}"
+    nv_ask+="${nv_ask:+,}$bus"
+  done
+  # CSV fields are split on commas only: "[Not Supported]" holds a space,
+  # and splitting on spaces too would shift every later column.
+  while IFS=',' read -r bus util used total temp _; do
+    pci_key key "$bus"
+    id="${nv_id[$key]:-}"
+    [[ -n $id && -z ${nv_row[$id]:-} ]] || continue
+    nv_field util "$util"
+    nv_field used "$used"
+    nv_field total "$total"
+    nv_field temp "$temp"
+    nv_row[$id]="$util $used $total $temp"
+  done < <(timeout --kill-after=0.2s 1.5s nvidia-smi --query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total,temperature.gpu \
+    --format=csv,noheader,nounits -i "$nv_ask" 2>/dev/null)
+
+  # The shutdown threshold is fixed per GPU: once a probe answers (a limit,
+  # or "none" when the GPU reports none), keep it for the boot. A failed probe
+  # (timeout, error, the GPU missing from the reply) is not an answer: retry
+  # it, backing off from 30 s up to 32 min. One probe asks every GPU that
+  # answered the query, has no answer yet and is due a retry.
+  nv_ask=""
+  for id in "${nv_due[@]}"; do
+    retry=${out_retry[$id]}
+    [[ -n ${nv_row[$id]:-} && ! ${out_crit[$id]} =~ ^([0-9]+|none)$ ]] && ((now >= retry)) || continue
+    nv_asked[$id]=1
+    out_crit[$id]=unknown
+    printf -v bus '%08x:%s' "$((16#${id%%:*}))" "${id#*:}"
+    nv_ask+="${nv_ask:+,}$bus"
+  done
+  if [[ -n $nv_ask ]] && xml="$(timeout --kill-after=0.2s 1.5s nvidia-smi -q -x -d TEMPERATURE -i "$nv_ask" 2>/dev/null)"; then
+    # Walk the <gpu id="…"> blocks and read the limit of each GPU asked.
+    while [[ $xml == *'<gpu id="'* ]]; do
+      xml="${xml#*'<gpu id="'}"
+      pci_key key "${xml%%\"*}"
+      id="${nv_id[$key]:-}"
+      [[ -n $id && -n ${nv_asked[$id]:-} ]] || continue
+      block="${xml%%'</gpu>'*}"
+      out_crit[$id]=none
+      if [[ $block =~ \<gpu_temp_max_threshold\>[[:space:]]*([0-9]{1,6})[[:space:]]*C[[:space:]]*\< ]] && ((10#${BASH_REMATCH[1]} > 0)); then
+        out_crit[$id]=$((10#${BASH_REMATCH[1]}))
       fi
+    done
+  fi
+  for id in "${!nv_asked[@]}"; do
+    if [[ ${out_crit[$id]} == unknown ]]; then
+      fails=${out_fails[$id]}
+      ((fails < 7)) && fails=$((fails + 1))
+      out_fails[$id]=$fails out_retry[$id]=$((now + 30000 * (1 << (fails - 1))))
+    else
+      out_fails[$id]=0 out_retry[$id]=0
     fi
-    if ((nv_at >= 0)); then
-      # Unsupported readings ("[N/A]", "[Not Supported]") and impossible
-      # values stay unknown rather than being shown.
-      gpu_busy=null
-      [[ $nv_util =~ ^[0-9]+$ ]] && ((10#$nv_util <= 100)) && gpu_busy=$((10#$nv_util))
-      if [[ $nv_used =~ ^[0-9]+$ && $nv_total =~ ^[0-9]+$ ]] && ((10#$nv_total > 0 && 10#$nv_used <= 10#$nv_total && 10#$nv_total < 8388608)); then
-        vram_used=$((10#$nv_used * 1048576))
-        vram_total=$((10#$nv_total * 1048576))
-      fi
-      [[ $nv_temp =~ ^[0-9]+$ ]] && gpu_temp=$((10#$nv_temp))
-      [[ $nv_crit =~ ^[0-9]+$ ]] || nv_crit=null
-      gpu_thermals="[{\"temperature\":$gpu_temp,\"critical\":$nv_crit,\"label\":\"GPU\"}]"
-    else
-      gpu_busy=null
+  done
+
+  for id in "${nv_due[@]}"; do
+    if [[ -z ${nv_row[$id]:-} ]]; then
       gpu_error="NVIDIA readings unavailable. Check nvidia-smi."
+      gpu_blank fragment "$gpu_error"
+      out_frag[$id]=$fragment out_at[$id]=-1
+      continue
     fi
-  fi
-elif ((intel)); then
-  # Same-user DRM counters need neither perf privileges nor a resident process.
-  helper="$(timeout --kill-after=0.2s 1.5s python3 "$here/intel_stats.py" --proc "$proc" --drm "$sys/class/drm" "$state_dir/intel.json")"
-  # The helper prints one json.dumps() object holding every Intel key, so it
-  # is spliced in whole instead of being taken apart field by field.
-  if [[ $helper == \{\"gpuIntel\":*\} && $helper != *$'\n'* ]]; then
-    helper="${helper#\{}"
-    gpu_json="\"vramUsed\":null,\"vramTotal\":null,\"gpuSuspended\":false,${helper%\}}"
-  else
-    gpu_busy=null
-    gpu_error="Intel GPU readings unavailable. Retrying…"
-    gpu_extra='"gpuIntel":true,"gpuMemoryPrivate":null,"gpuFrequencyMHz":null,"gpuEngines":{}'
-  fi
+    read -r util used total temp <<<"${nv_row[$id]}"
+    # Unsupported readings ("[N/A]", "[Not Supported]") and impossible
+    # values stay unknown rather than being shown.
+    busy=null vram_used=null vram_total=null thermals=""
+    [[ $util =~ ^[0-9]{1,3}$ ]] && ((10#$util <= 100)) && busy=$((10#$util))
+    if [[ $used =~ ^[0-9]{1,7}$ && $total =~ ^[0-9]{1,7}$ ]] && ((10#$total > 0 && 10#$used <= 10#$total && 10#$total < 8388608)); then
+      vram_used=$((10#$used * 1048576)) vram_total=$((10#$total * 1048576))
+    fi
+    crit=${out_crit[$id]}
+    [[ $crit =~ ^[0-9]+$ ]] || crit=null
+    [[ $temp =~ ^[0-9]{1,4}$ ]] && thermals="{\"temperature\":$((10#$temp)),\"critical\":$crit,\"label\":\"GPU\"}"
+    printf -v fragment '"busy":%s,"vramUsed":%s,"vramTotal":%s,"memoryPrivate":null,"frequencyMHz":null,"thermals":[%s],"error":""' \
+      "$busy" "$vram_used" "$vram_total" "$thermals"
+    out_frag[$id]=$fragment out_at[$id]=$now
+  done
 fi
 
-if [[ -z $gpu_json ]]; then
-  gpu_json="\"gpuBusy\":$gpu_busy,\"vramUsed\":$vram_used,\"vramTotal\":$vram_total,\"gpuTemp\":$gpu_temp,"
-  gpu_json+="\"gpuThermals\":$gpu_thermals,\"gpuError\":\"$gpu_error\",\"gpuSuspended\":$gpu_suspended,$gpu_extra"
+if ((${#intel_due[@]})); then
+  # Same-user DRM counters need neither perf privileges nor a resident
+  # process. One helper run samples every due Intel GPU and prints one
+  # "ID<TAB>{json.dumps object}" line for each. Lines count only from a clean
+  # exit, for a GPU that was asked, and are spliced in whole.
+  declare -A intel_asked=() intel_frag=()
+  for id in "${intel_due[@]}"; do intel_asked[$id]=1; done
+  intel_out="$(timeout --kill-after=0.2s 1.5s python3 "$here/intel_stats.py" --proc "$proc" --sys "$sys" \
+    "${intel_spaced[@]}" "$state_dir" "${intel_due[@]}")"
+  intel_status=$?
+  intel_line=$'^([0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\\.[0-7])\t\\{"busy":[^\t]*\\}$'
+  while ((intel_status == 0)) && IFS= read -r line; do
+    [[ $line =~ $intel_line ]] || continue
+    id="${BASH_REMATCH[1]}"
+    body="${line#*$'\t'}"
+    body="${body#\{}"
+    body="${body%\}}"
+    [[ -n ${intel_asked[$id]:-} && $body == *',"memoryPrivate":'* ]] || continue
+    # Intel reports no VRAM: add the two keys where the output order has them.
+    intel_frag[$id]="${body%%,\"memoryPrivate\":*},\"vramUsed\":null,\"vramTotal\":null,\"memoryPrivate\":${body#*,\"memoryPrivate\":}"
+  done <<<"$intel_out"
+  for id in "${intel_due[@]}"; do
+    fragment="${intel_frag[$id]:-}"
+    if [[ -z $fragment ]]; then
+      gpu_error="Intel GPU readings unavailable. Retrying…"
+      gpu_blank fragment "$gpu_error"
+    fi
+    # A failed read (the helper's own errors included) is never carried.
+    out_at[$id]=-1
+    [[ $fragment == *'"error":""' ]] && out_at[$id]=$now
+    out_frag[$id]=$fragment
+  done
 fi
 
-printf -v json '{"mode":"%s","sampleTimeMs":%s,"cpu":%s,"cores":[%s],"memUsedKb":%s,"memTotalKb":%s,"cpuTemp":%s,"cpuTempCrit":%s,%s,"processes":%s,"memoryProcesses":%s,"network":%s}' \
-  "$mode" "$now" "$cpu" "$cores" "$mem_used_kb" "$mem_total_kb" "$cpu_temp" "$cpu_temp_crit" "$gpu_json" "$procs" "$memory_procs" "$network"
+# Names come from pci.ids (hwdata) and never change for a device, so they are
+# kept for the boot. One awk resolves every GPU without a cached name; a GPU
+# pci.ids does not know is cached as "-" so it is not looked up again.
+declare -A gpu_name=() gpu_model=() model_name=()
+{
+  if IFS= read -r line && [[ $line == "$boot_id" ]]; then
+    while IFS=$'\t' read -r id name; do
+      [[ $id =~ $pci_address && -n $name ]] || continue
+      clean name "$name"
+      gpu_name[$id]=${name:--}
+    done
+  fi
+} 2>/dev/null <"$state_dir/gpu-names"
+names_missed=0 models=""
+for id in "${gpu_ids[@]}"; do
+  [[ -z ${gpu_name[$id]:-} ]] || continue
+  names_missed=1
+  gpu_name[$id]=-
+  vendor="" device=""
+  read -r vendor 2>/dev/null <"${gpu_dev[$id]}/vendor" || true
+  read -r device 2>/dev/null <"${gpu_dev[$id]}/device" || true
+  [[ $vendor =~ ^0x[0-9A-Fa-f]{4}$ && $device =~ ^0x[0-9A-Fa-f]{4}$ ]] || continue
+  model="${vendor:2}:${device:2}"
+  gpu_model[$id]=${model,,}
+  models+=" ${model,,}"
+done
+if ((names_missed)); then
+  if [[ -n $models ]]; then
+    while IFS=$'\t' read -r model name; do
+      clean name "$name"
+      [[ -n $model && -n $name ]] && model_name[$model]=$name
+    done < <(awk -v want="$models" '
+      BEGIN {
+        n = split(want, list, " ")
+        for (i = 1; i <= n; i++) if (!(list[i] in need)) { need[list[i]] = 1; left++ }
+      }
+      # A vendor line opens its device list; anything else unindented
+      # (the "C 03 …" class lists at the end) closes it.
+      /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f]  / { vendor = substr($0, 1, 4); next }
+      /^\t[0-9a-f][0-9a-f][0-9a-f][0-9a-f]  / {
+        model = vendor ":" substr($0, 2, 4)
+        if (vendor == "" || !(model in need)) next
+        # "Navi 44 [Radeon RX 9050 / 9060 XT]": the bracketed part is the product.
+        name = substr($0, 8)
+        if (match(name, /\[.+\]/)) name = substr(name, RSTART + 1, RLENGTH - 2)
+        print model "\t" name
+        delete need[model]
+        if (--left == 0) exit
+        next
+      }
+      /^[^\t#]/ { vendor = "" }
+    ' "$pci_ids" 2>/dev/null)
+    for id in "${!gpu_model[@]}"; do
+      gpu_name[$id]=${model_name[${gpu_model[$id]}]:--}
+    done
+  fi
+  names="$boot_id"$'\n'
+  for id in "${!gpu_name[@]}"; do
+    names+="$id"$'\t'"${gpu_name[$id]}"$'\n'
+  done
+  printf '%s' "$names" 2>/dev/null >"$state_dir/gpu-names"
+fi
+
+gpus=""
+gpu_state="boot"$'\t'"$boot_id"$'\n'
+for id in "${gpu_ids[@]}"; do
+  driver="${gpu_driver[$id]}"
+  case $driver in
+    amdgpu | radeon) vendor=amd ;;
+    i915 | xe) vendor=intel ;;
+    *) vendor=nvidia ;;
+  esac
+  name=null
+  [[ ${gpu_name[$id]} == - ]] || name="\"${gpu_name[$id]}\""
+  type=null
+  [[ ${gpu_kind[$id]} == null ]] || type="\"${gpu_kind[$id]}\""
+  gpus+="${gpus:+,}{\"id\":\"$id\",\"vendor\":\"$vendor\",\"driver\":\"$driver\",\"name\":$name,\"type\":$type,\"asleep\":${gpu_asleep[$id]},${out_frag[$id]}}"
+  gpu_state+="$id"$'\t'"${out_at[$id]}"$'\t'"${out_crit[$id]}"$'\t'"${out_retry[$id]}"$'\t'"${out_fails[$id]}"$'\t'"${out_frag[$id]}"$'\n'
+done
+next_gpu_gen=$((1 - gpu_gen))
+printf '%s' "$gpu_state" 2>/dev/null >"$state_dir/gpus.$next_gpu_gen" && gpu_gen=$next_gpu_gen
+
+printf -v json '{"mode":"%s","sampleTimeMs":%s,"cpu":%s,"cores":[%s],"memUsedKb":%s,"memTotalKb":%s,"cpuTemp":%s,"cpuTempCrit":%s,"gpus":[%s],"processes":%s,"memoryProcesses":%s,"network":%s}' \
+  "$mode" "$now" "$cpu" "$cores" "$mem_used_kb" "$mem_total_kb" "$cpu_temp" "$cpu_temp_crit" "$gpus" "$procs" "$memory_procs" "$network"
 
 next_cache_gen=$((1 - cache_gen))
 if printf '%s\n' "$json" >"$state_dir/cache.$next_cache_gen" 2>/dev/null; then
   cache_gen=$next_cache_gen cache_at=$now cache_mode=$mode
 fi
-printf '%s %s %s %s %s %s\n' "$cpu_gen" "$proc_gen" "$proc_at" "$cache_gen" "$cache_at" "$cache_mode" >"$pointer" 2>/dev/null
+printf '%s %s %s %s %s %s %s\n' "$cpu_gen" "$proc_gen" "$proc_at" "$cache_gen" "$cache_at" "$cache_mode" "$gpu_gen" >"$pointer" 2>/dev/null
 printf '%s\n' "$json"

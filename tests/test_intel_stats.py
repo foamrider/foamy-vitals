@@ -314,30 +314,6 @@ class IntelTest(unittest.TestCase):
                 self.assertNotEqual(subprocess.run([sys.executable, "-I", str(SCRIPT), *bad],
                                                    capture_output=True, timeout=10).returncode, 0)
 
-    def test_legacy_form_reports_the_lowest_device(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            proc, sys_root = root / "proc", root / "sys"
-            boot = proc / "sys/kernel/random/boot_id"
-            boot.parent.mkdir(parents=True)
-            boot.write_text("boot")
-            driver = sys_root / "bus/pci/drivers/i915"
-            driver.mkdir(parents=True)
-            for pci, number in ((DEVICE, 1), ("0000:03:00.0", 0)):
-                device = sys_root / "devices" / pci
-                device.mkdir(parents=True)
-                (device / "driver").symlink_to(driver)
-                card = sys_root / f"class/drm/card{number}"
-                (card / "gt/gt0").mkdir(parents=True)
-                (card / "device").symlink_to(device)
-                (card / "gt/gt0/rps_act_freq_mhz").write_text(f"{number + 7}00\n")
-            open_drm(proc, sys_root, 1, 3, DEVICE, fdinfo())
-            result = INTEL.collect(root / "intel.json", sys_root / "class/drm", proc)
-            self.assertEqual(list(result), ["gpuIntel", "gpuBusy", "gpuEngines", "gpuMemoryPrivate",
-                                            "gpuFrequencyMHz", "gpuTemp", "gpuThermals", "gpuError"])
-            self.assertEqual((result["gpuIntel"], result["gpuFrequencyMHz"], result["gpuMemoryPrivate"], result["gpuError"]),
-                             (True, 800, 63 * 1048576, ""))
-
     def test_changed_capacity_and_missing_counters_are_not_invented(self):
         before = snapshot(1_000_000_000, fdinfo())
         changed = fdinfo(video=1_000_000_000).replace("capacity-video: 2", "capacity-video: 1")

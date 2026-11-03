@@ -38,17 +38,6 @@ class Device(TypedDict):
     error: str
 
 
-class Stats(TypedDict):
-    gpuIntel: bool
-    gpuBusy: float | None
-    gpuEngines: dict[str, float]
-    gpuMemoryPrivate: int | None
-    gpuFrequencyMHz: int | None
-    gpuTemp: float | None
-    gpuThermals: list[Thermal]
-    gpuError: str
-
-
 DRM_NODE = re.compile(r"/dev/dri/(card\d+|renderD\d+)")
 PCI_ADDRESS = re.compile(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]")
 
@@ -204,9 +193,8 @@ def unavailable() -> Device:
             "error": "Intel GPU readings unavailable. Retrying…"}
 
 
-def sample_device(device: str, card: Path | None, state: Path, clients: dict[str, Client],
-                  proc: Path, window_ns: int) -> tuple[Device, dict[str, float]]:
-    """collect_device() plus the per-engine busy that only the legacy form reports."""
+def collect_device(device: str, card: Path | None, state: Path, clients: dict[str, Client],
+                   proc: Path = Path("/proc"), window_ns: int = 30_000_000_000) -> Device:
     try:
         current: Snapshot = {"device": device, "boot": (proc / "sys/kernel/random/boot_id").read_text().strip(),
                              "time": time.monotonic_ns(), "clients": clients}
@@ -218,7 +206,7 @@ def sample_device(device: str, card: Path | None, state: Path, clients: dict[str
         temporary.replace(state)
     except (OSError, ValueError) as error:
         print(f"Intel telemetry: {error}", file=sys.stderr)
-        return unavailable(), {}
+        return unavailable()
     # Each frequency file and each sensor is read on its own: one unreadable
     # file costs only its own value, never the whole device.
     frequencies = []
@@ -255,12 +243,7 @@ def sample_device(device: str, card: Path | None, state: Path, clients: dict[str
     allocations = [client["private"] for client in clients.values()]
     return {"busy": max(engines.values(), default=None),
             "memoryPrivate": sum(v for v in allocations if v is not None) if allocations and all(v is not None for v in allocations) else None,
-            "frequencyMHz": max(frequencies, default=None), "thermals": thermals, "error": ""}, engines
-
-
-def collect_device(device: str, card: Path | None, state: Path, clients: dict[str, Client],
-                   proc: Path = Path("/proc"), window_ns: int = 30_000_000_000) -> Device:
-    return sample_device(device, card, state, clients, proc, window_ns)[0]
+            "frequencyMHz": max(frequencies, default=None), "thermals": thermals, "error": ""}
 
 
 def device_card(sys_root: Path, device: str) -> Path | None:
@@ -282,36 +265,6 @@ def collect_devices(devices: list[str], spaced: set[str], state_dir: Path,
             for device in devices}
 
 
-def collect(state: Path, drm: Path = Path("/sys/class/drm"), proc: Path = Path("/proc")) -> Stats:
-    """Legacy single-device form: the lowest-addressed Intel GPU, in the old keys."""
-    result: Stats = {"gpuIntel": False, "gpuBusy": None, "gpuEngines": {},
-                     "gpuMemoryPrivate": None, "gpuFrequencyMHz": None, "gpuTemp": None,
-                     "gpuThermals": [], "gpuError": ""}
-    try:
-        devices = {}
-        for card in drm.glob("card[0-9]*"):
-            if "-" in card.name or not (card / "device/driver").exists():
-                continue
-            if (card / "device/driver").resolve().name in ("i915", "xe"):
-                devices[(card / "device").resolve().name] = card
-        if not devices:
-            return result
-        result["gpuIntel"] = True
-        device = sorted(devices)[0]
-        # drm is $sys/class/drm; node_device() resolves nodes from $sys.
-        clients = read_clients({device}, proc, drm.parent.parent)[device]
-    except (OSError, ValueError) as error:
-        print(f"Intel telemetry: {error}", file=sys.stderr)
-        result["gpuError"] = unavailable()["error"]
-        return result
-    reading, engines = sample_device(device, devices[device], state, clients, proc, 30_000_000_000)
-    result.update(gpuBusy=reading["busy"], gpuEngines=engines, gpuMemoryPrivate=reading["memoryPrivate"],
-                  gpuFrequencyMHz=reading["frequencyMHz"], gpuThermals=reading["thermals"],
-                  gpuTemp=max((t["temperature"] for t in reading["thermals"]), default=None),
-                  gpuError=reading["error"])
-    return result
-
-
 def pci_address(value: str) -> str:
     if not PCI_ADDRESS.fullmatch(value):
         raise argparse.ArgumentTypeError(f"not a PCI address: {value!r}")
@@ -320,25 +273,14 @@ def pci_address(value: str) -> str:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("state", type=Path, help="state directory (with --sys), else the legacy state file")
-    parser.add_argument("devices", nargs="*", type=pci_address, metavar="ID")
+    parser.add_argument("state", type=Path, help="state directory (one baseline file per device)")
+    parser.add_argument("devices", nargs="+", type=pci_address, metavar="ID")
     parser.add_argument("--proc", type=Path, default=Path("/proc"), help=argparse.SUPPRESS)
-    parser.add_argument("--sys", type=Path, help=argparse.SUPPRESS)
+    parser.add_argument("--sys", type=Path, default=Path("/sys"), help=argparse.SUPPRESS)
     parser.add_argument("--spaced", action="append", default=[], type=pci_address, metavar="ID",
                         help="read on a spaced-out schedule: keep a 60 s baseline window")
-    parser.add_argument("--drm", type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    if args.sys is None:
-        # Legacy form, still called by stats.sh: one JSON object for the lowest device.
-        if args.devices or args.spaced:
-            parser.error("device IDs need --sys")
-        print(json.dumps(collect(args.state, args.drm or Path("/sys/class/drm"), args.proc),
-                         separators=(",", ":"), allow_nan=False))
-    else:
-        if args.drm is not None:
-            parser.error("--drm is only for the legacy form")
-        if not args.devices:
-            parser.error("at least one device ID is required")
-        readings = collect_devices(list(dict.fromkeys(args.devices)), set(args.spaced), args.state, args.proc, args.sys)
-        print("\n".join(f"{device}\t{json.dumps(readings[device], separators=(',', ':'), allow_nan=False)}"
-                        for device in args.devices))
+    # One "ID<TAB>{json}" line per requested ID, as stats.sh parses them.
+    readings = collect_devices(list(dict.fromkeys(args.devices)), set(args.spaced), args.state, args.proc, args.sys)
+    print("\n".join(f"{device}\t{json.dumps(readings[device], separators=(',', ':'), allow_nan=False)}"
+                    for device in args.devices))

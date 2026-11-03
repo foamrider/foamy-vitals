@@ -115,7 +115,7 @@ ShellRoot {
         shell.down(view)
         check(view.cursor.index === 0, "Down: cursor on Settings")
         shell.down(view)
-        check(view.cursor.index === 1, "next: first CPU process row")
+        check(view.cursor.index === view.cpuStart, "next: first CPU process row")
         for (var i = 0; i < 40; i++) shell.down(view)
         check(view.cursor.index === view.btopStop, "Down walks to btop at the end (" + view.cursor.index + ")")
         check(view.flick.contentY > 0 || view.flick.contentHeight <= view.flick.height, "keyboard cursor scrolls into view")

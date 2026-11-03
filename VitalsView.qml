@@ -55,7 +55,7 @@ PanelKeyCatcher {
     stats: view.live ? VitalsService.stats : ({})
   }
 
-  readonly property var emptyHistory: ({ cpu: [], memory: [], gpu: [], up: [], down: [] })
+  readonly property var emptyHistory: ({ cpu: [], memory: [], gpus: {}, up: [], down: [] })
   readonly property var history: live ? VitalsService.history : emptyHistory
   readonly property var processes: live && Array.isArray(VitalsService.detail.processes) ? VitalsService.detail.processes : []
   readonly property var memoryProcesses: live && Array.isArray(VitalsService.detail.memoryProcesses) ? VitalsService.detail.memoryProcesses : []
@@ -297,15 +297,15 @@ PanelKeyCatcher {
         }
         Caption {
           width: content.inner
-          visible: typeof r.stats.gpuError === "string" && r.stats.gpuError !== ""
-          text: FoamyI18n.t(r.stats.gpuError === "Intel GPU readings unavailable. Retrying…"
-            ? r.stats.gpuError : "NVIDIA readings unavailable. Check nvidia-smi.")
+          visible: r.gpuError !== ""
+          text: FoamyI18n.t(r.gpuError === "Intel GPU readings unavailable. Retrying…"
+            ? r.gpuError : "NVIDIA readings unavailable. Check nvidia-smi.")
           color: r.urgent
           wrapMode: Text.WordWrap
         }
         Caption {
           width: content.inner
-          visible: r.intelGpu
+          visible: r.anyIntel
           text: FoamyI18n.t("Intel GPU: busiest engine and private allocations from accessible processes for this user.")
           wrapMode: Text.WordWrap
         }
@@ -331,12 +331,14 @@ PanelKeyCatcher {
           Overview {
             glyph: "\u{f108}"; label: "GPU"; value: view.percent(r.gpu); meterValue: r.gpu; warning: r.gpuWarning
             detail: r.gpuSuspended ? FoamyI18n.t("Sleeping")
-              : r.intelGpu && !isNaN(r.reading("gpuFrequencyMHz")) ? FoamyI18n.number(Math.round(r.reading("gpuFrequencyMHz"))) + " MHz" : ""
+              : r.intelGpu && !isNaN(r.gpuReading("frequencyMHz")) ? FoamyI18n.number(Math.round(r.gpuReading("frequencyMHz"))) + " MHz" : ""
           }
           Overview {
-            glyph: "\u{f035b}"; label: r.intelGpu ? FoamyI18n.t("GPU memory") : "VRAM"
-            value: r.intelGpu ? view.memoryAmount(r.reading("gpuMemoryPrivate") / 1024) : view.percent(r.vram)
-            detail: r.intelGpu ? FoamyI18n.t("Private") : view.pair(r.reading("vramUsed") / 1073741824, r.reading("vramTotal") / 1073741824)
+            // An APU's memory is its VRAM carve-out plus GTT (system RAM), not VRAM.
+            glyph: "\u{f035b}"
+            label: r.intelGpu || (r.barGpu && r.barGpu.vendor === "amd" && r.barGpu.type === "integrated") ? FoamyI18n.t("GPU memory") : "VRAM"
+            value: r.intelGpu ? view.memoryAmount(r.gpuReading("memoryPrivate") / 1024) : view.percent(r.vram)
+            detail: r.intelGpu ? FoamyI18n.t("Private") : view.pair(r.gpuReading("vramUsed") / 1073741824, r.gpuReading("vramTotal") / 1073741824)
             meterValue: r.vram; warning: r.vramWarning
           }
           Overview {
@@ -369,7 +371,7 @@ PanelKeyCatcher {
               width: parent.width; height: Style.space(90)
               topLabel: view.percent(100); middleLabel: view.percent(50); bottomLabel: view.percent(0)
               maximum: 100
-              series: view.live ? [{ points: view.history.cpu, color: view.cpuColor }, { points: view.history.memory, color: view.memoryColor, dashed: true }, { points: view.history.gpu, color: view.gpuColor }] : []
+              series: view.live ? [{ points: view.history.cpu, color: view.cpuColor }, { points: view.history.memory, color: view.memoryColor, dashed: true }, { points: view.history.gpus[r.gpus.length ? r.gpus[0].id : ""] || [], color: view.gpuColor }] : []
             }
           }
 
