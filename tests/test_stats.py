@@ -322,8 +322,9 @@ class FakeTreeTest(TreeCase):
         self.assertEqual(gpu["thermals"], [{"temperature": 51, "critical": 98, "label": "GPU"}])
         self.assertEqual((gpu["vendor"], gpu["driver"], gpu["type"], gpu["asleep"]), ("nvidia", "nvidia", "discrete", False))
         calls = log.read_text().splitlines()
-        self.assertTrue(any("--query-gpu=" in call for call in calls))
-        self.assertTrue(all(" -q " not in f" {call} " or "TEMPERATURE" in call for call in calls), "no full -q query")
+        self.assertEqual(calls, ["--query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total,temperature.gpu "
+                                 "--format=csv,noheader,nounits", "-q -x -d TEMPERATURE"],
+                         "a single NVIDIA GPU is asked exactly as upstream asks it")
         self.advance(1, 3)
         self.tree.run("--bar")
         self.assertEqual(sum("TEMPERATURE" in call for call in log.read_text().splitlines()), 1, "limit cached per boot")
@@ -623,38 +624,56 @@ class GpuTest(TreeCase):
         self.assertFalse(log.exists(), "nouveau is never asked through nvidia-smi")
 
     def test_two_nvidia_gpus_one_query_per_sample(self):
+        # "" is a call without -i: every bound NVIDIA GPU is due, so nothing
+        # needs narrowing and the command line is upstream's.
         tree = self.tree
-        both = "00000000:01:00.0,00000000:02:00.0"
         log, reply = tree.nvidia(addresses=["0000:01:00.0", "0000:02:00.0"], control="on")
         (tree.device("0000:02:00.0") / "power/control").write_text("auto\n")
         xml = self.base / "nvidia-smi.xml"
         xml.write_text('<nvidia_smi_log><gpu id="00000000:01:00.0"><temperature><gpu_temp_max_threshold>98 C'
                        '</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\n')
         gpus = by_id(tree.run()[0])
-        self.assertEqual(self.nvidia_calls(log, "--query-gpu"), [both])
-        self.assertEqual(self.nvidia_calls(log, "TEMPERATURE"), [both])
+        self.assertEqual(self.nvidia_calls(log, "--query-gpu"), [""], "both due: no -i")
+        self.assertEqual(self.nvidia_calls(log, "TEMPERATURE"), [""], "both probed: no -i")
         self.assertEqual([gpus[a]["busy"] for a in ("0000:01:00.0", "0000:02:00.0")], [37, 37])
         self.assertEqual([gpus[a]["thermals"][0]["critical"] for a in ("0000:01:00.0", "0000:02:00.0")], [98, None])
 
         self.advance(1, 5)
         gpus = by_id(tree.run("--bar")[0])
-        self.assertEqual(self.nvidia_calls(log, "--query-gpu"), [both, "00000000:01:00.0"], "the auto GPU is spaced out")
+        self.assertEqual(self.nvidia_calls(log, "--query-gpu"), ["", "00000000:01:00.0"],
+                         "the auto GPU is spaced out, so -i names only the due one")
         self.assertEqual(gpus["0000:02:00.0"]["busy"], 37, "and carries its last reading")
         self.assertEqual(len(self.nvidia_calls(log, "TEMPERATURE")), 1, "the failed limit backs off")
 
         xml.unlink()
         self.advance(2, 31)
         gpus = by_id(tree.run()[0])
-        self.assertEqual(self.nvidia_calls(log, "--query-gpu")[2:], [both])
-        self.assertEqual(self.nvidia_calls(log, "TEMPERATURE")[1:], ["00000000:02:00.0"], "only unknown limits are probed")
-        self.assertEqual(gpus["0000:02:00.0"]["thermals"][0]["critical"], 98)
+        self.assertEqual(self.nvidia_calls(log, "--query-gpu")[2:], [""])
+        self.assertEqual(self.nvidia_calls(log, "TEMPERATURE")[1:], [""], "the only unknown limit is probed: no -i")
+        self.assertEqual([gpus[a]["thermals"][0]["critical"] for a in ("0000:01:00.0", "0000:02:00.0")], [98, 98])
 
         reply.write_text("00000000:01:00.0, 37, 1178, 8192, 51\n")
         self.advance(3, 40)
         gpus = by_id(tree.run()[0])
-        self.assertEqual(self.nvidia_calls(log, "--query-gpu")[3:], [both])
+        self.assertEqual(self.nvidia_calls(log, "--query-gpu")[3:], [""])
         self.assertEqual((gpus["0000:01:00.0"]["busy"], gpus["0000:01:00.0"]["error"]), (37, ""))
         self.assertEqual((gpus["0000:02:00.0"]["busy"], gpus["0000:02:00.0"]["error"]), (None, NVIDIA_ERROR))
+
+    def test_limit_probe_narrows_only_when_a_gpu_is_left_out(self):
+        tree = self.tree
+        log, _ = tree.nvidia(addresses=["0000:01:00.0", "0000:02:00.0"], control="on")
+        (self.base / "nvidia-smi.failtemp").write_text("")
+        tree.run()
+        self.assertEqual(self.nvidia_calls(log, "TEMPERATURE"), [""])
+        # GPU 2 goes to sleep, and both limits are due a retry.
+        (tree.device("0000:02:00.0") / "power/runtime_status").write_text("suspended\n")
+        (self.base / "nvidia-smi.failtemp").unlink()
+        self.advance(1, 31)
+        gpus = by_id(tree.run()[0])
+        self.assertEqual(self.nvidia_calls(log, "--query-gpu")[1:], ["00000000:01:00.0"], "a suspended GPU is never named")
+        self.assertEqual(self.nvidia_calls(log, "TEMPERATURE")[1:], ["00000000:01:00.0"])
+        self.assertEqual(gpus["0000:01:00.0"]["thermals"][0]["critical"], 98)
+        self.assertTrue(gpus["0000:02:00.0"]["asleep"])
 
     def test_integrated_runtime_pm_gpu_keeps_the_bar_cadence(self):
         igpu = self.tree.gpu("0000:c1:00.0", "amdgpu", control="auto", files=amd_files(10, 1, 2))

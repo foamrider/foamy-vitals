@@ -608,7 +608,7 @@ declare -A gpu_type_was=() gpu_at=() gpu_crit=() gpu_retry=() gpu_fails=() gpu_f
 
 # This sample, by id: the reading and the state to keep with it.
 declare -A gpu_kind=() gpu_asleep=() out_frag=() out_at=() out_crit=() out_retry=() out_fails=()
-nv_due=() intel_due=() intel_spaced=()
+nv_due=() intel_due=() intel_spaced=() nv_bound=0
 for id in "${gpu_ids[@]}"; do
   dev="${gpu_dev[$id]}"
   driver="${gpu_driver[$id]}"
@@ -624,7 +624,10 @@ for id in "${gpu_ids[@]}"; do
   gpu_asleep[$id]=false
   at=${gpu_at[$id]:--1}
   out_crit[$id]=${gpu_crit[$id]:--} out_retry[$id]=${gpu_retry[$id]:-0} out_fails[$id]=${gpu_fails[$id]:-0}
-  [[ $driver == nvidia && ${out_crit[$id]} == - ]] && out_crit[$id]=unknown
+  if [[ $driver == nvidia ]]; then
+    nv_bound=$((nv_bound + 1))
+    [[ ${out_crit[$id]} == - ]] && out_crit[$id]=unknown
+  fi
   if [[ $status == suspended ]]; then
     # Asleep is idle. The last reading is dropped, so a GPU that wakes is
     # read right away instead of showing a stale value.
@@ -651,8 +654,10 @@ for id in "${gpu_ids[@]}"; do
 done
 
 if ((${#nv_due[@]})); then
-  # One query for every due NVIDIA GPU, named in nvidia-smi's 8-digit-domain
-  # spelling; rows are matched back by pci_key.
+  # One query for every due NVIDIA GPU; rows are matched back by pci_key, and
+  # any GPU nobody asked about is ignored. Without -i nvidia-smi answers for
+  # every GPU, so the GPUs are named (in its 8-digit-domain spelling) only
+  # when one is asleep or spaced out. Otherwise the call is upstream's.
   declare -A nv_id=() nv_row=() nv_asked=()
   nv_ask=""
   for id in "${nv_due[@]}"; do
@@ -661,6 +666,8 @@ if ((${#nv_due[@]})); then
     printf -v bus '%08x:%s' "$((16#${id%%:*}))" "${id#*:}"
     nv_ask+="${nv_ask:+,}$bus"
   done
+  nv_only=()
+  ((${#nv_due[@]} < nv_bound)) && nv_only=(-i "$nv_ask")
   # CSV fields are split on commas only: "[Not Supported]" holds a space,
   # and splitting on spaces too would shift every later column.
   while IFS=',' read -r bus util used total temp _; do
@@ -673,23 +680,29 @@ if ((${#nv_due[@]})); then
     nv_field temp "$temp"
     nv_row[$id]="$util $used $total $temp"
   done < <(timeout --kill-after=0.2s 1.5s nvidia-smi --query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total,temperature.gpu \
-    --format=csv,noheader,nounits -i "$nv_ask" 2>/dev/null)
+    --format=csv,noheader,nounits "${nv_only[@]}" 2>/dev/null)
 
   # The shutdown threshold is fixed per GPU: once a probe answers (a limit,
   # or "none" when the GPU reports none), keep it for the boot. A failed probe
   # (timeout, error, the GPU missing from the reply) is not an answer: retry
   # it, backing off from 30 s up to 32 min. One probe asks every GPU that
-  # answered the query, has no answer yet and is due a retry.
-  nv_ask=""
+  # answered the query, has no answer yet and is due a retry. It names them
+  # with -i only when that narrows it: when a GPU is asleep or spaced out, or
+  # an unknown limit is not being asked (no reply, or backing off).
+  nv_ask="" nv_unknown=0
   for id in "${nv_due[@]}"; do
+    [[ ${out_crit[$id]} =~ ^([0-9]+|none)$ ]] && continue
+    nv_unknown=$((nv_unknown + 1))
     retry=${out_retry[$id]}
-    [[ -n ${nv_row[$id]:-} && ! ${out_crit[$id]} =~ ^([0-9]+|none)$ ]] && ((now >= retry)) || continue
+    [[ -n ${nv_row[$id]:-} ]] && ((now >= retry)) || continue
     nv_asked[$id]=1
     out_crit[$id]=unknown
     printf -v bus '%08x:%s' "$((16#${id%%:*}))" "${id#*:}"
     nv_ask+="${nv_ask:+,}$bus"
   done
-  if [[ -n $nv_ask ]] && xml="$(timeout --kill-after=0.2s 1.5s nvidia-smi -q -x -d TEMPERATURE -i "$nv_ask" 2>/dev/null)"; then
+  nv_only=()
+  ((${#nv_due[@]} < nv_bound || ${#nv_asked[@]} < nv_unknown)) && nv_only=(-i "$nv_ask")
+  if [[ -n $nv_ask ]] && xml="$(timeout --kill-after=0.2s 1.5s nvidia-smi -q -x -d TEMPERATURE "${nv_only[@]}" 2>/dev/null)"; then
     # Walk the <gpu id="…"> blocks and read the limit of each GPU asked.
     while [[ $xml == *'<gpu id="'* ]]; do
       xml="${xml#*'<gpu id="'}"
