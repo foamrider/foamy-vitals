@@ -64,15 +64,16 @@ Item {
     return stats
   }
 
-  // GPU history is keyed by PCI address: one line per mock GPU.
+  // GPU history is keyed by PCI address: one line per mock GPU. An asleep
+  // GPU draws 0, as the live history records it.
   function gpuHistory(state) {
     var history = {}
     var gpus = sample(state).gpus
     if (state === "graphics") {
-      for (var i = 0; i < gpus.length; i++) history[gpus[i].id] = series(10 + i * 18, 9, 2 + i * 2)
+      for (var i = 0; i < gpus.length; i++) history[gpus[i].id] = gpus[i].asleep ? series(0, 0, 0) : series(10 + i * 18, 9, 2 + i * 2)
       return history
     }
-    history[gpus[0].id] = series(12, 9, 2)
+    history[gpus[0].id] = gpus[0].asleep ? series(0, 0, 0) : series(12, 9, 2)
     return history
   }
 
