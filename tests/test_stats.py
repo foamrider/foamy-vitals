@@ -686,6 +686,33 @@ class GpuTest(TreeCase):
         self.assertEqual(gpus["0000:03:00.0"]["busy"], 60, "a connected display exempts the GPU from spacing")
         self.assertEqual(gpus["0000:04:00.0"]["busy"], 20, "without one the GPU stays spaced")
 
+    def test_carried_then_suspended_then_woke_reads_fresh(self):
+        tree = self.tree
+        device = tree.gpu("0000:05:00.0", "amdgpu", control="auto", files=amd_files(10, 1, 2, discrete=True),
+                          hwmon=[("edge", 50000, None)])
+        self.assertEqual(only(tree.run("--bar")[0])["busy"], 10)
+        (device / "gpu_busy_percent").write_text("50\n")
+        self.advance(1, 5)
+        self.assertEqual(only(tree.run("--bar")[0])["busy"], 10, "carried while spaced out")
+        # Asleep: nothing of it is opened (a FIFO would block the read).
+        (device / "power/runtime_status").write_text("suspended\n")
+        for name in ("gpu_busy_percent", "hwmon/hwmon0/temp1_input"):
+            (device / name).unlink()
+            os.mkfifo(device / name)
+        self.advance(2, 10)
+        gpu = only(tree.run("--bar", timeout=5)[0])
+        self.assertTrue(gpu["asleep"])
+        self.assertEqual((gpu["busy"], gpu["vramUsed"], gpu["vramTotal"], gpu["thermals"], gpu["error"]),
+                         (None, None, None, [], ""))
+        # Awake again inside the old 30 s window: read now, not the carried 10.
+        (device / "power/runtime_status").write_text("active\n")
+        for name, value in (("gpu_busy_percent", "70\n"), ("hwmon/hwmon0/temp1_input", "60000\n")):
+            (device / name).unlink()
+            (device / name).write_text(value)
+        self.advance(3, 15)
+        gpu = only(tree.run("--bar")[0])
+        self.assertEqual((gpu["asleep"], gpu["busy"], temperature(gpu)), (False, 70, 60))
+
     def test_mixed_vendors_all_listed(self):
         tree = self.tree
         python = tree.python([INTEL_LINE.format(id="0000:00:02.0"), INTEL_LINE.format(id="0000:09:00.0")])
