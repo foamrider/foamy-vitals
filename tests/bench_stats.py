@@ -11,8 +11,14 @@ come from the real /proc and /sys of this machine; state stays in a temp dir.
 
 --fixture samples a fake /proc and /sys from test_stats.Tree instead (amd: an
 integrated AMD GPU; nvidia, nvidia2: one or two NVIDIA GPUs; amd-nvidia: both
-kinds). NVIDIA GPUs use power/control=on, so no bar sample is spaced out (the
-worst case). The fake clock is moved on 2.1 s before each run instead of sleeping.
+kinds; intel-nvidia, intel-amd: an Intel iGPU at 0000:00:02.0 on i915 beside an
+NVIDIA or a discrete AMD GPU). NVIDIA GPUs use power/control=on, so no bar
+sample is spaced out (the worst case). The fake clock is moved on 2.1 s before
+each run instead of sleeping.
+
+Intel GPUs are read by the real intel_stats.py (this interpreter, linked in as
+python3) against the fake tree, so its start-up is counted in full. The fake tree has
+few processes to scan, so a busy desktop costs the helper somewhat more.
 """
 import argparse
 import os
@@ -28,7 +34,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 # -I leaves the script directory off sys.path; test_stats holds the fake tree.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-FIXTURES = ("amd", "nvidia", "nvidia2", "amd-nvidia")
+FIXTURES = ("amd", "nvidia", "nvidia2", "amd-nvidia", "intel-nvidia", "intel-amd")
 
 
 def child_cpu():
@@ -54,7 +60,24 @@ def build_fixture(base, name):
         (tree.sys / "class/drm/card0").mkdir()
         (tree.sys / "class/drm/card0/device").symlink_to(device)
         tree.hwmon(1, "amdgpu", [("edge", 50000, None)])
-    if name in ("nvidia", "amd-nvidia"):
+    if name == "intel-amd":
+        # A desktop dGPU that drives a display never runtime-suspends.
+        files = test_stats.amd_files(12, 256 * 1048576, 8192 * 1048576, discrete=True)
+        device = tree.gpu("0000:03:00.0", "amdgpu", device="0x7590", files=files, hwmon=[("edge", 50000, None)])
+        (tree.sys / "class/drm").mkdir(parents=True, exist_ok=True)
+        (tree.sys / "class/drm/card1").mkdir()
+        (tree.sys / "class/drm/card1/device").symlink_to(device)
+        tree.hwmon(1, "amdgpu", [("edge", 50000, None)])
+    if name in ("intel-nvidia", "intel-amd"):
+        # Upstream finds the Intel GPU through its i915 binding and its DRM card.
+        device = tree.gpu("0000:00:02.0", "i915", vendor="0x8086", device="0x7d55",
+                          files={"drm/card0/gt/gt0/rps_act_freq_mhz": "900\n"})
+        (tree.sys / "class/drm").mkdir(parents=True, exist_ok=True)
+        (tree.sys / "class/drm/card0").mkdir()
+        (tree.sys / "class/drm/card0/device").symlink_to(device)
+        # The interpreter itself, not a version-manager shim that starts more processes.
+        (tree.bin / "python3").symlink_to(os.path.realpath(sys.executable))
+    if name in ("nvidia", "amd-nvidia", "intel-nvidia"):
         tree.nvidia(addresses=["0000:01:00.0"], control="on")
     elif name == "nvidia2":
         tree.nvidia(addresses=["0000:01:00.0", "0000:02:00.0"], control="on")
