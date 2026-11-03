@@ -668,6 +668,24 @@ class GpuTest(TreeCase):
         self.assertEqual(gpus["0000:c1:00.0"]["busy"], 50, "an integrated GPU is read on every bar sample")
         self.assertEqual(gpus["0000:05:00.0"]["busy"], 20, "a discrete runtime-PM GPU is spaced out")
 
+    def test_dgpu_driving_a_display_keeps_the_bar_cadence(self):
+        # amdgpu leaves a desktop dGPU that drives a display awake for good,
+        # so spacing it would only make the bar's reading stale.
+        devices = {}
+        for card, (address, state) in enumerate((("0000:03:00.0", "connected"), ("0000:04:00.0", "disconnected")), 1):
+            files = amd_files(20, 1, 2, discrete=True)
+            files.update({f"drm/card{card}/card{card}-DP-1/status": f"{state}\n",
+                          f"drm/card{card}/card{card}-HDMI-A-1/status": "disconnected\n"})
+            devices[address] = self.tree.gpu(address, "amdgpu", control="auto", files=files)
+        gpus = by_id(self.tree.run("--bar")[0])
+        self.assertEqual([gpus[address]["busy"] for address in devices], [20, 20])
+        for device in devices.values():
+            (device / "gpu_busy_percent").write_text("60\n")
+        self.advance(1, 5)
+        gpus = by_id(self.tree.run("--bar")[0])
+        self.assertEqual(gpus["0000:03:00.0"]["busy"], 60, "a connected display exempts the GPU from spacing")
+        self.assertEqual(gpus["0000:04:00.0"]["busy"], 20, "without one the GPU stays spaced")
+
     def test_mixed_vendors_all_listed(self):
         tree = self.tree
         python = tree.python([INTEL_LINE.format(id="0000:00:02.0"), INTEL_LINE.format(id="0000:09:00.0")])

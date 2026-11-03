@@ -440,7 +440,9 @@ fi
 # DRM clients or nvidia-smi entries is touched. While every popup is closed, a
 # GPU that may runtime-suspend is read at most every 30 s, so polling alone
 # never keeps it awake. Integrated GPUs keep the bar cadence: they suspend
-# between frames anyway, and spacing them would slow a lone iGPU's bar.
+# between frames anyway, and spacing them would slow a lone iGPU's bar. So
+# does a GPU driving a connected display: it never suspends (amdgpu keeps a
+# desktop dGPU that drives a monitor awake), so spacing would only go stale.
 gpu_spacing_ms=30000
 pci_address='^[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]$'
 
@@ -475,6 +477,18 @@ gpu_type() { # var dev driver id
     i915 | xe) if [[ ${4#*:} == 00:02.0 ]]; then printf -v "$1" integrated; else printf -v "$1" discrete; fi ;;
     *) printf -v "$1" discrete ;;
   esac
+}
+
+# True when a connector of the GPU at dev reports a connected display. The
+# status file is the connector state DRM keeps; reading it probes nothing.
+gpu_display() { # dev
+  local file state
+  for file in "$1"/drm/card*/card*-*/status; do
+    state=""
+    read -r state 2>/dev/null <"$file" || true
+    [[ $state == connected ]] && return 0
+  done
+  return 1
 }
 
 # var <- a reading with nothing read, and its error ("" for a GPU asleep).
@@ -610,7 +624,8 @@ for id in "${gpu_ids[@]}"; do
     gpu_asleep[$id]=true
     gpu_blank fragment ""
     out_frag[$id]=$fragment out_at[$id]=-1
-  elif [[ $mode == bar && $control == auto && $type != integrated ]] && ((at >= 0 && now - at >= 0 && now - at < gpu_spacing_ms)); then
+  elif [[ $mode == bar && $control == auto && $type != integrated ]] && ((at >= 0 && now - at >= 0 && now - at < gpu_spacing_ms)) &&
+    ! gpu_display "$dev"; then
     out_frag[$id]=${gpu_frag[$id]} out_at[$id]=$at
   else
     case $driver in
