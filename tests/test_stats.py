@@ -686,6 +686,29 @@ class GpuTest(TreeCase):
         self.assertEqual(gpus["0000:03:00.0"]["busy"], 60, "a connected display exempts the GPU from spacing")
         self.assertEqual(gpus["0000:04:00.0"]["busy"], 20, "without one the GPU stays spaced")
 
+    def test_gpu_type_is_kept_for_the_boot(self):
+        # A dGPU being hot-unplugged loses its memory files before its binding.
+        device = self.tree.gpu("0000:05:00.0", "amdgpu", files=amd_files(10, 1, 2, discrete=True))
+        self.assertEqual(only(self.tree.run()[0])["type"], "discrete")
+        (device / "mem_info_vram_vendor").unlink()
+        self.advance(1, 3)
+        self.assertEqual(only(self.tree.run()[0])["type"], "discrete", "the type is read once per boot")
+        (self.tree.proc / "sys/kernel/random/boot_id").write_text("boot-2\n")
+        self.advance(2, 6)
+        self.assertEqual(only(self.tree.run()[0])["type"], "integrated", "a new boot reads it again")
+
+    def test_power_control_is_read_only_when_used(self):
+        # A FIFO blocks whoever opens it: a full sample of an AMD or NVIDIA
+        # GPU has no use for power/control and must not open it.
+        tree = self.tree
+        device = tree.gpu("0000:05:00.0", "amdgpu", files=amd_files(10, 1, 2, discrete=True))
+        tree.nvidia(addresses=["0000:01:00.0"])
+        for address in ("0000:05:00.0", "0000:01:00.0"):
+            (tree.device(address) / "power/control").unlink()
+            os.mkfifo(tree.device(address) / "power/control")
+        gpus = by_id(tree.run(timeout=5)[0])
+        self.assertEqual([gpus[a]["busy"] for a in ("0000:05:00.0", "0000:01:00.0")], [10, 37])
+
     def test_carried_then_suspended_then_woke_reads_fresh(self):
         tree = self.tree
         device = tree.gpu("0000:05:00.0", "amdgpu", control="auto", files=amd_files(10, 1, 2, discrete=True),

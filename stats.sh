@@ -589,15 +589,18 @@ done
 
 # The previous sample's readings, double-buffered like the counters. After a
 # "boot<TAB>id" line, one line per GPU:
-#   id  readAt (-1: nothing to carry)  limit (unknown|none|°C|-)  retryAt  failures  reading
-# Another boot's state is ignored. A line cut short by a killed run has no
-# newline, and read never returns it.
-declare -A gpu_at=() gpu_crit=() gpu_retry=() gpu_fails=() gpu_frag=()
+#   id  type  readAt (-1: nothing to carry)  limit (unknown|none|°C|-)  retryAt  failures  reading
+# The type is fixed for the boot, so it is worked out once. Another boot's
+# state is ignored. A line cut short by a killed run has no newline, and read
+# never returns it.
+declare -A gpu_type_was=() gpu_at=() gpu_crit=() gpu_retry=() gpu_fails=() gpu_frag=()
 {
   if IFS= read -r line && [[ $line == "boot"$'\t'"$boot_id" ]]; then
-    while IFS=$'\t' read -r id at crit retry fails fragment; do
-      [[ $id =~ $pci_address && $at =~ ^(-1|[0-9]{1,18})$ && $crit =~ ^(unknown|none|[0-9]{1,6}|-)$ &&
-        $retry =~ ^[0-9]{1,18}$ && $fails =~ ^[0-7]$ && $fragment == '"busy":'*',"error":"'*'"' ]] || continue
+    while IFS=$'\t' read -r id type at crit retry fails fragment; do
+      [[ $id =~ $pci_address && $type =~ ^(integrated|discrete|null)$ && $at =~ ^(-1|[0-9]{1,18})$ &&
+        $crit =~ ^(unknown|none|[0-9]{1,6}|-)$ && $retry =~ ^[0-9]{1,18}$ && $fails =~ ^[0-7]$ &&
+        $fragment == '"busy":'*',"error":"'*'"' ]] || continue
+      gpu_type_was[$id]=$type
       gpu_at[$id]=$at gpu_crit[$id]=$crit gpu_retry[$id]=$retry gpu_fails[$id]=$fails gpu_frag[$id]=$fragment
     done
   fi
@@ -611,9 +614,13 @@ for id in "${gpu_ids[@]}"; do
   driver="${gpu_driver[$id]}"
   status="" control=""
   read -r status 2>/dev/null <"$dev/power/runtime_status" || true
-  read -r control 2>/dev/null <"$dev/power/control" || true
-  gpu_type type "$dev" "$driver" "$id"
+  type=${gpu_type_was[$id]:-}
+  [[ -n $type ]] || gpu_type type "$dev" "$driver" "$id"
   gpu_kind[$id]=$type
+  # power/control only matters for a GPU that could be spaced out: one that
+  # is not integrated, in a bar sample or (Intel) for its baseline window.
+  [[ $type != integrated && ($mode == bar || $driver == i915 || $driver == xe) ]] &&
+    read -r control 2>/dev/null <"$dev/power/control"
   gpu_asleep[$id]=false
   at=${gpu_at[$id]:--1}
   out_crit[$id]=${gpu_crit[$id]:--} out_retry[$id]=${gpu_retry[$id]:-0} out_fails[$id]=${gpu_fails[$id]:-0}
@@ -841,7 +848,7 @@ for id in "${gpu_ids[@]}"; do
   type=null
   [[ ${gpu_kind[$id]} == null ]] || type="\"${gpu_kind[$id]}\""
   gpus+="${gpus:+,}{\"id\":\"$id\",\"vendor\":\"$vendor\",\"driver\":\"$driver\",\"name\":$name,\"type\":$type,\"asleep\":${gpu_asleep[$id]},${out_frag[$id]}}"
-  gpu_state+="$id"$'\t'"${out_at[$id]}"$'\t'"${out_crit[$id]}"$'\t'"${out_retry[$id]}"$'\t'"${out_fails[$id]}"$'\t'"${out_frag[$id]}"$'\n'
+  gpu_state+="$id"$'\t'"${gpu_kind[$id]}"$'\t'"${out_at[$id]}"$'\t'"${out_crit[$id]}"$'\t'"${out_retry[$id]}"$'\t'"${out_fails[$id]}"$'\t'"${out_frag[$id]}"$'\n'
 done
 next_gpu_gen=$((1 - gpu_gen))
 printf '%s' "$gpu_state" 2>/dev/null >"$state_dir/gpus.$next_gpu_gen" && gpu_gen=$next_gpu_gen
