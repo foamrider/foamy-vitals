@@ -44,9 +44,10 @@ QtObject {
     return failed.length ? failed[0].error : ""
   }
   readonly property bool anyGpuWarning: gpuRows.some(function(row) { return row.warning })
-  // A failed sample lists no GPUs; that is not a missing pin.
+  // A failed sample lists no GPUs; that is not a missing pin. A row error
+  // never removes a row, so it does not hide the caption.
   readonly property bool pinnedMissing: VitalsService.telemetryError === "" && Array.isArray(stats.gpus)
-    && gpuError === "" && Gpus.pinnedMissing(gpus, pinnedGpu)
+    && Gpus.pinnedMissing(gpus, pinnedGpu)
 
   // The bar GPU's readings. Asleep is idle (0 %); no GPU is no reading.
   readonly property real gpu: barGpu ? (barGpu.asleep ? 0 : gpuReading("busy")) : NaN
