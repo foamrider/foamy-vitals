@@ -92,6 +92,21 @@ test('colorSlot follows row order, then history-only ids by address', () => {
   assert.equal(G.colorSlot(rows, {}, B), -1);
 });
 
+test('displayName adds the PCI slot only to GPUs that share a name', () => {
+  const twins = [
+    {id: '0000:02:00.0', vendor: 'amd', name: 'Radeon R9 280X'},
+    {id: '0000:06:00.0', vendor: 'amd', name: 'Radeon R9 280X'},
+    {id: '0000:01:00.0', vendor: 'nvidia', name: 'GeForce RTX 4070'},
+  ];
+  assert.equal(G.displayName(twins[0], twins, false), 'Radeon R9 280X · 02:00.0');
+  assert.equal(G.displayName(twins[1], twins, true), 'R9 280X · 06:00.0');
+  assert.equal(G.displayName(twins[2], twins, false), 'GeForce RTX 4070');
+  assert.equal(G.displayName(twins[2], twins, true), 'RTX 4070');
+  assert.equal(G.displayName({id: '0000:05:00.0', vendor: 'amd', name: null}, twins, false), 'AMD 05:00.0',
+               'an unnamed GPU already shows its address');
+  assert.equal(G.displayName(twins[0], null, false), 'Radeon R9 280X');
+});
+
 test('shortName strips vendor words and falls back to the PCI address', () => {
   assert.equal(G.shortName({name: 'Radeon RX 9050 / 9060 XT'}), 'RX 9050 / 9060 XT');
   assert.equal(G.shortName({name: 'Radeon 880M / 890M'}), '880M / 890M');
