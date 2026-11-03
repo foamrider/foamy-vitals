@@ -19,12 +19,17 @@ omarchy plugin add https://github.com/foamrider/foamy-vitals.git --enable
 
 - The bar shows CPU, RAM or GPU usage (the busiest one, or the one you pick) and
   turns the warning color when a usage threshold or temperature limit is reached.
+- With two or more GPUs, the popup lists each one in a Graphics table, and the
+  bar's GPU reading follows the busiest GPU. Click a GPU row (or press Enter on
+  it) to keep the bar on that GPU; click it again to let it follow the busiest
+  one. The choice is saved by PCI address and resumes when that GPU returns;
+  until then the popup shows "Pinned GPU not connected".
 - Left-click the widget to see usage, temperatures, top processes, network
   traffic, CPU threads and storage. Right-click (or **btop** in the popup) opens
   btop, if installed.
-- Keyboard: Up/Down (or j/k) walk Settings, the process rows, the CPU cores strip
-  and btop; Left/Right (h/l) pick a thread on the cores strip; Enter opens the
-  selected item; `s` Settings, `r` refresh, `b` btop, Esc closes (or leaves
+- Keyboard: Up/Down (or j/k) walk Settings, the GPU rows, the process rows, the
+  CPU cores strip and btop; Left/Right (h/l) pick a thread on the cores strip;
+  Enter opens or pins the selected item; `s` Settings, `r` refresh, `b` btop, Esc closes (or leaves
   Settings), Tab/Shift+Tab switch to the next bar panel. Hovering moves the
   same cursor.
 - Open **Settings** (the cog) to choose what to show in the bar, the warning
@@ -54,20 +59,25 @@ counters: it reads the DRM fdinfo of the current user's processes (only file
 descriptors that point at `/dev/dri`). GPU usage is the busiest engine,
 normalized for its engine count. The first sample has no usage reading. GPU
 memory shows private allocations, excluding shared buffers to avoid counting
-them twice; it is not total VRAM or resident memory. The lowest PCI-address
-Intel GPU is used when no AMD/NVIDIA load source is available. On `i915`, the
-clock shows the highest current GT frequency. Unexposed temperatures remain
-unavailable. Collection times out after 1.5 seconds.
+them twice; it is not total VRAM or resident memory. All Intel GPUs share one
+Python run. On `i915`, the clock shows the highest current GT frequency.
+Unexposed temperatures remain unavailable. The process scan is bounded to one
+second.
 
-NVIDIA GPUs with the proprietary driver are read with
-`nvidia-smi --query-gpu`; the shutdown temperature (for thermal warnings) is
-asked once per boot. The lowest PCI-address NVIDIA GPU is used when no sysfs
-GPU load source is available, and load, VRAM and temperature always come from
-that GPU. A GPU that runtime power management has suspended (hybrid laptops)
-is never woken: it shows as 0% and "Sleeping". While every popup is closed, a
-GPU that is allowed to runtime-suspend is queried at most every 30 seconds, so
-polling alone never keeps it awake. Install the NVIDIA driver utilities
-matching your driver if `nvidia-smi` is missing.
+Every AMD, Intel and NVIDIA (`nvidia` or `nouveau`) GPU is listed; other
+display devices are ignored. An integrated AMD GPU's memory is shown as "GPU
+memory": its VRAM carve-out plus GTT, the system memory it borrows.
+
+NVIDIA GPUs with the proprietary driver are read with one
+`nvidia-smi --query-gpu` call that covers every awake NVIDIA GPU; the shutdown
+temperature (for thermal warnings) is asked once per boot. When an NVIDIA GPU
+is present alongside other GPUs, each sample adds one `nvidia-smi` call that
+earlier versions did not make. A GPU that runtime power management has
+suspended (hybrid laptops) is never woken: it shows as 0% and "Sleeping".
+While every popup is closed, a non-integrated GPU that is allowed to
+runtime-suspend is read at most every 30 seconds, so polling alone never keeps
+it awake. Install the NVIDIA driver utilities matching your driver if
+`nvidia-smi` is missing.
 
 ## Remove
 
@@ -109,6 +119,7 @@ python3 tests/runtime.py both            # offscreen, 4.0 and 4.5 (needs foamy-k
 python3 tests/i18n-runtime.py            # OMARCHY_PATH=<4.5 tree> for live switching
 bash tests/kit-check.sh
 python3 -I tests/bench_stats.py [--bar]  # CPU, wall time and processes per sample
+python3 -I tests/bench_stats.py --fixture nvidia [--bar]  # fake trees: amd, nvidia, nvidia2, amd-nvidia
 ```
 
 `preview/Preview.qml` and `preview/BarPreview.qml` hold mock states for the
