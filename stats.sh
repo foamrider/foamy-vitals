@@ -634,8 +634,10 @@ for id in "${gpu_ids[@]}"; do
     gpu_asleep[$id]=true
     gpu_blank fragment ""
     out_frag[$id]=$fragment out_at[$id]=-1
+  # A display keeps an AMD or Intel dGPU awake, so it is read at bar cadence;
+  # NVIDIA stays spaced as before, since each reading costs an nvidia-smi run.
   elif [[ $mode == bar && $control == auto && $type != integrated ]] && ((at >= 0 && now - at >= 0 && now - at < gpu_spacing_ms)) &&
-    ! gpu_display "$dev"; then
+    { [[ $driver == nvidia ]] || ! gpu_display "$dev"; }; then
     out_frag[$id]=${gpu_frag[$id]} out_at[$id]=$at
   else
     case $driver in

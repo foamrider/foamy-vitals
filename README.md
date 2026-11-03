@@ -72,9 +72,9 @@ NVIDIA GPU adds one `nvidia-smi` call to each sample it is read in, and an
 Intel GPU adds one Python run (about 45 ms of CPU). A GPU that runtime power
 management has suspended (hybrid laptops) is never woken: it shows as 0% and
 "Sleeping". While every popup is closed, a non-integrated GPU that is allowed
-to runtime-suspend and has no connected display is read at most every 30
-seconds, so polling alone never keeps it awake; the samples in between skip
-its call. An integrated AMD GPU's memory is shown as "GPU memory": its VRAM
+to runtime-suspend is read at most every 30 seconds, so polling alone never
+keeps it awake; the samples in between skip its call. AMD and Intel GPUs
+driving a connected display are exempt, since the display keeps them awake. An integrated AMD GPU's memory is shown as "GPU memory": its VRAM
 carve-out plus GTT, the system memory it borrows.
 
 NVIDIA GPUs with the proprietary driver are read with one

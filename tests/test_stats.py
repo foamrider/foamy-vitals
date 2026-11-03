@@ -705,6 +705,18 @@ class GpuTest(TreeCase):
         self.assertEqual(gpus["0000:03:00.0"]["busy"], 60, "a connected display exempts the GPU from spacing")
         self.assertEqual(gpus["0000:04:00.0"]["busy"], 20, "without one the GPU stays spaced")
 
+    def test_nvidia_driving_a_display_stays_spaced(self):
+        # Upstream spaces an auto-PM NVIDIA GPU whatever it drives; the display
+        # exemption must not add nvidia-smi calls to its bar samples.
+        log, _ = self.tree.nvidia(status="active", control="auto")
+        connector = self.tree.device(NVIDIA_ADDRESS) / "drm/card1/card1-HDMI-A-1/status"
+        connector.parent.mkdir(parents=True)
+        connector.write_text("connected\n")
+        self.tree.run("--bar")
+        self.advance(1, 5)
+        self.tree.run("--bar")
+        self.assertEqual(self.nvidia_calls(log, "--query-gpu"), [""], "a spaced NVIDIA GPU is queried once")
+
     def test_gpu_type_is_kept_for_the_boot(self):
         # A dGPU being hot-unplugged loses its memory files before its binding.
         device = self.tree.gpu("0000:05:00.0", "amdgpu", files=amd_files(10, 1, 2, discrete=True))
