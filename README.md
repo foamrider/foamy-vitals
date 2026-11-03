@@ -29,9 +29,9 @@ omarchy plugin add https://github.com/foamrider/foamy-vitals.git --enable
   btop, if installed.
 - Keyboard: Up/Down (or j/k) walk Settings, the GPU rows, the process rows, the
   CPU cores strip and btop; Left/Right (h/l) pick a thread on the cores strip;
-  Enter opens or pins the selected item; `s` Settings, `r` refresh, `b` btop, Esc closes (or leaves
-  Settings), Tab/Shift+Tab switch to the next bar panel. Hovering moves the
-  same cursor.
+  Enter opens or pins the selected item; `s` Settings, `r` refresh, `b` btop,
+  Esc closes (or leaves Settings), Tab/Shift+Tab switch to the next bar panel.
+  Hovering moves the same cursor.
 - Open **Settings** (the cog) to choose what to show in the bar, the warning
   color, usage warning thresholds and temperature warning margins. Settings are
   saved in Omarchy's `shell.json`.
@@ -65,19 +65,22 @@ Unexposed temperatures remain unavailable. The process scan is bounded to one
 second.
 
 Every AMD, Intel and NVIDIA (`nvidia` or `nouveau`) GPU is listed; other
-display devices are ignored. An integrated AMD GPU's memory is shown as "GPU
-memory": its VRAM carve-out plus GTT, the system memory it borrows.
+display devices are ignored. Each GPU is read by its vendor's reader: AMD and
+`nouveau` GPUs from sysfs, Intel GPUs by the Python run above, NVIDIA GPUs by
+`nvidia-smi`. Earlier versions read only one GPU, so alongside another GPU an
+NVIDIA GPU adds one `nvidia-smi` call to each sample it is read in, and an
+Intel GPU adds one Python run (about 45 ms of CPU). A GPU that runtime power
+management has suspended (hybrid laptops) is never woken: it shows as 0% and
+"Sleeping". While every popup is closed, a non-integrated GPU that is allowed
+to runtime-suspend and has no connected display is read at most every 30
+seconds, so polling alone never keeps it awake; the samples in between skip
+its call. An integrated AMD GPU's memory is shown as "GPU memory": its VRAM
+carve-out plus GTT, the system memory it borrows.
 
 NVIDIA GPUs with the proprietary driver are read with one
 `nvidia-smi --query-gpu` call that covers every awake NVIDIA GPU; the shutdown
-temperature (for thermal warnings) is asked once per boot. When an NVIDIA GPU
-is present alongside other GPUs, each sample adds one `nvidia-smi` call that
-earlier versions did not make. A GPU that runtime power management has
-suspended (hybrid laptops) is never woken: it shows as 0% and "Sleeping".
-While every popup is closed, a non-integrated GPU that is allowed to
-runtime-suspend is read at most every 30 seconds, so polling alone never keeps
-it awake. Install the NVIDIA driver utilities matching your driver if
-`nvidia-smi` is missing.
+temperature (for thermal warnings) is asked once per boot. Install the NVIDIA
+driver utilities matching your driver if `nvidia-smi` is missing.
 
 ## Remove
 
@@ -119,7 +122,7 @@ python3 tests/runtime.py both            # offscreen, 4.0 and 4.5 (needs foamy-k
 python3 tests/i18n-runtime.py            # OMARCHY_PATH=<4.5 tree> for live switching
 bash tests/kit-check.sh
 python3 -I tests/bench_stats.py [--bar]  # CPU, wall time and processes per sample
-python3 -I tests/bench_stats.py --fixture nvidia [--bar]  # fake trees: amd, nvidia, nvidia2, amd-nvidia
+python3 -I tests/bench_stats.py --fixture nvidia [--bar]  # fake trees: amd, nvidia, nvidia2, amd-nvidia, intel-nvidia, intel-amd
 ```
 
 `preview/Preview.qml` and `preview/BarPreview.qml` hold mock states for the

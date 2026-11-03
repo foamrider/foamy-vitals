@@ -15,9 +15,9 @@
 # uses shell builtins for every file read and keeps the process count to the
 # lock, one awk for the system counters, and (full samples only) one awk for
 # the process rankings and one find for their working directories. AMD and
-# nouveau GPUs are read from sysfs with builtins. Only when such a GPU is due:
-# one nvidia-smi query for every NVIDIA GPU, one Intel helper run for every
-# Intel GPU, and once per boot one awk over pci.ids for the names. No jq.
+# nouveau GPUs are read from sysfs with builtins. Only when an NVIDIA or Intel
+# GPU is due: one nvidia-smi query for every NVIDIA GPU, one Intel helper run
+# for every Intel GPU. Once per boot, one awk over pci.ids for the names. No jq.
 set -uo pipefail
 # Byte-wise text handling: process names are arbitrary bytes, and [[:cntrl:]]
 # must mean the ASCII control characters for the JSON sanitising below.
