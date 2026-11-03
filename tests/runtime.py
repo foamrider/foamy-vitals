@@ -143,15 +143,20 @@ ShellRoot {
         })))
         check(view.graphicsStops === 0 && view.cursor.index < view.cpuStart, "one GPU left: the cursor is not on a process row (" + view.cursor.index + ", cpuStart " + view.cpuStart + ")")
         check(view.cursor.index === -1, "no GPU rows left: the cursor resets (" + view.cursor.index + ")")
-        s.parse(JSON.stringify(Object.assign({}, s.stats, {
-          mode: "full", sampleTimeMs: s.sampledAt + 3,
-          gpus: [
-            { id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "integrated", asleep: false, busy: 12,
-              vramUsed: 536870912, vramTotal: 4294967296, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" },
-            { id: "0000:05:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "discrete", asleep: false, busy: 40,
-              vramUsed: 2147483648, vramTotal: 17179869184, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" }
-          ]
-        })))
+        var twoGpus = [
+          { id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "integrated", asleep: false, busy: 12,
+            vramUsed: 536870912, vramTotal: 4294967296, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" },
+          { id: "0000:05:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "discrete", asleep: false, busy: 40,
+            vramUsed: 2147483648, vramTotal: 17179869184, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" }
+        ]
+        s.parse(JSON.stringify(Object.assign({}, s.stats, { mode: "full", sampleTimeMs: s.sampledAt + 3, gpus: twoGpus })))
+        // On a process row, a change in the GPU count shifts every row after
+        // the Graphics rows: the cursor resets instead of drifting.
+        view.cursor.hover(view.cpuStart)
+        var onProcess = view.cursor.index
+        s.parse(JSON.stringify(Object.assign({}, s.stats, { mode: "full", sampleTimeMs: s.sampledAt + 4, gpus: twoGpus.slice(0, 1) })))
+        check(onProcess === 3 && view.cursor.index === -1, "a process row under the cursor: a GPU count change resets it (" + onProcess + " -> " + view.cursor.index + ")")
+        s.parse(JSON.stringify(Object.assign({}, s.stats, { mode: "full", sampleTimeMs: s.sampledAt + 5, gpus: twoGpus })))
         view.cursor.hover(1)
         shell.down(view)
         shell.down(view)

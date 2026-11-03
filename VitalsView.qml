@@ -108,12 +108,17 @@ PanelKeyCatcher {
   onLiveChanged: if (!live) { cursor.reset(); hoveredCore = -1; flick.contentY = 0 }
 
   // When GPU rows vanish under the cursor, the numeric index would land on a
-  // process row (Enter opens btop): move to the first GPU row, or reset.
+  // process row (Enter opens btop): move to the first GPU row, or reset. A
+  // cursor past the GPU rows would drift onto another row, so it resets (the
+  // index is not shifted: FoamyCursor clamps on count changes on its own, in
+  // no fixed order with this handler). GPU-count changes are rare.
   property int previousGraphicsStops: 0
+  Component.onCompleted: previousGraphicsStops = graphicsStops
   onGraphicsStopsChanged: {
     var was = previousGraphicsStops
     previousGraphicsStops = graphicsStops
-    if (cursor.index >= graphicsStart && cursor.index < graphicsStart + was && cursor.index >= graphicsStart + graphicsStops) {
+    if (cursor.index >= graphicsStart + was) cursor.reset()
+    else if (cursor.index >= graphicsStart && cursor.index >= graphicsStart + graphicsStops) {
       if (graphicsStops > 0) cursor.index = graphicsStart
       else cursor.reset()
     }
