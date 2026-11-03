@@ -1,4 +1,4 @@
-// Inline widget settings schema (mirrors manifest.json barWidget.schema).
+// Inline widget settings schema (mirrors manifest.json barWidget.schema, except hidden fields).
 // Validation and saving are foamy-kit's FoamyPrefs.js; label, group,
 // description and unit are display hints for the settings page.
 var fields = [

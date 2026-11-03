@@ -70,7 +70,7 @@ PanelKeyCatcher {
   readonly property color cpuColor: Commons.Color.accent
   readonly property color memoryColor: Qt.darker(Commons.Color.accent, 1.5)
   readonly property color gpuColor: Qt.tint(Commons.Color.accent, Qt.alpha(Commons.Color.urgent, 0.6))
-  // Later GPU slots: Qt.tint(Commons.Color.accent, Qt.rgba(0.95, 0.95, 0.24, 0.8)), Qt.rgba(0.24, 0.95, 0.95, 0.8), Qt.rgba(0.95, 0.24, 0.77, 0.8) (ΔE ≥ 24 from CPU, RAM, GPU and each other in every bundled theme).
+  // Later slots tint the accent; each stays ΔE ≥ 24 from CPU, RAM, GPU and each other in every bundled theme.
   readonly property var gpuTints: [Qt.rgba(0.95, 0.95, 0.24, 0.8), Qt.rgba(0.24, 0.95, 0.95, 0.8), Qt.rgba(0.95, 0.24, 0.77, 0.8)]
   function gpuSlotColor(slot) { return slot <= 0 ? gpuColor : Qt.tint(Commons.Color.accent, gpuTints[(slot - 1) % gpuTints.length]) }
   // History lines in color-slot order: current rows first, then vanished GPUs.
