@@ -80,7 +80,7 @@ PanelKeyCatcher {
   // Legend text: a current row's short name, else a vanished GPU's address.
   function gpuLegend(id) {
     var row = r.gpuRows.filter(function(gpu) { return gpu.id === id })[0]
-    return Gpus.shortName(row || { id: id, vendor: "" })
+    return row ? Gpus.displayName(row, r.gpuRows, true) : Gpus.shortName({ id: id, vendor: "" })
   }
   readonly property real networkScale: Math.pow(2, Math.ceil(Math.log(Math.max(1024, History.peak(history.up), History.peak(history.down)) * 1.1) / Math.LN2))
   readonly property real cellWidth: (content.width - FoamyStyle.padding * 2 - overview.columnSpacing * (overview.columns - 1)) / overview.columns
@@ -809,7 +809,7 @@ PanelKeyCatcher {
     required property int index
     property var section
     readonly property int stop: view.graphicsStart + index
-    readonly property string name: modelData.name || Gpus.shortName(modelData)
+    readonly property string name: Gpus.displayName(modelData, r.gpuRows, false)
     readonly property bool pinned: r.pinnedGpu === modelData.id
     readonly property bool onBar: !!r.barGpu && r.barGpu.id === modelData.id
     readonly property bool asleep: modelData.asleep === true

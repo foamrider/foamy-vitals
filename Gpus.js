@@ -98,4 +98,19 @@ function shortName(gpu) {
   return i === words.length ? name : words.slice(i).join(" ")
 }
 
-if (typeof module !== "undefined") module.exports = {order: order, barGpu: barGpu, pinnedMissing: pinnedMissing, vram: vram, summarize: summarize, appendHistory: appendHistory, colorSlot: colorSlot, shortName: shortName}
+function baseName(gpu, short) {
+  var name = gpu && typeof gpu.name === "string" ? gpu.name.trim() : ""
+  return short || name === "" ? shortName(gpu) : name
+}
+
+// Row or legend name. Identical cards get their PCI slot appended, so two of
+// the same model can be told apart.
+function displayName(gpu, ordered, short) {
+  var name = baseName(gpu, short)
+  var twin = (Array.isArray(ordered) ? ordered : []).some(function(other) {
+    return other.id !== gpu.id && baseName(other, short) === name
+  })
+  return twin ? name + " · " + String(gpu.id || "").slice(5) : name
+}
+
+if (typeof module !== "undefined") module.exports = {order: order, barGpu: barGpu, pinnedMissing: pinnedMissing, vram: vram, summarize: summarize, appendHistory: appendHistory, colorSlot: colorSlot, shortName: shortName, displayName: displayName}
