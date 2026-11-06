@@ -38,6 +38,7 @@
   "Disk capacity unavailable": "Diskplass utilgjengelig",
   "Telemetry unavailable. Retrying…": "Målinger utilgjengelige. Prøver igjen…",
   "Intel GPU readings unavailable. Retrying…": "Intel GPU-avlesninger er utilgjengelige. Prøver igjen…",
+  "This plugin's helper isn't available for this CPU.": "Hjelpeprogrammet til denne utvidelsen er ikke tilgjengelig for denne prosessoren.",
   "Intel GPU: busiest engine and private allocations from accessible processes for this user.": "Intel GPU: travleste motor og private allokeringer fra tilgjengelige prosesser for denne brukeren.",
   "NVIDIA readings unavailable. Check nvidia-smi.": "NVIDIA-avlesninger er utilgjengelige. Sjekk nvidia-smi.",
   "Install btop to use this shortcut.": "Installer btop for å bruke snarveien.",

@@ -10,7 +10,8 @@ Arabic mirrors the popup.
 
 Uses the foamy-kit harness (temp HOME/XDG, no Wayland/Hyprland, no host
 scripts): FOAMY_KIT=/path/to/foamy-kit (default ~/GitHub/Personal/foamy-kit).
-stats.sh runs for real against this machine, with state in the temp dir.
+The stats helper (bin/<arch>/foamy-vitals-helper) runs for real against this
+machine, with state in the temp dir.
   python3 tests/runtime.py [4.0|4.5|both]
 """
 import os
@@ -94,6 +95,8 @@ ShellRoot {
       case 0:
         check(a.member.isLeader !== b.member.isLeader, "exactly one leader among two bar instances")
         check(s.statsProcess.command.indexOf("--bar") >= 0, "closed popups take bar-only samples")
+        check(s.statsProcess.command.indexOf("foamy-vitals-helper") >= 0 && s.statsProcess.command.indexOf("stats") >= 0
+              && s.statsProcess.command[0] === "timeout", "samples run the native helper inside timeout")
         check(a.popup.bodyItem === null && b.popup.bodyItem === null, "popup bodies are not built before the first open")
         break
       case 1:

@@ -38,6 +38,7 @@
   "Disk capacity unavailable": "Disk capacity unavailable",
   "Telemetry unavailable. Retrying…": "Telemetry unavailable. Retrying…",
   "Intel GPU readings unavailable. Retrying…": "Intel GPU readings unavailable. Retrying…",
+  "This plugin's helper isn't available for this CPU.": "This plugin's helper isn't available for this CPU.",
   "Intel GPU: busiest engine and private allocations from accessible processes for this user.": "Intel GPU: busiest engine and private allocations from accessible processes for this user.",
   "NVIDIA readings unavailable. Check nvidia-smi.": "NVIDIA readings unavailable. Check nvidia-smi.",
   "Install btop to use this shortcut.": "Install btop to use this shortcut.",

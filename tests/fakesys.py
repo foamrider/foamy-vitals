@@ -3,11 +3,14 @@
 The helper runs as a process against these trees (FOAMY_VITALS_PROC and
 FOAMY_VITALS_SYS, its test-only overrides) with a private XDG_RUNTIME_DIR, and
 fake executables (nvidia-smi) first on PATH. FOAMY_HELPER is the helper's
-argv prefix as a JSON list; the default is this checkout's helper.
+argv prefix as a JSON list; the default is this machine's
+bin/<arch>/foamy-vitals-helper stats. The aarch64 build runs through qemu
+binfmt: FOAMY_HELPER='["bin/aarch64/foamy-vitals-helper", "stats"]'.
 """
 import json
 import os
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import textwrap
@@ -16,12 +19,13 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 NVIDIA_ADDRESS = "0000:01:00.0"
 INTEL_DEVICE = "0000:00:02.0"
+DEFAULT_HELPER = [str(ROOT / "bin" / platform.machine() / "foamy-vitals-helper"), "stats"]
 
 
 def helper_prefix(variable="FOAMY_HELPER", default=None):
     """The helper argv prefix: $variable (a JSON list) or the default, program resolved to an absolute path."""
     raw = os.environ.get(variable)
-    prefix = json.loads(raw) if raw else list(default or [str(ROOT / "stats.sh")])
+    prefix = json.loads(raw) if raw else list(default or DEFAULT_HELPER)
     if not isinstance(prefix, list) or not prefix or not all(isinstance(part, str) for part in prefix):
         raise SystemExit(f"{variable} must be a JSON list of strings")
     program = prefix[0] if "/" in prefix[0] else shutil.which(prefix[0])

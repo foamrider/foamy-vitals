@@ -409,6 +409,66 @@ def s_state_dir_fallbacks(t, run):
     run(env=env)
 
 
+def s_fractional_rankings(t, run):
+    # 3 CPUs, 300 jiffies per sample: one decimal of 100 * 3 * used / 300.
+    def stat(tick):
+        (t.proc / "stat").write_text(f"cpu  {100 * tick} 0 0 {200 * tick}\ncpu0 1 0 0 1\ncpu1 1 0 0 1\ncpu2 1 0 0 1\n")
+    stat(1)
+    for pid in range(400, 408):
+        t.process(pid, f"f{pid}", 0, 3 * pid)
+    run()
+    stat(2)
+    t.uptime(1002)
+    for pid, used in zip(range(400, 408), (1, 2, 3, 7, 0.05, 0.15, 1.25, 0)):
+        t.process(pid, f"f{pid}", used, 3 * pid)
+    run()
+    stat(3)
+    t.uptime(1004)
+    t.process(408, "fresh", 33, 1)
+    run()
+    t.uptime(1006)
+    (t.state / "procs.0").write_text("#TOTAL abc\n400 0\n")
+    (t.state / "procs.1").write_text("#TOTAL abc\n400 0\n")
+    run()
+    t.uptime(1008)
+    (t.state / "procs.0").write_text("")
+    (t.state / "procs.1").write_text("\n")
+    run()
+
+
+def s_odd_numbers_in_files(t, run):
+    t.hwmon(0, "coretemp", [("Package id 0", "045000", "0777")])
+    d = t.hwmon(1, "amdgpu", [("edge", " 48000 ", "100000x")])
+    (d / "temp1_label").write_bytes(b"edge")
+    (d / "name").write_bytes(b"amdgpu")
+    card = t.sys / "class/drm/card0/device"
+    card.mkdir(parents=True)
+    (card / "gpu_busy_percent").write_text("007\n")
+    (card / "mem_info_vram_used").write_text("\n")
+    (card / "mem_info_vram_total").write_bytes(b"4096")
+    for text in ("0012.5 1\n", "1012.987\n", "1013.9999\n"):
+        (t.proc / "uptime").write_text(text)
+        run("--bar")
+    (t.state / "current").write_text("0 0 0123 1 0777 full\n")
+    (t.proc / "uptime").write_text("1020\n")
+    run("--bar")
+
+
+def s_intel_engine_order(t, run):
+    t.intel()
+    t.descriptor(41, 3, "drm-driver: xe\ndrm-pdev: 0000:00:02.0\ndrm-client-id: 7\n"
+                        "drm-engine-video: 5 ns\ndrm-engine-render: 1 ns\ndrm-engine-video: 50000000000 ns\n"
+                        "drm-total-vram0: 2 MiB\ndrm-shared-vram0: 1 MiB\ndrm-total-system0: 10\ndrm-shared-system0: 3\n")
+    t.descriptor(42, 3, "drm-driver: xe\ndrm-pdev: 0000:00:02.0\ndrm-client-id: 8\n"
+                        "drm-engine-copy: 9 ns\ndrm-engine-render: 0 ns\ndrm-engine-capacity-copy: 4\n")
+    t.descriptor(43, 3, "drm-driver: xe\ndrm-pdev: 0000:00:02.0\ndrm-client-id: 7\ndrm-engine-x: 1 ns\n")
+    run("--bar")
+    t.intel_state(500_000_000, {"7": {"engines": {"video": 0, "render": 0, "z": 1}, "capacities": {}, "private": None},
+                                "8": {"engines": {"copy": 10, "render": 0}, "capacities": {"copy": 4}, "private": 5}})
+    t.advance(1, 3)
+    run()
+
+
 SCENARIOS = {name[2:]: value for name, value in sorted(globals().items()) if name.startswith("s_")}
 
 
