@@ -171,7 +171,7 @@ fn fail(failure: &Failure) -> ExitCode {
 }
 
 fn main() -> ExitCode {
-    // A bug prints a JSON reply and exits 101: never SIGABRT and a core dump.
+    // json::run's panic reply (INTERNAL, exit 101, no core dump); the raw sample line can't use it.
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         previous(info);
