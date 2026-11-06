@@ -3,7 +3,8 @@
   FOAMY_VITALS_REFERENCE='["/path/to/old/stats.sh"]' python3 -I tests/compare_stats.py [-v]
 
 Runs every scenario below twice, once with the reference helper (an argv
-prefix as a JSON list, e.g. stats.sh from an older checkout) and once with
+prefix as a JSON list, e.g. stats.sh from a 1.1.0 checkout, which also needs
+its intel_stats.py beside it) and once with
 FOAMY_HELPER (default: this checkout's helper), each on a fresh fake tree, and
 requires identical stdout bytes, exit codes, state files (cpu.*, procs.*,
 cache.*, current, nvidia; intel.json with its clock field left out) and
