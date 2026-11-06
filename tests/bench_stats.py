@@ -2,8 +2,10 @@
 
   python3 -I tests/bench_stats.py [--script PATH] [--runs N] [--bar]
 
-Each run is `timeout --kill-after=1s 5s stats.sh [--bar]`, as Panel.qml runs it,
-2.1 s after the previous one so the shared sample cache never answers. CPU is
+Each run is `timeout --kill-after=1s 5s <helper> [--bar]`, as the panel runs
+it, 2.1 s after the previous one so the shared sample cache never answers. The
+helper is --script PATH, else FOAMY_HELPER (an argv prefix as a JSON list),
+else this checkout's helper as VitalsService.qml launches it. CPU is
 user+system time of the whole process tree (getrusage of waited children).
 Processes are counted in a private PID namespace (unshare, no privileges):
 the PID of a final probe minus the PIDs used before the sample. Readings
@@ -16,10 +18,12 @@ import resource
 import shutil
 import statistics
 import subprocess
+import sys
 import tempfile
 import time
 
-ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fakesys import HELPER  # noqa: E402
 
 
 def child_cpu():
@@ -29,14 +33,15 @@ def child_cpu():
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--script", default=str(ROOT / "stats.sh"))
+    parser.add_argument("--script", help="run this program instead of the helper")
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--bar", action="store_true", help="bar-only sample (popup closed)")
     args = parser.parse_args()
     runtime = Path(tempfile.mkdtemp(prefix="foamy-vitals-bench-"))
     os.chmod(runtime, 0o700)
     env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime))
-    command = ["timeout", "--kill-after=1s", "5s", args.script] + (["--bar"] if args.bar else [])
+    helper = [str(Path(args.script).resolve())] if args.script else HELPER
+    command = ["timeout", "--kill-after=1s", "5s", *helper] + (["--bar"] if args.bar else [])
     namespaced = shutil.which("unshare") is not None
     cpu, wall, processes = [], [], []
     try:
@@ -61,7 +66,7 @@ def main():
     finally:
         shutil.rmtree(runtime, ignore_errors=True)
     mode = "bar" if args.bar else "full"
-    print(f"{mode} sample, {args.runs} runs, {Path(args.script).resolve()}")
+    print(f"{mode} sample, {args.runs} runs, {' '.join(helper)}")
     print(f"  cpu   mean {1000 * statistics.mean(cpu):6.1f} ms  median {1000 * statistics.median(cpu):6.1f} ms")
     print(f"  wall  mean {1000 * statistics.mean(wall):6.1f} ms  median {1000 * statistics.median(wall):6.1f} ms")
     if processes:
