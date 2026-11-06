@@ -3,10 +3,12 @@ import QtQuick
 import Quickshell.Io
 import "History.js" as History
 import "Filesystems.js" as Filesystems
+import "kit/FoamyNative.js" as FoamyNative
 
 // Telemetry for every Vitals bar instance (4.5 draws one bar per monitor).
-// A plugin qmldir singleton is one object per shell, so stats.sh, df and the
-// history run once however many monitors there are. The leader Panel drives
+// A plugin qmldir singleton is one object per shell, so the stats helper
+// (bin/<arch>/foamy-vitals-helper), df and the history run once however many
+// monitors there are. The leader Panel drives
 // sample(); everything else only reads.
 //
 //   stats        the latest sample (bar and popup readings)
@@ -17,7 +19,9 @@ QtObject {
   id: service
 
   readonly property string memberScope: "foamy.vitals"
-  readonly property string statsCommand: decodeURIComponent(Qt.resolvedUrl("stats.sh").toString().replace(/^file:\/\//, ""))
+  readonly property string pluginDir: FoamyNative.localPath(Qt.resolvedUrl("."))
+  // No helper for this CPU (exit 126/127): say so once and stop sampling.
+  property bool helperUnavailable: false
 
   property var stats: ({})
   property var detail: ({ processes: [], memoryProcesses: [] })
@@ -57,9 +61,10 @@ QtObject {
 
   function sample(full) {
     start()
-    if (statsProcess.running) return
+    if (statsProcess.running || helperUnavailable) return
     fullSample = !!full
-    statsProcess.command = ["timeout", "--kill-after=1s", "5s", statsCommand].concat(full ? [] : ["--bar"])
+    statsProcess.command = ["timeout", "--kill-after=1s", "5s"].concat(FoamyNative.command(
+      pluginDir, "foamy-vitals-helper", full ? ["stats"] : ["stats", "--bar"]))
     statsProcess.running = true
     if (full) {
       uptimeFile.reload()
@@ -145,7 +150,10 @@ QtObject {
       }
     }
     onExited: function(code) {
-      if (code !== 0) service.fail("Telemetry unavailable. Retrying…")
+      if (FoamyNative.unavailable(code)) {
+        service.helperUnavailable = true
+        service.fail("This plugin's helper isn't available for this CPU.")
+      } else if (code !== 0) service.fail("Telemetry unavailable. Retrying…")
       else service.parse(statsOutput.text)
     }
   }

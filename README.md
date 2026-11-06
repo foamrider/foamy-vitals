@@ -6,10 +6,12 @@ System activity and hardware readings.
 
 ## Install
 
-Requires Omarchy 4.5 (it also runs on 4.0.6, in English), Bash, GNU coreutils
-and findutils, and `flock`. Python 3 is needed only for Intel GPU readings,
-`nvidia-smi` only for NVIDIA GPUs, and `btop` is optional. Settings paste
-uses `wl-paste`, `jq` and `timeout`, provided by Omarchy.
+Requires Omarchy 4.5 (it also runs on 4.0.6, in English) on an x86_64 or
+aarch64 CPU, Bash and GNU coreutils. Readings come from a bundled helper
+(`bin/<arch>/foamy-vitals-helper`, a static executable; other CPUs show
+"This plugin's helper isn't available for this CPU."). `nvidia-smi` is needed
+only for NVIDIA GPUs, and `btop` is optional. Settings paste uses `wl-paste`,
+`jq` and `timeout`, provided by Omarchy.
 
 ```sh
 omarchy plugin add https://github.com/foamrider/foamy-vitals.git --enable
@@ -41,16 +43,18 @@ IPC: `omarchy-shell foamy.vitals open|close|toggle|settings|refresh`.
 
 One shell runs one sampler, however many monitors show the bar. While every
 popup is closed it takes a bar-only sample every 5 seconds (usage, memory, GPU
-and temperatures: about 8 ms of CPU and 4 short-lived processes on the
-reference machine). While a popup is open it takes a full sample every 2
-seconds (adds process rankings and their working directories: about 26 ms and 7
-processes). Popup content is built on first open and does not update while
+and temperatures). While a popup is open it takes a full sample every 2 seconds
+(adds process rankings and their working directories). Each sample is one run
+of the bundled helper inside `timeout`, two short-lived processes (plus
+`nvidia-smi` for an awake NVIDIA GPU). On the reference laptop (Intel Core
+Ultra 7, about 460 processes) a bar sample costs about 45 ms of CPU and a full
+one about 58 ms, most of it reading the DRM clients of the user's processes for
+the Intel GPU; without an Intel GPU it is about 8 and 11 ms. Popup content is built on first open and does not update while
 hidden. No telemetry path needs privileges, and nothing leaves the machine.
 Process and directory names are shown as plain text; control characters are
 removed.
 
-Intel (`i915`/`xe`) monitoring uses Python 3 and unprivileged DRM client
-counters: it reads the DRM fdinfo of the current user's processes (only file
+Intel (`i915`/`xe`) monitoring uses unprivileged DRM client counters: it reads the DRM fdinfo of the current user's processes (only file
 descriptors that point at `/dev/dri`). GPU usage is the busiest engine,
 normalized for its engine count. The first sample has no usage reading. GPU
 memory shows private allocations, excluding shared buffers to avoid counting
@@ -101,10 +105,26 @@ displays the plugin in English. Missing translations fall back to English.
 Shared controls come from [foamy-kit](https://github.com/foamrider/foamy-kit),
 copied into `kit/` (do not edit; run its `sync.sh`).
 
+The stats helper is the Rust crate in `native/` (its contract is the comment
+at the top of `native/src/main.rs`). The binaries in `bin/` are committed so
+the plugin installs without a build. To change the helper you need rustup with
+the toolchain from `rust-toolchain.toml`; then rebuild both architectures and
+commit `bin/` and `native/native.pin` with the change:
+
+```sh
+~/GitHub/Personal/foamy-kit/tools/build-native.sh . --test   # fmt, clippy, cargo tests
+~/GitHub/Personal/foamy-kit/tools/build-native.sh .          # bin/x86_64, bin/aarch64, native.pin
+~/GitHub/Personal/foamy-kit/tools/build-native.sh . --verify # clean rebuild is byte-identical
+```
+
+Tests (Python 3 and Node are needed only here):
+
 ```sh
 for t in tests/*.test.js tests/*.test.cjs; do node "$t"; done
-python3 -I tests/test_stats.py          # stats.sh JSON, bar mode, NVIDIA power, stderr
-python3 -I tests/test_intel_stats.py
+python3 -I tests/test_stats.py          # helper JSON, bar mode, NVIDIA power, state directory
+python3 -I tests/test_intel_stats.py    # Intel DRM fdinfo readings
+FOAMY_HELPER='["bin/aarch64/foamy-vitals-helper", "stats"]' python3 -I tests/test_stats.py  # aarch64 via qemu
+FOAMY_VITALS_REFERENCE='["<1.1.0 checkout>/stats.sh"]' python3 -I tests/compare_stats.py  # same bytes as the old helper
 python3 tests/runtime.py both            # offscreen, 4.0 and 4.5 (needs foamy-kit)
 python3 tests/i18n-runtime.py            # OMARCHY_PATH=<4.5 tree> for live switching
 bash tests/kit-check.sh

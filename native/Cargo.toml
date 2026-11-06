@@ -1,0 +1,14 @@
+[package]
+name = "foamy-vitals-helper"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+foamy-helper = { path = "../kit/rust/foamy-helper" }
+# Already in the tree through foamy-helper: the monotonic clock of the Intel
+# baseline, the page size, uids and access(2).
+rustix = { version = "1.1", default-features = false, features = ["std", "fs", "param", "process", "time"] }
+# Reads the Intel baseline (intel.json) that intel_stats.py wrote.
+serde_json = { version = "1", default-features = false, features = ["std"] }
