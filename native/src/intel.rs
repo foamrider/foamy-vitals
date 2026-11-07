@@ -1,9 +1,11 @@
 //! Intel (i915/xe) GPU readings from the DRM fdinfo of this user's
-//! processes, without perf privileges: the busiest engine since the last
-//! sample, private allocations, the GT frequency and the GPU's own sensors.
-//! A port of `intel_stats.py` that prints the same `json.dumps` text.
+//! processes, without perf privileges: per GPU, the busiest engine since the
+//! last sample, private allocations, the GT frequency and the GPU's own
+//! sensors. A port of `intel_stats.py` that prints the same `json.dumps`
+//! text: one scan of `/proc` attributes the clients of every requested GPU,
+//! and each GPU keeps its own baseline (`intel-<ID>.json`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::{self, ErrorKind};
 use std::mem::MaybeUninit;
@@ -24,7 +26,10 @@ pub const SCAN_BUDGET: Duration = Duration::from_secs(1);
 /// The getdents buffer (glibc's `readdir` uses 32 KiB too).
 const DIR_BUFFER: usize = 32 * 1024;
 /// Readings older than this are not a baseline.
-const MAX_ELAPSED_NS: i128 = 30_000_000_000;
+pub const WINDOW_NS: i128 = 30_000_000_000;
+/// The window of a GPU read on the spaced-out schedule (bar samples at most
+/// every 30 s), so its busy is averaged over the gap rather than discarded.
+pub const SPACED_WINDOW_NS: i128 = 60_000_000_000;
 
 /// A Python exception: what `collect` catches as `OSError`/`ValueError`.
 #[derive(Debug)]
@@ -96,9 +101,13 @@ pub struct Snapshot {
     pub clients: Ordered<Client>,
 }
 
-/// One DRM client's fdinfo; `None` when it belongs to another driver,
-/// device or has no numeric client id.
-pub fn parse_client(text: &str, device: &str) -> Result<Option<(String, Client)>, Failure> {
+/// One DRM client's fdinfo as `(device, client id, client)`; `None` when it
+/// belongs to another driver or an unrequested device, or has no numeric
+/// client id.
+pub fn parse_client(
+    text: &str,
+    devices: &[String],
+) -> Result<Option<(String, String, Client)>, Failure> {
     let mut fields: Ordered<&str> = Ordered::default();
     for line in text::py_splitlines(text) {
         if let Some((key, value)) = line.split_once(':') {
@@ -106,8 +115,9 @@ pub fn parse_client(text: &str, device: &str) -> Result<Option<(String, Client)>
         }
     }
     let field = |key: &str| fields.get(key).copied().unwrap_or("");
+    let device = py_strip(field("drm-pdev"));
     if !matches!(py_strip(field("drm-driver")), "i915" | "xe")
-        || py_strip(field("drm-pdev")) != device
+        || !devices.iter().any(|wanted| wanted == device)
     {
         return Ok(None);
     }
@@ -145,6 +155,7 @@ pub fn parse_client(text: &str, device: &str) -> Result<Option<(String, Client)>
             (Some(total), Some(shared)) if shared <= total => private += total - shared,
             _ => {
                 return Ok(Some((
+                    device.to_string(),
                     ident.to_string(),
                     Client {
                         engines,
@@ -157,6 +168,7 @@ pub fn parse_client(text: &str, device: &str) -> Result<Option<(String, Client)>
     }
     let private = (regions > 0).then_some(private);
     Ok(Some((
+        device.to_string(),
         ident.to_string(),
         Client {
             engines,
@@ -166,16 +178,44 @@ pub fn parse_client(text: &str, device: &str) -> Result<Option<(String, Client)>
     )))
 }
 
-/// Every DRM client of `device` held by this user's processes, scanning at
-/// most until `deadline`. Paths are resolved from a descriptor of `proc`
-/// (`statat`, `readlinkat`): a desktop session has thousands of descriptors.
+/// The clients of each requested device, keyed by device.
+pub type Clients = BTreeMap<String, Ordered<Client>>;
+
+/// `/dev/dri/(card\d+|renderD\d+)`, whole: the DRM node a descriptor opens.
+fn drm_node(target: &[u8]) -> Option<&[u8]> {
+    let node = target.strip_prefix(b"/dev/dri/")?;
+    let digits = node
+        .strip_prefix(b"card")
+        .or_else(|| node.strip_prefix(b"renderD"))?;
+    text::is_digits(digits).then_some(node)
+}
+
+/// The PCI device a DRM node belongs to (`/sys/class/drm/<node>/device`
+/// resolved, its name lowercased), or `None`.
+fn node_device(drm: &Path, node: &[u8]) -> Option<String> {
+    let device =
+        fs::canonicalize(drm.join(std::ffi::OsStr::from_bytes(node)).join("device")).ok()?;
+    Some(device.file_name()?.to_string_lossy().to_lowercase())
+}
+
+/// Every DRM client of the requested devices held by this user's processes,
+/// from one scan, at most until `deadline`. A descriptor's fdinfo is opened
+/// only once its `/dev/dri` node resolves to a requested device: printing an
+/// xe fdinfo takes a runtime-PM reference that wakes the GPU. Paths are
+/// resolved from a descriptor of `proc` (`statat`, `readlinkat`): a desktop
+/// session has thousands of descriptors.
 pub fn read_clients(
-    device: &str,
+    devices: &[String],
     proc: &Path,
+    drm: &Path,
     uid: u32,
     deadline: Instant,
-) -> Result<Ordered<Client>, Failure> {
-    let mut clients: Ordered<Client> = Ordered::default();
+) -> Result<Clients, Failure> {
+    let mut clients: Clients = devices
+        .iter()
+        .map(|device| (device.clone(), Ordered::default()))
+        .collect();
+    let mut owners: HashMap<Vec<u8>, Option<String>> = HashMap::new();
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
     let root = rfs::openat(rfs::CWD, proc, flags, Mode::empty())
         .map_err(|error| os_error(&error.into(), proc))?;
@@ -198,14 +238,16 @@ pub fn read_clients(
             proc,
             name,
         };
-        match process.scan(
-            device,
+        let mut scan = Scanner {
+            devices,
+            drm,
             uid,
             deadline,
-            &mut clients,
-            &mut link,
-            &mut fd_buffer,
-        ) {
+            clients: &mut clients,
+            owners: &mut owners,
+            link: &mut link,
+        };
+        match process.scan(&mut scan, &mut fd_buffer) {
             Ok(()) | Err(Scan::Skip) => {}
             Err(Scan::Fail(failure)) => return Err(failure),
         }
@@ -216,6 +258,18 @@ pub fn read_clients(
 enum Scan {
     Skip,
     Fail(Failure),
+}
+
+/// What one scan carries from process to process.
+struct Scanner<'a> {
+    devices: &'a [String],
+    drm: &'a Path,
+    uid: u32,
+    deadline: Instant,
+    clients: &'a mut Clients,
+    /// DRM node → its device, resolved once per scan.
+    owners: &'a mut HashMap<Vec<u8>, Option<String>>,
+    link: &'a mut Vec<u8>,
 }
 
 struct Process<'a> {
@@ -246,18 +300,10 @@ impl Process<'_> {
         }
     }
 
-    fn scan(
-        &self,
-        device: &str,
-        uid: u32,
-        deadline: Instant,
-        clients: &mut Ordered<Client>,
-        link: &mut Vec<u8>,
-        buffer: &mut [MaybeUninit<u8>],
-    ) -> Result<(), Scan> {
+    fn scan(&self, scan: &mut Scanner, buffer: &mut [MaybeUninit<u8>]) -> Result<(), Scan> {
         let stat = rfs::statat(self.root, self.name, AtFlags::empty())
             .map_err(|error| self.error(error, b""))?;
-        if stat.st_uid != uid {
+        if stat.st_uid != scan.uid {
             return Ok(());
         }
         let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
@@ -265,7 +311,7 @@ impl Process<'_> {
             .map_err(|error| self.error(error, b"/fd"))?;
         let mut fds = rfs::RawDir::new(&fd_dir, buffer);
         while let Some(fd) = fds.next() {
-            if Instant::now() > deadline {
+            if Instant::now() > scan.deadline {
                 return Err(Scan::Fail(Failure(
                     "Intel descriptor scan exceeded its budget".into(),
                 )));
@@ -277,17 +323,29 @@ impl Process<'_> {
             }
             // Only DRM device files have DRM client fdinfo; checking the link
             // first skips the read for every socket, pipe and file.
-            let target = match rfs::readlinkat(&fd_dir, number, std::mem::take(link)) {
+            let target = match rfs::readlinkat(&fd_dir, number, std::mem::take(scan.link)) {
                 Ok(target) => target.into_bytes(),
                 Err(error) => match self.error(error, &[b"/fd/", number].concat()) {
                     Scan::Skip => continue,
                     failure => return Err(failure),
                 },
             };
-            let dri = target.starts_with(b"/dev/dri/");
-            *link = target;
-            link.clear();
-            if !dri {
+            let node = drm_node(&target).map(<[u8]>::to_vec);
+            *scan.link = target;
+            scan.link.clear();
+            let Some(node) = node else {
+                continue;
+            };
+            // Then the node's device: other GPUs' descriptors are never read.
+            let drm = scan.drm;
+            let owner = scan
+                .owners
+                .entry(node)
+                .or_insert_with_key(|node| node_device(drm, node));
+            if !owner
+                .as_ref()
+                .is_some_and(|owner| scan.devices.contains(owner))
+            {
                 continue;
             }
             let tail = [b"/fdinfo/", number].concat();
@@ -317,11 +375,13 @@ impl Process<'_> {
                     self.path(&tail).display()
                 )))
             })?;
-            // Processes may share a DRM file; count its client only once.
-            if let Some((ident, client)) = parse_client(&text, device).map_err(Scan::Fail)?
-                && clients.get(&ident).is_none()
+            // Processes may share a DRM file; count its client only once per device.
+            if let Some((device, ident, client)) =
+                parse_client(&text, scan.devices).map_err(Scan::Fail)?
+                && let Some(known) = scan.clients.get_mut(&device)
+                && known.get(&ident).is_none()
             {
-                clients.0.push((ident, client));
+                known.0.push((ident, client));
             }
         }
         Ok(())
@@ -377,7 +437,11 @@ pub fn parse_snapshot(text: &str) -> Option<Snapshot> {
 /// Busy percentage per engine since `previous`; raises the current counters
 /// to the previous ones where the kernel's counters regressed (so the next
 /// sample cannot count work twice).
-pub fn utilization(current: &mut Snapshot, previous: Option<&Snapshot>) -> Ordered<f64> {
+pub fn utilization(
+    current: &mut Snapshot,
+    previous: Option<&Snapshot>,
+    window_ns: i128,
+) -> Ordered<f64> {
     let Some(previous) = previous else {
         return Ordered::default();
     };
@@ -385,7 +449,7 @@ pub fn utilization(current: &mut Snapshot, previous: Option<&Snapshot>) -> Order
         return Ordered::default();
     }
     let elapsed = i128::from(current.time) - i128::from(previous.time);
-    if !(0 < elapsed && elapsed <= MAX_ELAPSED_NS) {
+    if !(0 < elapsed && elapsed <= window_ns) {
         return Ordered::default();
     }
     let mut totals: Ordered<u128> = Ordered::default();
@@ -470,51 +534,37 @@ struct Thermal {
     label: String,
 }
 
-/// What `collect` returns, in `json.dumps` order.
-#[derive(Default)]
-struct Stats {
-    intel: bool,
+/// One GPU's readings, in `json.dumps` order.
+struct Device {
     busy: Option<f64>,
-    engines: Ordered<f64>,
     private: Option<u128>,
     frequency: Option<u64>,
-    temp: Option<f64>,
     thermals: Vec<Thermal>,
     error: &'static str,
 }
 
-impl Stats {
+impl Device {
+    fn unavailable() -> Device {
+        Device {
+            busy: None,
+            private: None,
+            frequency: None,
+            thermals: Vec::new(),
+            error: UNAVAILABLE,
+        }
+    }
+
+    /// `{"busy":…,"memoryPrivate":…,"frequencyMHz":…,"thermals":[…],"error":…}`.
     fn render(&self) -> Vec<u8> {
         let float = |value: Option<f64>| value.map_or_else(|| "null".to_string(), py_float);
+        let number = |value: Option<String>| value.unwrap_or_else(|| "null".to_string());
         let mut out = format!(
-            "{{\"gpuIntel\":{},\"gpuBusy\":{},\"gpuEngines\":{{",
-            self.intel,
-            float(self.busy)
+            "{{\"busy\":{},\"memoryPrivate\":{},\"frequencyMHz\":{},\"thermals\":[",
+            float(self.busy),
+            number(self.private.map(|v| v.to_string())),
+            number(self.frequency.map(|v| v.to_string())),
         )
         .into_bytes();
-        for (index, (engine, pct)) in self.engines.0.iter().enumerate() {
-            if index > 0 {
-                out.push(b',');
-            }
-            py_json_str(&mut out, engine);
-            out.push(b':');
-            out.extend_from_slice(py_float(*pct).as_bytes());
-        }
-        out.extend_from_slice(b"},\"gpuMemoryPrivate\":");
-        out.extend_from_slice(
-            self.private
-                .map_or_else(|| "null".to_string(), |v| v.to_string())
-                .as_bytes(),
-        );
-        out.extend_from_slice(b",\"gpuFrequencyMHz\":");
-        out.extend_from_slice(
-            self.frequency
-                .map_or_else(|| "null".to_string(), |v| v.to_string())
-                .as_bytes(),
-        );
-        out.extend_from_slice(
-            format!(",\"gpuTemp\":{},\"gpuThermals\":[", float(self.temp)).as_bytes(),
-        );
         for (index, thermal) in self.thermals.iter().enumerate() {
             if index > 0 {
                 out.push(b',');
@@ -530,7 +580,7 @@ impl Stats {
             py_json_str(&mut out, &thermal.label);
             out.push(b'}');
         }
-        out.extend_from_slice(b"],\"gpuError\":");
+        out.extend_from_slice(b"],\"error\":");
         py_json_str(&mut out, self.error);
         out.push(b'}');
         out
@@ -555,12 +605,13 @@ fn entries(dir: &Path, prefix: &str, suffix: &str) -> Vec<PathBuf> {
         .collect()
 }
 
-fn exists(path: &Path) -> bool {
-    fs::metadata(path).is_ok()
-}
-
 fn lexists(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok()
+}
+
+/// `sorted()` of paths: component by component.
+fn sort_paths(paths: &mut [PathBuf]) {
+    paths.sort_by(|a, b| a.components().cmp(b.components()));
 }
 
 /// `value / 1000` with Python's correctly rounded int division.
@@ -570,80 +621,129 @@ fn thousandths(value: u64) -> f64 {
 
 pub struct Paths<'a> {
     pub proc: &'a Path,
-    pub drm: &'a Path,
-    /// The baseline, `intel.json` (none when no state directory is safe).
+    pub sys: &'a Path,
+    /// Where each GPU's baseline (`intel-<ID>.json`) is kept; none when no
+    /// state directory is safe.
     pub state: Option<PathBuf>,
 }
 
-/// The Intel keys of a sample (one `json.dumps` object) and a diagnostic
-/// for stderr.
-pub fn collect(paths: &Paths, uid: u32, budget: Duration) -> (Vec<u8>, Option<String>) {
-    let mut stats = Stats::default();
-    match collect_into(paths, uid, budget, &mut stats) {
-        Ok(()) => (stats.render(), None),
-        Err(Failure(message)) => {
-            let failed = Stats {
-                intel: stats.intel,
-                error: UNAVAILABLE,
-                ..Stats::default()
-            };
-            (failed.render(), Some(format!("Intel telemetry: {message}")))
-        }
-    }
+/// A GPU to read: its PCI address and whether it is read on the spaced-out
+/// schedule (a 60 s baseline window).
+pub struct Request {
+    pub device: String,
+    pub spaced: bool,
 }
 
-fn collect_into(
+/// What `intel_stats.py` would have let escape (an exception it does not
+/// catch): the whole run fails, and every requested GPU reads as unavailable.
+#[derive(Debug)]
+pub struct Crash(pub String);
+
+/// One reading per request, in order (`json.dumps` objects), or the crash;
+/// and the diagnostics for stderr.
+pub fn collect(
     paths: &Paths,
+    requests: &[Request],
     uid: u32,
     budget: Duration,
-    stats: &mut Stats,
-) -> Result<(), Failure> {
-    let mut devices: BTreeMap<String, PathBuf> = BTreeMap::new();
-    for card in entries(paths.drm, "card", "") {
-        let name = card.file_name().map_or(&b""[..], |name| name.as_bytes());
-        if !name.get(4).is_some_and(u8::is_ascii_digit) || name.contains(&b'-') {
-            continue;
-        }
-        let driver = card.join("device/driver");
-        if !exists(&driver) {
-            continue;
-        }
-        let Ok(driver) = fs::canonicalize(&driver) else {
-            continue;
-        };
-        if !matches!(
-            driver.file_name().and_then(|n| n.to_str()),
-            Some("i915" | "xe")
-        ) {
-            continue;
-        }
-        let Ok(device) = fs::canonicalize(card.join("device")) else {
-            continue;
-        };
-        let device = device
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        devices.insert(device, card);
-    }
-    let Some((device, card)) = devices.into_iter().next() else {
-        return Ok(());
-    };
-    stats.intel = true;
+) -> (Result<Vec<Vec<u8>>, Crash>, Vec<String>) {
+    let mut diagnostics = Vec::new();
+    let devices: Vec<String> = requests.iter().map(|r| r.device.clone()).collect();
     let deadline = Instant::now() + budget;
-    let clients = read_clients(&device, paths.proc, uid, deadline)?;
-    let boot = py_strip(&read_text(&paths.proc.join("sys/kernel/random/boot_id"))?).to_string();
+    let mut clients = match read_clients(
+        &devices,
+        paths.proc,
+        &paths.sys.join("class/drm"),
+        uid,
+        deadline,
+    ) {
+        Ok(clients) => clients,
+        Err(Failure(message)) => {
+            diagnostics.push(format!("Intel telemetry: {message}"));
+            let failed = Device::unavailable().render();
+            return (Ok(vec![failed; requests.len()]), diagnostics);
+        }
+    };
+    let mut readings = Vec::with_capacity(requests.len());
+    for request in requests {
+        let device = &request.device;
+        let reading = collect_device(
+            &Baseline {
+                device,
+                state: paths
+                    .state
+                    .as_ref()
+                    .map(|dir| dir.join(format!("intel-{device}.json"))),
+                proc: paths.proc,
+                window_ns: if request.spaced {
+                    SPACED_WINDOW_NS
+                } else {
+                    WINDOW_NS
+                },
+            },
+            device_card(paths.sys, device),
+            clients.remove(device).unwrap_or_default(),
+            &mut diagnostics,
+        );
+        match reading {
+            Ok(reading) => readings.push(reading.render()),
+            Err(crash) => return (Err(crash), diagnostics),
+        }
+    }
+    (Ok(readings), diagnostics)
+}
+
+/// The lowest-numbered `card<N>` of a PCI device
+/// (`/sys/bus/pci/devices/<ID>/drm/card<N>`).
+fn device_card(sys: &Path, device: &str) -> Option<PathBuf> {
+    let drm = sys.join("bus/pci/devices").join(device).join("drm");
+    entries(&drm, "card", "")
+        .into_iter()
+        .filter_map(|card| {
+            let name = card.file_name()?.as_bytes();
+            let digits = &name[4..];
+            if !text::is_digits(digits) {
+                return None;
+            }
+            // int(digits): compared without leading zeros, by length then digits.
+            let start = digits
+                .iter()
+                .position(|&b| b != b'0')
+                .unwrap_or(digits.len());
+            let key = (digits.len() - start, digits[start..].to_vec());
+            Some((key, card))
+        })
+        .min_by(|a, b| a.0.cmp(&b.0))
+        .map(|(_, card)| card)
+}
+
+struct Baseline<'a> {
+    device: &'a str,
+    state: Option<PathBuf>,
+    proc: &'a Path,
+    window_ns: i128,
+}
+
+/// The engine usage since the stored baseline, and the new baseline stored.
+fn baseline(
+    baseline: &Baseline,
+    clients: Ordered<Client>,
+) -> Result<(Ordered<f64>, Snapshot), Failure> {
+    let boot = py_strip(&read_text(
+        &baseline.proc.join("sys/kernel/random/boot_id"),
+    )?)
+    .to_string();
     let time = rustix::time::clock_gettime(rustix::time::ClockId::Monotonic);
     let time = (time.tv_sec as u64)
         .wrapping_mul(1_000_000_000)
         .wrapping_add(time.tv_nsec as u64);
     let mut current = Snapshot {
-        device,
+        device: baseline.device.to_string(),
         boot,
         time,
         clients,
     };
-    let previous = match &paths.state {
+    let previous = match &baseline.state {
         Some(state) => match text::read_file(state, SMALL) {
             Ok(data) => {
                 let text = text::py_text(data).map_err(|_| {
@@ -656,52 +756,80 @@ fn collect_into(
         },
         None => None,
     };
-    let engines = utilization(&mut current, previous.as_ref());
-    if let Some(state) = &paths.state {
+    let engines = utilization(&mut current, previous.as_ref(), baseline.window_ns);
+    if let Some(state) = &baseline.state {
         // Renamed into place so an interrupted sample never leaves half a baseline.
         let temporary = state.with_extension("tmp");
         fs::write(&temporary, render_snapshot(&current))
             .map_err(|error| os_error(&error, &temporary))?;
         fs::rename(&temporary, state).map_err(|error| os_error(&error, state))?;
     }
-    let mut frequencies = Vec::new();
-    for gt in entries(&card.join("gt"), "gt", "") {
-        let path = gt.join("rps_act_freq_mhz");
-        if !gt.is_dir() || !lexists(&path) {
-            continue;
-        }
-        if let Some(value) = py_integer(&read_text(&path)?, "") {
-            frequencies.push(value);
-        }
+    Ok((engines, current))
+}
+
+/// A sensor file's text: `None` when it can't be read (that value is
+/// skipped), a crash when it is not UTF-8 (Python let that escape).
+fn sensor_text(path: &Path) -> Result<Option<String>, Crash> {
+    match text::read_file(path, SMALL) {
+        Ok(data) => text::py_text(data)
+            .map(Some)
+            .map_err(|_| Crash(format!("'utf-8' codec can't decode '{}'", path.display()))),
+        Err(_) => Ok(None),
     }
-    // Only sensors attached to this GPU, never a CPU/package temperature or
-    // another graphics device's sensor.
-    let mut thermals = Vec::new();
-    for hwmon in entries(&card.join("device/hwmon"), "hwmon", "") {
-        if !hwmon.is_dir() {
-            continue;
+}
+
+/// One GPU's readings. A failed baseline makes it unavailable (with a
+/// diagnostic); each frequency file and sensor is read on its own, so one
+/// unreadable file costs only its own value.
+fn collect_device(
+    base: &Baseline,
+    card: Option<PathBuf>,
+    clients: Ordered<Client>,
+    diagnostics: &mut Vec<String>,
+) -> Result<Device, Crash> {
+    let (engines, current) = match baseline(base, clients) {
+        Ok(done) => done,
+        Err(Failure(message)) => {
+            diagnostics.push(format!("Intel telemetry: {message}"));
+            return Ok(Device::unavailable());
         }
-        for input in entries(&hwmon, "temp", "_input") {
-            let Some(value) = py_integer(&read_text(&input)?, "") else {
-                continue;
-            };
+    };
+    let mut frequencies = Vec::new();
+    let mut thermals = Vec::new();
+    if let Some(card) = &card {
+        let mut files: Vec<PathBuf> = entries(&card.join("gt"), "gt", "")
+            .into_iter()
+            .filter(|gt| gt.is_dir())
+            .map(|gt| gt.join("rps_act_freq_mhz"))
+            .filter(|path| lexists(path))
+            .collect();
+        sort_paths(&mut files);
+        for path in files {
+            if let Some(value) = sensor_text(&path)?.and_then(|text| py_integer(&text, "")) {
+                frequencies.push(value);
+            }
+        }
+        // Only sensors attached to this GPU, never a CPU/package temperature or
+        // another graphics device's sensor.
+        let mut inputs: Vec<PathBuf> = entries(&card.join("device/hwmon"), "hwmon", "")
+            .into_iter()
+            .filter(|hwmon| hwmon.is_dir())
+            .flat_map(|hwmon| entries(&hwmon, "temp", "_input"))
+            .collect();
+        sort_paths(&mut inputs);
+        for input in inputs {
             let name = input
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_default();
             let prefix = name.strip_suffix("_input").unwrap_or(&name);
-            let limit = hwmon.join(format!("{prefix}_crit"));
-            let critical = if exists(&limit) {
-                py_integer(&read_text(&limit)?, "")
-            } else {
-                None
+            let Some(value) = sensor_text(&input)?.and_then(|text| py_integer(&text, "")) else {
+                continue;
             };
-            let label = hwmon.join(format!("{prefix}_label"));
-            let label = if exists(&label) {
-                py_strip(&read_text(&label)?).to_string()
-            } else {
-                "GPU".to_string()
-            };
+            let critical = sensor_text(&input.with_file_name(format!("{prefix}_crit")))?
+                .and_then(|text| py_integer(&text, ""));
+            let label = sensor_text(&input.with_file_name(format!("{prefix}_label")))?
+                .map_or_else(|| "GPU".to_string(), |text| py_strip(&text).to_string());
             thermals.push(Thermal {
                 temperature: thousandths(value),
                 critical: critical.filter(|&c| c != 0).map(thousandths),
@@ -715,17 +843,17 @@ fn collect_into(
         .iter()
         .map(|(_, client)| client.private)
         .collect();
-    stats.busy = engines.0.iter().map(|(_, pct)| *pct).reduce(f64::max);
-    stats.engines = engines;
-    stats.private = if !allocations.is_empty() && allocations.iter().all(Option::is_some) {
-        Some(allocations.iter().flatten().sum())
-    } else {
-        None
-    };
-    stats.frequency = frequencies.into_iter().max();
-    stats.temp = thermals.iter().map(|t| t.temperature).reduce(f64::max);
-    stats.thermals = thermals;
-    Ok(())
+    Ok(Device {
+        busy: engines.0.iter().map(|(_, pct)| *pct).reduce(f64::max),
+        private: if !allocations.is_empty() && allocations.iter().all(Option::is_some) {
+            Some(allocations.iter().flatten().sum())
+        } else {
+            None
+        },
+        frequency: frequencies.into_iter().max(),
+        thermals,
+        error: "",
+    })
 }
 
 #[cfg(test)]
@@ -733,6 +861,10 @@ mod tests {
     use super::*;
 
     const DEVICE: &str = "0000:00:02.0";
+
+    fn devices() -> Vec<String> {
+        vec![DEVICE.to_string()]
+    }
 
     fn fdinfo(ident: u32, render: u64, video: u64) -> String {
         format!(
@@ -745,7 +877,10 @@ mod tests {
     fn snapshot(time: u64, records: &[String]) -> Snapshot {
         let clients = records
             .iter()
-            .map(|r| parse_client(r, DEVICE).unwrap().unwrap())
+            .map(|r| {
+                let (_, ident, client) = parse_client(r, &devices()).unwrap().unwrap();
+                (ident, client)
+            })
             .collect();
         Snapshot {
             device: DEVICE.into(),
@@ -759,7 +894,7 @@ mod tests {
     fn engine_deltas_capacity_and_private_memory() {
         let before = snapshot(1_000_000_000, &[fdinfo(1, 100, 0)]);
         let mut after = snapshot(2_000_000_000, &[fdinfo(1, 500_000_100, 1_000_000_000)]);
-        let busy = utilization(&mut after, Some(&before));
+        let busy = utilization(&mut after, Some(&before), WINDOW_NS);
         assert_eq!(
             busy.0,
             vec![("render".to_string(), 50.0), ("video".to_string(), 50.0)]
@@ -772,7 +907,7 @@ mod tests {
         let before = snapshot(1_000_000_000, &[fdinfo(1, 500_000_000, 0)]);
         let mut after = snapshot(2_000_000_000, &[fdinfo(1, 400_000_000, 0)]);
         assert_eq!(
-            utilization(&mut after, Some(&before)).get("render"),
+            utilization(&mut after, Some(&before), WINDOW_NS).get("render"),
             Some(&0.0)
         );
         assert_eq!(
@@ -788,35 +923,43 @@ mod tests {
             snapshot(1, &[fdinfo(1, 0, 0)]),
             snapshot(40_000_000_000, &[fdinfo(1, 0, 0)]),
         ] {
-            assert!(utilization(&mut current, Some(&previous)).0.is_empty());
+            assert!(
+                utilization(&mut current, Some(&previous), WINDOW_NS)
+                    .0
+                    .is_empty()
+            );
         }
         let mut other = snapshot(39_000_000_000, &[fdinfo(1, 0, 0)]);
         other.boot = "older".into();
-        assert!(utilization(&mut current, Some(&other)).0.is_empty());
+        assert!(
+            utilization(&mut current, Some(&other), WINDOW_NS)
+                .0
+                .is_empty()
+        );
     }
 
     #[test]
     fn malformed_fields() {
         let good = fdinfo(1, 100, 0);
         assert!(
-            parse_client(&good.replace("i915", "amdgpu"), DEVICE)
+            parse_client(&good.replace("i915", "amdgpu"), &devices())
                 .unwrap()
                 .is_none()
         );
         assert!(
-            parse_client(&good.replace("client-id: 1", "client-id: bad"), DEVICE)
+            parse_client(&good.replace("client-id: 1", "client-id: bad"), &devices())
                 .unwrap()
                 .is_none()
         );
-        assert!(parse_client(&good.replace("100 ns", "-1 ns"), DEVICE).is_err());
+        assert!(parse_client(&good.replace("100 ns", "-1 ns"), &devices()).is_err());
         assert!(
             parse_client(
                 &good.replace("capacity-video: 2", "capacity-video: 0"),
-                DEVICE
+                &devices()
             )
             .is_err()
         );
-        let private = |text: String| parse_client(&text, DEVICE).unwrap().unwrap().1.private;
+        let private = |text: String| parse_client(&text, &devices()).unwrap().unwrap().2.private;
         assert_eq!(private(good.replace("1024 KiB", "65 MiB")), None);
         assert_eq!(
             private(good.replace("drm-shared-system0: 1024 KiB", "")),
@@ -855,8 +998,9 @@ mod tests {
     #[test]
     fn the_scan_has_a_budget() {
         let failure = read_clients(
-            DEVICE,
+            &devices(),
             Path::new("/proc"),
+            Path::new("/sys/class/drm"),
             0,
             Instant::now() - Duration::from_secs(1),
         )
@@ -865,32 +1009,65 @@ mod tests {
     }
 
     #[test]
-    fn stats_render_like_json_dumps() {
-        let stats = Stats {
-            intel: true,
+    fn spaced_gpus_keep_a_wider_window() {
+        let before = snapshot(1_000_000_000, &[fdinfo(1, 100, 0)]);
+        let mut after = snapshot(46_000_000_000, &[fdinfo(1, 4_500_000_100, 0)]);
+        assert!(
+            utilization(&mut after.clone(), Some(&before), WINDOW_NS)
+                .0
+                .is_empty()
+        );
+        assert_eq!(
+            utilization(&mut after, Some(&before), SPACED_WINDOW_NS).get("render"),
+            Some(&10.0)
+        );
+    }
+
+    #[test]
+    fn clients_name_their_device() {
+        let other = "0000:03:00.0".to_string();
+        let both = [DEVICE.to_string(), other.clone()];
+        let text = fdinfo(1, 100, 0).replace(DEVICE, &other);
+        assert_eq!(parse_client(&text, &both).unwrap().unwrap().0, other);
+        assert!(parse_client(&text, &devices()).unwrap().is_none());
+    }
+
+    #[test]
+    fn drm_nodes_are_card_or_render_nodes() {
+        assert_eq!(drm_node(b"/dev/dri/renderD128"), Some(&b"renderD128"[..]));
+        assert_eq!(drm_node(b"/dev/dri/card1"), Some(&b"card1"[..]));
+        for target in [
+            &b"/dev/dri/by-path/x"[..],
+            b"/dev/dri/card",
+            b"/dev/dri/card1x",
+            b"/dev/dri/controlD64",
+            b"socket:[1]",
+            b"/dev/dri/renderD128 (deleted)",
+        ] {
+            assert_eq!(drm_node(target), None);
+        }
+    }
+
+    #[test]
+    fn devices_render_like_json_dumps() {
+        let device = Device {
             busy: Some(50.0),
-            engines: Ordered(vec![("render".into(), 50.0), ("vid\u{e9}o".into(), 0.0)]),
             private: Some(7),
             frequency: Some(800),
-            temp: Some(45.5),
             thermals: vec![Thermal {
                 temperature: 45.5,
                 critical: None,
-                label: "GPU".into(),
+                label: "GPU \u{e9}".into(),
             }],
             error: "",
         };
         assert_eq!(
-            String::from_utf8(stats.render()).unwrap(),
-            r#"{"gpuIntel":true,"gpuBusy":50.0,"gpuEngines":{"render":50.0,"vid\u00e9o":0.0},"gpuMemoryPrivate":7,"gpuFrequencyMHz":800,"gpuTemp":45.5,"gpuThermals":[{"temperature":45.5,"critical":null,"label":"GPU"}],"gpuError":""}"#
+            String::from_utf8(device.render()).unwrap(),
+            r#"{"busy":50.0,"memoryPrivate":7,"frequencyMHz":800,"thermals":[{"temperature":45.5,"critical":null,"label":"GPU \u00e9"}],"error":""}"#
         );
-        let failed = Stats {
-            intel: true,
-            error: UNAVAILABLE,
-            ..Stats::default()
-        };
-        assert!(String::from_utf8(failed.render()).unwrap().ends_with(
-            r#""gpuThermals":[],"gpuError":"Intel GPU readings unavailable. Retrying\u2026"}"#
-        ));
+        assert_eq!(
+            String::from_utf8(Device::unavailable().render()).unwrap(),
+            r#"{"busy":null,"memoryPrivate":null,"frequencyMHz":null,"thermals":[],"error":"Intel GPU readings unavailable. Retrying\u2026"}"#
+        );
     }
 }
