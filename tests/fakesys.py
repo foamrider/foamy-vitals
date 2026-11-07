@@ -1,8 +1,8 @@
 """Fake /proc and /sys trees for the black-box stats helper tests.
 
 The helper runs as a process against these trees (FOAMY_VITALS_PROC and
-FOAMY_VITALS_SYS, its test-only overrides) with a private XDG_RUNTIME_DIR, and
-fake executables (nvidia-smi) first on PATH. FOAMY_HELPER is the helper's
+FOAMY_VITALS_SYS, FOAMY_VITALS_PCI_IDS, its test-only overrides) with a private
+XDG_RUNTIME_DIR, and fake executables (nvidia-smi) first on PATH. FOAMY_HELPER is the helper's
 argv prefix as a JSON list; the default is this machine's
 bin/<arch>/foamy-vitals-helper stats. The aarch64 build runs through qemu
 binfmt: FOAMY_HELPER='["bin/aarch64/foamy-vitals-helper", "stats"]'.
@@ -19,6 +19,8 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 NVIDIA_ADDRESS = "0000:01:00.0"
 INTEL_DEVICE = "0000:00:02.0"
+# Tree.gpu file contents: None makes a directory (unreadable, like EIO), FIFO a named pipe (blocks if opened).
+FIFO = object()
 DEFAULT_HELPER = [str(ROOT / "bin" / platform.machine() / "foamy-vitals-helper"), "stats"]
 
 
@@ -40,6 +42,18 @@ HELPER = helper_prefix()
 def strict(text):
     """json.loads with strict=True rejects raw control characters, as JSON.parse does."""
     return json.loads(text, strict=True)
+
+
+def nv_bus(address):
+    """nvidia-smi's spelling of a sysfs PCI address: an 8-digit domain."""
+    return "%08x:%s" % (int(address[:4], 16), address[5:])
+
+
+def amd_files(busy, used, total, discrete=False):
+    files = {"gpu_busy_percent": f"{busy}\n", "mem_info_vram_used": f"{used}\n", "mem_info_vram_total": f"{total}\n"}
+    if discrete:
+        files["mem_info_vram_vendor"] = "samsung\n"
+    return files
 
 
 def intel_fdinfo(ident=1, render=100, video=0, driver="i915", device=INTEL_DEVICE):
@@ -122,46 +136,86 @@ class Tree:
                 (directory / f"temp{number}_label").write_text(label + "\n")
         return directory
 
-    def nvidia(self, status="active", control="auto"):
-        (self.proc / f"driver/nvidia/gpus/{NVIDIA_ADDRESS}").mkdir(parents=True)
-        power = self.sys / f"bus/pci/devices/{NVIDIA_ADDRESS}/power"
-        power.mkdir(parents=True)
-        (power / "runtime_status").write_text(status + "\n")
-        (power / "control").write_text(control + "\n")
+    def device(self, address):
+        return self.sys / f"devices/pci{address[:7]}/{address}"
+
+    def gpu(self, address, driver, class_="0x030000", control="on", status="active", files={}, hwmon=[],
+            vendor="0x1002", device="0x150e"):
+        """A PCI device, bound to driver (None: unbound) through sys/bus/pci/drivers/<driver>/<address>."""
+        path = self.device(address)
+        (path / "power").mkdir(parents=True)
+        (path / "class").write_text(class_ + "\n")
+        (path / "vendor").write_text(vendor + "\n")
+        (path / "device").write_text(device + "\n")
+        (path / "power/control").write_text(control + "\n")
+        (path / "power/runtime_status").write_text(status + "\n")
+        devices = self.sys / "bus/pci/devices"
+        devices.mkdir(parents=True, exist_ok=True)
+        (devices / address).symlink_to(path)
+        if driver:
+            bound = self.sys / "bus/pci/drivers" / driver
+            bound.mkdir(parents=True, exist_ok=True)
+            (bound / address).symlink_to(path)
+            (path / "driver").symlink_to(bound)
+        contents = {}
+        for number, (label, milli, crit_milli) in enumerate(hwmon, 1):
+            contents[f"hwmon/hwmon0/temp{number}_input"] = f"{milli}\n"
+            if label:
+                contents[f"hwmon/hwmon0/temp{number}_label"] = label + "\n"
+            if crit_milli is not None:
+                contents[f"hwmon/hwmon0/temp{number}_crit"] = f"{crit_milli}\n"
+        contents.update(files)
+        for name, content in contents.items():
+            target = path / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if content is None:
+                target.mkdir()
+            elif content is FIFO:
+                os.mkfifo(target)
+            else:
+                target.write_text(content)
+        return path
+
+    def nvidia(self, addresses=(NVIDIA_ADDRESS,), status="active", control="auto"):
+        """Proprietary-driver GPUs and a fake nvidia-smi that logs its arguments. Returns (log, reply)."""
+        for address in addresses:
+            (self.proc / f"driver/nvidia/gpus/{address}").mkdir(parents=True)
+            self.gpu(address, "nvidia", control=control, status=status, vendor="0x10de", device="0x2786")
         log = self.base / "nvidia-smi.log"
         reply = self.base / "nvidia-smi.reply"
         xml = self.base / "nvidia-smi.xml"
         failtemp = self.base / "nvidia-smi.failtemp"
-        reply.write_text("00000000:01:00.0, 37, 1178, 8192, 51\n")
+        reply.write_text("".join(f"{nv_bus(address)}, 37, 1178, 8192, 51\n" for address in addresses))
+        blocks = "".join(f'<gpu id="{nv_bus(address)}"><temperature><gpu_temp>51 C</gpu_temp>'
+                         '<gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu>'
+                         for address in addresses)
         script = self.bin / "nvidia-smi"
         script.write_text(textwrap.dedent(f"""\
             #!/bin/sh
             printf '%s\\n' "$*" >>'{log}'
             case "$*" in
               *--query-gpu*) [ -s '{reply}' ] || exit 6; cat '{reply}' ;;
-              *TEMPERATURE*) [ -e '{failtemp}' ] && exit 9; [ -s '{xml}' ] && exec cat '{xml}'; printf '<?xml version="1.0"?>\\n<nvidia_smi_log><gpu id="00000000:01:00.0"><temperature><gpu_temp>51 C</gpu_temp><gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu></nvidia_smi_log>\\n' ;;
+              *TEMPERATURE*) [ -e '{failtemp}' ] && exit 9; [ -s '{xml}' ] && exec cat '{xml}'; printf '%s\\n' '<?xml version="1.0"?>' '<nvidia_smi_log>{blocks}</nvidia_smi_log>' ;;
             esac
             """))
         script.chmod(0o755)
         return log, reply
 
-    def intel(self, driver="i915", device=INTEL_DEVICE, card="card1"):
-        """A bound Intel GPU: driver dir, PCI device, DRM card. Returns (card dir, device dir)."""
-        drivers = self.sys / "bus/pci/drivers" / driver
-        (drivers / device).mkdir(parents=True, exist_ok=True)
-        domain = device.split(":")[0]
-        pci = self.sys / f"devices/pci{domain}:00/{device}"
-        pci.mkdir(parents=True, exist_ok=True)
-        if not (pci / "driver").is_symlink():
-            (pci / "driver").symlink_to(drivers)
-        directory = self.sys / "class/drm" / card
+    def intel(self, driver="i915", device=INTEL_DEVICE, card="card1", node=None, **gpu):
+        """A bound Intel GPU: PCI device, its DRM card and render node. Returns (card dir, device dir)."""
+        pci = self.gpu(device, driver, vendor="0x8086", device="0x7d55", **gpu)
+        directory = pci / "drm" / card
         directory.mkdir(parents=True, exist_ok=True)
-        if not (directory / "device").is_symlink():
-            (directory / "device").symlink_to(pci)
+        (directory / "device").symlink_to(pci)
+        number = int(card[4:]) if card[4:].isdigit() else 0
+        drm = self.sys / "class/drm"
+        drm.mkdir(parents=True, exist_ok=True)
+        for name in (card, node or f"renderD{128 + number}"):
+            (drm / name).symlink_to(directory)
         return directory, pci
 
-    def descriptor(self, pid, number, text, target="/dev/dri/renderD128"):
-        """One open file of a fake process: its fd link and its fdinfo (a dir when text is None)."""
+    def descriptor(self, pid, number, text, target="/dev/dri/renderD129"):
+        """One open file of a fake process: its fd link and its fdinfo (a dir when text is None, FIFO a named pipe)."""
         for sub in ("fd", "fdinfo"):
             (self.proc / str(pid) / sub).mkdir(parents=True, exist_ok=True)
         link = self.proc / str(pid) / "fd" / str(number)
@@ -170,24 +224,26 @@ class Tree:
         info = self.proc / str(pid) / "fdinfo" / str(number)
         if text is None:
             info.mkdir(exist_ok=True)
+        elif text is FIFO:
+            os.mkfifo(info)
         else:
             info.write_text(text)
 
     def intel_state(self, ago_ns, clients, device=INTEL_DEVICE, boot="boot-1"):
-        """Write the Intel baseline as if a sample had been taken ago_ns before now."""
+        """Write a GPU's Intel baseline as if a sample had been taken ago_ns before now."""
         self.state.mkdir(mode=0o700, exist_ok=True)
         snapshot = {"device": device, "boot": boot, "time": time.monotonic_ns() - ago_ns, "clients": clients}
-        (self.state / "intel.json").write_text(json.dumps(snapshot, separators=(",", ":")))
+        (self.state / f"intel-{device}.json").write_text(json.dumps(snapshot, separators=(",", ":")))
 
     def env(self):
         return dict(os.environ, FOAMY_VITALS_PROC=str(self.proc), FOAMY_VITALS_SYS=str(self.sys),
-                    XDG_RUNTIME_DIR=str(self.runtime), PATH=f"{self.bin}:{os.environ['PATH']}")
+                    FOAMY_VITALS_PCI_IDS=str(self.base / "pci.ids"), XDG_RUNTIME_DIR=str(self.runtime), PATH=f"{self.bin}:{os.environ['PATH']}")
 
     def run_raw(self, *args, env=None):
         return subprocess.run([*self.helper, *args], env=env or self.env(), capture_output=True, timeout=20)
 
-    def run(self, *args, check=True):
-        result = self.run_raw(*args)
+    def run(self, *args, check=True, timeout=20):
+        result = subprocess.run([*self.helper, *args], env=self.env(), capture_output=True, timeout=timeout)
         if check:
             assert result.returncode == 0, result.stderr.decode(errors="replace")
         return strict(result.stdout.decode("utf-8", "replace")), result.stderr.decode("utf-8", "replace")
