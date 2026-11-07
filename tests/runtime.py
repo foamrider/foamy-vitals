@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offscreen runtime checks of the real Panel on both hosts (4.0 installed, 4.5 reference tree).
+"""Offscreen runtime checks of the real Panel on Omarchy 4.5 (the installed shell).
 
 Two bar instances share one VitalsService: only the leader samples and owns
 IPC, closed popups take bar-only samples, an open popup takes full ones,
@@ -12,13 +12,19 @@ Uses the foamy-kit harness (temp HOME/XDG, no Wayland/Hyprland, no host
 scripts): FOAMY_KIT=/path/to/foamy-kit (default ~/GitHub/Personal/foamy-kit).
 The stats helper (bin/<arch>/foamy-vitals-helper) runs for real against this
 machine, with state in the temp dir.
-  python3 tests/runtime.py [4.0|4.5|both]
+  python3 tests/runtime.py [4.5|4.0|both]      (default: 4.5)
+
+4.5 is /usr/share/omarchy/shell, or the tree in FOAMY_HOST_45. 4.0 runs only
+against an Omarchy 4.0 shell tree in FOAMY_HOST_40; without one, 4.0 and
+`both` print a SKIP line for it.
 """
 import os
 import sys
 from pathlib import Path
 
 KIT = Path(os.environ.get("FOAMY_KIT", Path.home() / "GitHub/Personal/foamy-kit"))
+# The installed shell is 4.5; set before the harness reads it.
+os.environ.setdefault("FOAMY_HOST_45", "/usr/share/omarchy/shell")
 sys.path.insert(0, str(KIT / "preview"))
 import harness  # noqa: E402
 
@@ -262,9 +268,15 @@ ShellRoot {
 
 
 def main():
-    which = sys.argv[1] if len(sys.argv) > 1 else "both"
+    which = sys.argv[1] if len(sys.argv) > 1 else "4.5"
+    if which not in ("4.0", "4.5", "both"):
+        sys.exit(f"unknown host {which!r}: use 4.5, 4.0 or both")
+    hosts = ["4.5", "4.0"] if which == "both" else [which]
+    if "4.0" in hosts and not os.environ.get("FOAMY_HOST_40"):
+        print("SKIP 4.0: set FOAMY_HOST_40 to an Omarchy 4.0 shell tree")
+        hosts.remove("4.0")
     status = 0
-    for host in (["4.0", "4.5"] if which == "both" else [which]):
+    for host in hosts:
         qml = SHELL.replace("HOST", '"%s"' % host)
         run = harness.Run(host, qml, plugin=PLUGIN, language="ar" if host == "4.5" else None, prefix="foamy-vitals-runtime-")
         run.run(timeout=90)

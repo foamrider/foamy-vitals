@@ -6,7 +6,7 @@ System activity and hardware readings.
 
 ## Install
 
-Requires Omarchy 4.5 (it also runs on 4.0.6, in English) on an x86_64 or
+Requires Omarchy 4.5 on an x86_64 or
 aarch64 CPU, Bash and GNU coreutils. Readings come from a bundled helper
 (`bin/<arch>/foamy-vitals-helper`, a static executable; other CPUs show
 "This plugin's helper isn't available for this CPU."). `nvidia-smi` is needed
@@ -110,9 +110,9 @@ Provided **as is**, without warranty or guaranteed support. Use at your own risk
 
 ## Language
 
-Language follows **Omarchy → Setup → Language** on Omarchy 4.5 (English and
-Norwegian catalogs; right-to-left languages mirror the popup). Omarchy 4.0
-displays the plugin in English. Missing translations fall back to English.
+Language follows **Omarchy → Setup → Language** (English and Norwegian
+catalogs; right-to-left languages mirror the popup). Missing translations fall
+back to English.
 
 ## Development
 
@@ -141,12 +141,17 @@ python3 -I tests/test_stats.py          # helper JSON, bar mode, NVIDIA power, s
 python3 -I tests/test_intel_stats.py    # Intel DRM fdinfo readings
 FOAMY_HELPER='["bin/aarch64/foamy-vitals-helper", "stats"]' python3 -I tests/test_stats.py  # aarch64 via qemu
 FOAMY_VITALS_REFERENCE='["<dir>/stats.sh"]' python3 -I tests/compare_stats.py  # same bytes as #2's stats.sh (intel_stats.py beside it)
-python3 tests/runtime.py both            # offscreen, 4.0 and 4.5 (needs foamy-kit)
-python3 tests/i18n-runtime.py            # OMARCHY_PATH=<4.5 tree> for live switching
+python3 tests/runtime.py                 # offscreen on 4.5 (needs foamy-kit)
+python3 tests/i18n-runtime.py            # live switching; OMARCHY_PATH for another tree
 bash tests/kit-check.sh
 python3 -I tests/bench_stats.py [--bar]  # CPU, wall time and processes per sample
 python3 -I tests/bench_stats.py --fixture nvidia [--bar]  # fake trees: amd, nvidia, nvidia2, amd-nvidia, intel-nvidia, intel-amd
 ```
+
+The runtime test targets Omarchy 4.5, the installed `/usr/share/omarchy/shell`
+(`FOAMY_HOST_45` selects another shell tree). `runtime.py 4.0` and
+`runtime.py both` run 4.0 only against an Omarchy 4.0 shell tree in
+`FOAMY_HOST_40`, and print a SKIP line without one.
 
 `preview/Preview.qml` and `preview/BarPreview.qml` hold mock states for the
 foamy-kit preview harness.
