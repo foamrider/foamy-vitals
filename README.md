@@ -2,7 +2,7 @@
 
 System activity and hardware readings.
 
-![Foamy Vitals screenshot](preview.png)
+![Foamy Vitals with three GPUs in the Graphics table, one pinned to the bar](preview.png)
 
 ## Install
 
