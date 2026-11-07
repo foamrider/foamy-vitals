@@ -103,6 +103,9 @@ pub struct Pointer {
     pub cache_gen: u8,
     pub cache_at: Vec<u8>,
     pub cache_mode: Vec<u8>,
+    /// The generation of `gpus.N` (pointers written before it existed have
+    /// no 7th field: 0).
+    pub gpu_gen: u8,
 }
 
 impl Default for Pointer {
@@ -114,6 +117,7 @@ impl Default for Pointer {
             cache_gen: 0,
             cache_at: b"-1".to_vec(),
             cache_mode: b"none".to_vec(),
+            gpu_gen: 0,
         }
     }
 }
@@ -131,10 +135,11 @@ fn signed_digits(field: &[u8]) -> bool {
 }
 
 impl Pointer {
-    /// `read -r p1 … p6 _ < current`, kept only when every field is valid.
+    /// `read -r p1 … p7 _ < current`, kept only when the first five fields
+    /// are valid; the 7th only when it is a generation.
     pub fn parse(data: &[u8]) -> Pointer {
         let (line, _) = text::first_line(data);
-        let f = text::split_ifs(&line, text::is_ifs, 7);
+        let f = text::split_ifs(&line, text::is_ifs, 8);
         match (generation(f[0]), generation(f[1]), generation(f[3])) {
             (Some(cpu_gen), Some(proc_gen), Some(cache_gen))
                 if text::is_digits(f[2]) && signed_digits(f[4]) =>
@@ -150,6 +155,7 @@ impl Pointer {
                     } else {
                         f[5].to_vec()
                     },
+                    gpu_gen: generation(f[6]).unwrap_or(0),
                 }
             }
             _ => Pointer::default(),
@@ -171,7 +177,7 @@ impl Pointer {
         out.extend_from_slice(&self.cache_at);
         out.push(b' ');
         out.extend_from_slice(&self.cache_mode);
-        out.push(b'\n');
+        out.extend_from_slice(format!(" {}\n", self.gpu_gen).as_bytes());
         out
     }
 }
@@ -182,15 +188,17 @@ mod tests {
 
     #[test]
     fn pointer_round_trip_and_validation() {
-        let pointer = Pointer::parse(b"1 0 5000 1 4000 bar\n");
-        assert_eq!(pointer.render(), b"1 0 5000 1 4000 bar\n");
+        let pointer = Pointer::parse(b"1 0 5000 1 4000 bar 1\n");
+        assert_eq!(pointer.render(), b"1 0 5000 1 4000 bar 1\n");
+        assert_eq!(Pointer::parse(b"1 0 5000 1 4000 bar\n").gpu_gen, 0);
+        assert_eq!(Pointer::parse(b"1 0 5000 1 4000 bar 2\n").gpu_gen, 0);
         assert_eq!(Pointer::parse(b"garbage\n"), Pointer::default());
         assert_eq!(Pointer::parse(b"2 0 0 0 0 full\n"), Pointer::default());
         assert_eq!(Pointer::parse(b"0 0 0 0 -1").cache_mode, b"none");
         assert_eq!(Pointer::parse(b"0 1 7 1 -5 full extra").cache_at(), -5);
         assert_eq!(
             Pointer::parse(b"0 1 010 1 -5 full").render(),
-            b"0 1 010 1 -5 full\n"
+            b"0 1 010 1 -5 full 0\n"
         );
     }
 

@@ -33,10 +33,10 @@ for (const file of files) {
 const indirect = [
   ...schema.fields.flatMap(f => [f.label, f.group, f.description].filter(Boolean)),
   ...schema.fields.flatMap(f => (f.options || []).map(schema.optionLabel)),
-  // GPU messages of the stats helper (native/src): `error = "…"` and the Intel UNAVAILABLE text.
+  // GPU messages of the stats helper (native/src): `error = "…"`, NVIDIA_ERROR and the Intel UNAVAILABLE text.
   ...fs.readdirSync(path.join(root, 'native/src')).filter(f => f.endsWith('.rs')).flatMap(f =>
     [...fs.readFileSync(path.join(root, 'native/src', f), 'utf8').replace(/\\u\{2026\}/g, '…')
-      .matchAll(/(?:error = |UNAVAILABLE: &str =\s*)"([A-Z][^"]+)"/g)].map(m => m[1])),
+      .matchAll(/(?:error = |(?:UNAVAILABLE|NVIDIA_ERROR): &str =\s*)"([A-Z][^"]+)"/g)].map(m => m[1])),
   ...[...fs.readFileSync(path.join(root, 'VitalsService.qml'), 'utf8').matchAll(/(?:fail\(|diskStatus = (?:[^"]*\? "" : )?)"([A-Z][^"]+)"/g)].map(m => m[1]),
   'Reading disk capacity', 'Install btop to use this shortcut.', 'Edge', 'Hotspot', 'Memory', 'GPU',
   ...['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', "That value isn't allowed.", "Settings can't be saved: this widget has no bar entry."],

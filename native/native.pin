@@ -5,7 +5,7 @@
 crate native
 binary foamy-vitals-helper
 toolchain 1.99.1
-kit 0.5.0
-source 1c09ea32f5d1b55f0a4a391b1b94d87e20cf5b0acfddeafe0dec187ed5eb56fe
-cec5701126fc6af6d92539261c4e3e3c5f03aa15f4656e719928ed9b51b7522d  bin/aarch64/foamy-vitals-helper
-f469ca856b504bc77495e893464630b701e5155768046da80cb4829537fe5041  bin/x86_64/foamy-vitals-helper
+kit 0.5.1
+source 9a661c703bcbae625f247070ae29c5d49fed02722208bb6d0bb1a1c3d85c2943
+3fa1a3ca7f47c681c51672b1b5bcf30dadc835b71bf1fff5faa7fb3b893d9c7d  bin/aarch64/foamy-vitals-helper
+9e3f508a1fcec66496a04cc5eb7c50a316f76966dae6f94709df22a7a401c3c9  bin/x86_64/foamy-vitals-helper

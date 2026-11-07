@@ -1,12 +1,13 @@
 //! `foamy-vitals-helper`: one JSON object of processor, memory, graphics and
 //! thermal readings for the Vitals bar widget, from procfs, sysfs, Intel DRM
 //! clients and `nvidia-smi`. No telemetry path needs privileges. It replaces
-//! `stats.sh` and `intel_stats.py` and prints the same bytes they did.
+//! `stats.sh` and `intel_stats.py` and prints the same bytes as the
+//! multi-GPU `stats.sh` of #2 did.
 //!
 //! # Arguments
 //!
 //! - `stats`: everything the popup shows (a "full" sample).
-//! - `stats --bar`: what the bar needs (usage, memory, GPU, temperatures),
+//! - `stats --bar`: what the bar needs (usage, memory, GPUs, temperatures),
 //!   without process rankings; used while every popup is closed.
 //!
 //! Anything else prints `{"ok":false,"code":"INVALID_ARGUMENT","error":…}`
@@ -17,35 +18,45 @@
 //! ```text
 //! {"mode":"full"|"bar","sampleTimeMs":N,"cpu":N|null,"cores":[N|null,…],
 //!  "memUsedKb":N,"memTotalKb":N,"cpuTemp":N|null,"cpuTempCrit":N|null,
-//!  <graphics>,"processes":[…],"memoryProcesses":[…],
+//!  "gpus":[<gpu>,…],"processes":[…],"memoryProcesses":[…],
 //!  "network":{"interface":S,"rxBytes":N,"txBytes":N}|null}
 //! ```
 //!
-//! `<graphics>` is, for sysfs (AMD/radeon/i915/xe/nouveau hwmon) and NVIDIA
-//! GPUs, `"gpuBusy","vramUsed","vramTotal","gpuTemp","gpuThermals",
-//! "gpuError","gpuSuspended","gpuIntel":false,"gpuMemoryPrivate":null,
-//! "gpuFrequencyMHz":null,"gpuEngines":{}`; for an Intel GPU without another
-//! load source, `"vramUsed":null,"vramTotal":null,"gpuSuspended":false,`
-//! followed by the Intel object exactly as `intel_stats.py` printed it with
-//! `json.dumps` (`gpuIntel`, `gpuBusy`, `gpuEngines`, `gpuMemoryPrivate`,
-//! `gpuFrequencyMHz`, `gpuTemp`, `gpuThermals`, `gpuError`; floats in
-//! Python's `repr`, strings ASCII-escaped). When the Intel collection takes
-//! longer than 1.5 s its keys are `"gpuBusy":null,…,"gpuError":"Intel GPU
-//! readings unavailable. Retrying…","gpuSuspended":false,"gpuIntel":true,…`
-//! (the shell's fallback when the Python helper was killed).
+//! One `<gpu>` per PCI display device (class `0x03…`) bound to `amdgpu`,
+//! `radeon`, `i915`, `xe`, `nvidia` or `nouveau`, in that driver order and by
+//! address within a driver:
 //!
-//! Untrusted text (process, directory and interface names) is written byte
-//! for byte without control bytes, quotes and backslashes (`LC_ALL=C`
+//! ```text
+//! {"id":"dddd:bb:dd.f","vendor":"amd"|"intel"|"nvidia","driver":S,
+//!  "name":S|null,"type":"integrated"|"discrete"|null,"asleep":B,
+//!  "busy":N|null,"vramUsed":N|null,"vramTotal":N|null,"memoryPrivate":N|null,
+//!  "frequencyMHz":N|null,"thermals":[{"temperature":N,"critical":N|null,
+//!  "label":S},…],"error":S}
+//! ```
+//!
+//! A runtime-suspended GPU is `"asleep":true` with nothing read and
+//! `"error":""`. AMD/radeon/nouveau readings come from the GPU's own sysfs
+//! files (an integrated AMD GPU's memory is VRAM plus GTT); NVIDIA from one
+//! `--query-gpu` per sample; Intel from one scan of this user's DRM clients,
+//! each GPU's keys after `vramTotal` exactly as `intel_stats.py` printed them
+//! with `json.dumps` (floats in Python's `repr`, strings ASCII-escaped). When
+//! the Intel collection fails as a whole (past 1.5 s, or where Python
+//! crashed) every Intel GPU reads `"error":"Intel GPU readings unavailable.
+//! Retrying…"` (the shell's fallback text, not escaped). Names come from
+//! pci.ids (the bracketed product name when there is one).
+//!
+//! Untrusted text (process, directory, interface and GPU names) is written
+//! byte for byte without control bytes, quotes and backslashes (`LC_ALL=C`
 //! semantics; other bytes, also invalid UTF-8, pass through). Numbers keep
 //! the formatting of the awk and Bash code they come from: whole percentages,
 //! `pct` with one decimal, file values as written.
 //!
 //! # Environment
 //!
-//! `FOAMY_VITALS_PROC` (default `/proc`) and `FOAMY_VITALS_SYS` (`/sys`) are
-//! for tests only; the plugin never sets them. `XDG_RUNTIME_DIR` picks the
-//! state directory, `HOME` a working directory not worth naming, `PATH` finds
-//! `nvidia-smi`.
+//! `FOAMY_VITALS_PROC` (default `/proc`), `FOAMY_VITALS_SYS` (`/sys`) and
+//! `FOAMY_VITALS_PCI_IDS` (`/usr/share/hwdata/pci.ids`) are for tests only;
+//! the plugin never sets them. `XDG_RUNTIME_DIR` picks the state directory,
+//! `HOME` a working directory not worth naming, `PATH` finds `nvidia-smi`.
 //!
 //! # State
 //!
@@ -56,18 +67,24 @@
 //! starts over. In it, under an exclusive `flock` on `lock` (waited for; a
 //! lock that can't be opened is skipped):
 //!
-//! - `current`: `cpu_gen proc_gen proc_at cache_gen cache_at cache_mode`;
-//!   each `*.0`/`*.1` pair is double-buffered: a sample reads one generation,
-//!   writes the other and only then records it here.
+//! - `current`: `cpu_gen proc_gen proc_at cache_gen cache_at cache_mode
+//!   gpu_gen`; each `*.0`/`*.1` pair is double-buffered: a sample reads one
+//!   generation, writes the other and only then records it here.
 //! - `cpu.N`: `key total idle` per `/proc/stat` cpu line. Load is a delta
 //!   against it, so the first call after boot reports `null`.
 //! - `procs.N`: `#TOTAL jiffies` and `pid jiffies` per process (full samples).
 //!   A baseline older than 15 s is replaced first, 250 ms before ranking.
 //! - `cache.N`: the last sample line; a full sample younger than 2 s (by
 //!   `/proc/uptime`) answers any call, a bar sample only bar calls.
-//! - `nvidia`: `at util used total temp crit boot retry fails`.
-//! - `intel.json` (via `intel.tmp` and a rename): the Intel baseline,
-//!   `{"device","boot","time"(CLOCK_MONOTONIC ns),"clients"}`.
+//! - `gpus.N`: `boot<TAB>boot_id`, then per GPU `id type at crit retry fails
+//!   reading` (tab-separated): its type (kept for the boot), when the reading
+//!   was taken (`-1`: not carried), the NVIDIA shutdown limit (`unknown`,
+//!   `none`, °C; `-` for others) with its retry time and failures, and the
+//!   reading's JSON keys. Another boot's lines are ignored.
+//! - `gpu-names`: `boot_id`, then `id<TAB>name` (`-`: pci.ids has none),
+//!   kept for the boot.
+//! - `intel-<ID>.json` (via `intel-<ID>.tmp` and a rename): each Intel GPU's
+//!   baseline, `{"device","boot","time"(CLOCK_MONOTONIC ns),"clients"}`.
 //!
 //! Files are replaced with `O_TRUNC` and never written through a symlink.
 //!
@@ -75,30 +92,42 @@
 //!
 //! `/proc/stat`, `meminfo`, `net/route` (lowest-metric IPv4 default route),
 //! `net/dev`, `uptime`, `[0-9]*/stat` and `<pid>/cwd` (readlink, top
-//! processes only), `driver/nvidia/gpus/*`, `sys/kernel/random/boot_id`;
-//! `/sys/class/hwmon/hwmon*`, `class/thermal/thermal_zone*`,
-//! `class/drm/card*`, `bus/pci/drivers/{i915,xe}/*:*`,
-//! `bus/pci/devices/<nvidia>/power/{runtime_status,control}`. Intel: every
-//! `/proc/<pid>/fd/*` link of this user's processes and the `fdinfo` of those
-//! pointing into `/dev/dri/`, within a 1 s budget. Files are read up to 1 MiB
-//! (`/proc` tables 16 MiB).
+//! processes only), `sys/kernel/random/boot_id`; `/sys/class/hwmon/hwmon*`,
+//! `class/thermal/thermal_zone*`, `bus/pci/drivers/<driver>/*:*` and in each
+//! GPU's device directory `class` and `power/runtime_status` always,
+//! `power/control` only where it decides spacing (a non-integrated GPU in a
+//! bar sample, or an Intel dGPU), the type files once per boot, `vendor` and
+//! `device` while a name is not cached, and only while the GPU is awake its
+//! readings: `drm/card*/card*-*/status` (only to decide spacing), sysfs
+//! values and `hwmon/hwmon*/temp*`, or for Intel `drm/card<N>/gt/gt*/` and
+//! `drm/card<N>/device/hwmon`. Intel: every `/proc/<pid>/fd/*` link of this
+//! user's processes, `class/drm/<node>/device` for a link to a
+//! `/dev/dri/{card,renderD}N` node, and the `fdinfo` only of a descriptor
+//! whose node belongs to an Intel GPU being read, all within a 1 s budget.
+//! pci.ids is read (until every model is found) only for a GPU without a
+//! cached name. Files are read up to 1 MiB (`/proc` tables 16 MiB).
 //!
 //! # Children
 //!
-//! Only `nvidia-smi`, only for an NVIDIA GPU that is not runtime-suspended:
-//! `--query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total,temperature.gpu
-//! --format=csv,noheader,nounits` (bar samples of a GPU that may
-//! runtime-suspend at most every 30 s) and, until it answers once per boot
-//! (backing off 30 s … 32 min), `-q -x -d TEMPERATURE`. Each runs with the
-//! helper's environment plus `LC_ALL=C`, stdin `/dev/null`, stderr dropped,
-//! at most 1 MiB of output, a 1.5 s deadline (the process group is killed)
-//! and `PR_SET_PDEATHSIG`. The caller wraps the helper in
-//! `timeout --kill-after=1s 5s`.
+//! Only `nvidia-smi`, only for NVIDIA GPUs that are not runtime-suspended:
+//! one `--query-gpu=pci.bus_id,utilization.gpu,memory.used,memory.total,temperature.gpu
+//! --format=csv,noheader,nounits` for every NVIDIA GPU due a reading (in bar
+//! samples, a GPU that may runtime-suspend is due at most every 30 s) and,
+//! for those due a limit (until it answers once per boot, backing off 30 s
+//! … 32 min), one `-q -x -d TEMPERATURE`. Either names its GPUs with
+//! `-i <8-digit-domain bus ids>` only when that narrows it (another NVIDIA GPU
+//! is asleep, spaced out or not being probed), so a lone GPU is asked exactly
+//! as before. Each runs with the helper's environment plus `LC_ALL=C`, stdin
+//! `/dev/null`, stderr dropped, at most 1 MiB of output, a 1.5 s deadline
+//! (the process group is killed) and `PR_SET_PDEATHSIG`. The caller wraps
+//! the helper in `timeout --kill-after=1s 5s`.
 //!
 //! # Diagnostics
 //!
-//! stderr carries `Intel telemetry: <reason>` when the Intel readings fail
-//! (the reason's wording is not Python's exception text). Nothing else.
+//! stderr carries `Intel telemetry: <reason>` when an Intel reading fails
+//! (the reason's wording is not Python's exception text), and `Intel reader
+//! failed: <reason>` where `intel_stats.py` let an exception escape (a sensor
+//! file that is not UTF-8). Nothing else.
 //!
 //! # Deliberate differences from stats.sh and intel_stats.py
 //!
@@ -113,17 +142,21 @@
 //! - `nvidia-smi` gets `SIGKILL` (its whole process group) at 1.5 s instead
 //!   of `SIGTERM` and `SIGKILL` 0.2 s later, at most 1 MiB of output, and
 //!   stdin `/dev/null`.
-//! - The Intel scan runs on a thread beside the other readings; past 1.5 s
-//!   the sample uses the fallback text and the thread ends with the process.
+//! - The Intel scan runs on a thread beside the other readings, with no
+//!   interpreter to start; past 1.5 s from its start the sample uses the
+//!   fallback text and the thread ends with the process.
+//! - pci.ids is read directly (no awk), and `gpu-names` lists its GPUs by
+//!   address instead of in hash order.
 //! - Python's `\d` and `isdecimal` took any Unicode digit; only ASCII digits
 //!   count now. Integers that don't fit 64 bits in fdinfo, sysfs or
-//!   `intel.json` are invalid (Python had no limit).
+//!   `intel-<ID>.json` are invalid (Python had no limit).
 //! - Files are read up to the sizes above; a core number above 65535 in
 //!   `/proc/stat` ends the `cores` list. Bash's octal reading of numbers with
 //!   a leading zero is kept, except where Bash failed ("value too great for
-//!   base"), which now reads as decimal.
+//!   base", which aborted the sample), which now reads as decimal.
 
 mod cpu;
+mod gpus;
 mod intel;
 mod procs;
 mod sensors;
@@ -138,7 +171,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use foamy_helper::lock::FileLock;
 use foamy_helper::{Failure, json};
@@ -147,7 +180,7 @@ use crate::state::{Pointer, Store};
 
 const CACHE_MS: i64 = 2000;
 const STALE_MS: i64 = 15_000;
-/// The old helper's `timeout 1.5s python3 intel_stats.py`.
+/// The shell's `timeout 1.5s python3 intel_stats.py`, counted from the scan's start.
 const INTEL_TIMEOUT: Duration = Duration::from_millis(1500);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -275,31 +308,34 @@ fn sample(mode: Mode) -> Vec<u8> {
         }
     }
 
-    // Graphics sources first, so the Intel scan can run beside the rest.
-    let sysfs = sensors::sysfs_gpu(&sys);
-    let nvidia_address = if sysfs.busy == b"null" {
-        sensors::nvidia_address(&proc)
+    // Every GPU and what this sample does with it first, so the Intel scan
+    // can run beside the rest.
+    let boot = text::read_value(&proc.join("sys/kernel/random/boot_id"));
+    let boot = if boot.is_empty() {
+        b"none".to_vec()
     } else {
-        None
+        boot
     };
-    let intel = sysfs.busy == b"null" && nvidia_address.is_none() && sensors::intel_bound(&sys);
-    let intel_job = intel.then(|| {
+    let saved = store.read(&format!("gpus.{}", pointer.gpu_gen));
+    let mut gpus = gpus::plan(&sys, mode == Mode::Bar, now, &boot, saved.as_deref());
+    let requests = gpus::intel_requests(&gpus);
+    let intel_job = (!requests.is_empty()).then(|| {
         let (send, receive) = mpsc::channel();
         let paths = (
             proc.clone(),
-            sys.join("class/drm"),
-            store.dir().map(|dir| dir.join("intel.json")),
+            sys.clone(),
+            store.dir().map(Path::to_path_buf),
         );
         let uid = rustix::process::getuid().as_raw();
         thread::spawn(move || {
             let paths = intel::Paths {
                 proc: &paths.0,
-                drm: &paths.1,
+                sys: &paths.1,
                 state: paths.2,
             };
-            let _ = send.send(intel::collect(&paths, uid, intel::SCAN_BUDGET));
+            let _ = send.send(intel::collect(&paths, &requests, uid, intel::SCAN_BUDGET));
         });
-        receive
+        (receive, Instant::now() + INTEL_TIMEOUT)
     });
 
     // Processor, memory and network.
@@ -349,69 +385,34 @@ fn sample(mode: Mode) -> Vec<u8> {
     }
 
     let temps = sensors::temperatures(&sys);
-    let mut gpu_busy = sysfs.busy;
-    let (mut vram_used, mut vram_total) = (sysfs.vram_used, sysfs.vram_total);
-    let mut gpu_temp = temps.gpu_temp;
-    let mut gpu_thermals = temps.gpu_thermals;
-    let mut gpu_error: &[u8] = b"";
-    let mut gpu_suspended = false;
-    let mut gpu_extra: &[u8] =
-        b"\"gpuIntel\":false,\"gpuMemoryPrivate\":null,\"gpuFrequencyMHz\":null,\"gpuEngines\":{}";
-    let mut gpu_json: Option<Vec<u8>> = None;
-
-    if let Some(address) = &nvidia_address {
-        let input = sensors::NvidiaInput {
-            sys: &sys,
-            proc: &proc,
-            address,
-            bar: mode == Mode::Bar,
-            now,
-        };
-        let nvidia = sensors::nvidia(&input, &mut store);
-        gpu_busy = nvidia.busy;
-        if let Some((used, total)) = nvidia.vram_used {
-            (vram_used, vram_total) = (used, total);
-        }
-        gpu_temp = nvidia.temp;
-        gpu_thermals = nvidia.thermals;
-        gpu_error = nvidia.error.as_bytes();
-        gpu_suspended = nvidia.suspended;
-    } else if let Some(job) = intel_job {
-        match job.recv_timeout(INTEL_TIMEOUT) {
-            Ok((object, diagnostic)) => {
-                if let Some(diagnostic) = diagnostic {
+    gpus::read_sysfs(&mut gpus, now);
+    gpus::read_nvidia(&mut gpus, now);
+    if let Some((job, deadline)) = intel_job {
+        let wait = deadline.saturating_duration_since(Instant::now());
+        let readings = match job.recv_timeout(wait) {
+            Ok((outcome, diagnostics)) => {
+                for diagnostic in diagnostics {
                     let _ = writeln!(io::stderr(), "{diagnostic}");
                 }
-                // The Intel object is spliced in whole.
-                let mut keys =
-                    b"\"vramUsed\":null,\"vramTotal\":null,\"gpuSuspended\":false,".to_vec();
-                keys.extend_from_slice(&object[1..object.len() - 1]);
-                gpu_json = Some(keys);
+                match outcome {
+                    Ok(readings) => Some(readings),
+                    Err(intel::Crash(reason)) => {
+                        let _ = writeln!(io::stderr(), "Intel reader failed: {reason}");
+                        None
+                    }
+                }
             }
-            Err(_) => {
-                gpu_busy = b"null".to_vec();
-                gpu_error = "Intel GPU readings unavailable. Retrying\u{2026}".as_bytes();
-                gpu_extra = b"\"gpuIntel\":true,\"gpuMemoryPrivate\":null,\"gpuFrequencyMHz\":null,\"gpuEngines\":{}";
-            }
-        }
+            Err(_) => None,
+        };
+        gpus::apply_intel(&mut gpus, readings, now);
     }
-    let gpu_json = gpu_json.unwrap_or_else(|| {
-        let mut out = Vec::with_capacity(512);
-        for (key, value) in [
-            (&b"\"gpuBusy\":"[..], &gpu_busy[..]),
-            (b",\"vramUsed\":", &vram_used),
-            (b",\"vramTotal\":", &vram_total),
-            (b",\"gpuTemp\":", &gpu_temp),
-            (b",\"gpuThermals\":", &gpu_thermals),
-            (b",\"gpuError\":\"", gpu_error),
-        ] {
-            out.extend_from_slice(key);
-            out.extend_from_slice(value);
-        }
-        out.extend_from_slice(format!("\",\"gpuSuspended\":{gpu_suspended},").as_bytes());
-        out.extend_from_slice(gpu_extra);
-        out
-    });
+    let pci_ids = env_path("FOAMY_VITALS_PCI_IDS", "/usr/share/hwdata/pci.ids");
+    let names = gpus::names(&gpus, &mut store, &boot, &pci_ids);
+    let (gpu_json, gpu_state) = gpus::render(&gpus, &names, &boot);
+    let next_gpu = 1 - pointer.gpu_gen;
+    if store.write(&format!("gpus.{next_gpu}"), &gpu_state) {
+        pointer.gpu_gen = next_gpu;
+    }
 
     let mut json = b"{\"mode\":\"".to_vec();
     json.extend_from_slice(mode.name());
@@ -425,8 +426,8 @@ fn sample(mode: Mode) -> Vec<u8> {
         ),
         (&reading.mem_total_kb, b",\"cpuTemp\":"),
         (&temps.cpu_temp, b",\"cpuTempCrit\":"),
-        (&temps.cpu_temp_crit, b","),
-        (&gpu_json, b",\"processes\":"),
+        (&temps.cpu_temp_crit, b",\"gpus\":["),
+        (&gpu_json, b"],\"processes\":"),
         (&processes, b",\"memoryProcesses\":"),
         (&memory_processes, b",\"network\":"),
         (&reading.network, b"}\n"),

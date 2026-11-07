@@ -10,6 +10,10 @@ test('manifest and runtime use the same setting defaults and constraints', () =>
   for (const field of preferences.fields) {
     assert.equal(preferences.value({}, field.key), manifest.barWidget.defaults[field.key]);
     const schema = manifest.barWidget.schema.find(item => item.key === field.key);
+    if (field.hidden) {
+      assert.equal(manifest.barWidget.schema.some(item => item.key === field.key), false);
+      continue;
+    }
     for (const key of ['type', 'defaultValue', 'min', 'max', 'step', 'options']) {
       assert.deepEqual(schema[key], field[key]);
     }
@@ -54,5 +58,16 @@ test('theme warning colors default on and preserve an explicit false value', () 
   for (const value of [null, undefined, 'false', 0, 1, {}, []]) {
     assert.equal(preferences.valid(key, value), false);
     assert.equal(preferences.value({[key]: value}, key), true);
+  }
+});
+
+test('pinned GPU accepts only empty or a PCI address', () => {
+  for (const value of ['', '0000:05:00.0', '0000:c1:00.0']) {
+    assert.equal(preferences.valid('pinnedGpu', value), true);
+    assert.equal(preferences.value({pinnedGpu: value}, 'pinnedGpu'), value);
+  }
+  for (const value of [null, 5, '05:00.0', '0000:C1:00.0', '0000:c1:00.8', '0000:c1:00.0 ', '../x']) {
+    assert.equal(preferences.valid('pinnedGpu', value), false);
+    assert.equal(preferences.value({pinnedGpu: value}, 'pinnedGpu'), '');
   }
 });
