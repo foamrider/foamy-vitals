@@ -64,22 +64,25 @@ descriptors that point at `/dev/dri`). GPU usage is the busiest engine,
 normalized for its engine count. The first sample has no usage reading. GPU
 memory shows private allocations, excluding shared buffers to avoid counting
 them twice; it is not total VRAM or resident memory. All Intel GPUs share one
-Python run. On `i915`, the clock shows the highest current GT frequency.
-Unexposed temperatures remain unavailable. The process scan is bounded to one
-second.
+scan of the user's processes, and a descriptor's fdinfo is read only when it
+belongs to an Intel GPU that is awake and due a reading. On `i915`, the clock
+shows the highest current GT frequency. Unexposed temperatures remain
+unavailable. The process scan is bounded to one second.
 
 Every AMD, Intel and NVIDIA (`nvidia` or `nouveau`) GPU is listed; other
 display devices are ignored. Each GPU is read by its vendor's reader: AMD and
-`nouveau` GPUs from sysfs, Intel GPUs by the Python run above, NVIDIA GPUs by
-`nvidia-smi`. Earlier versions read only one GPU, so alongside another GPU an
-NVIDIA GPU adds one `nvidia-smi` call to each sample it is read in, and an
-Intel GPU adds one Python run (about 45 ms of CPU). A GPU that runtime power
-management has suspended (hybrid laptops) is never woken: it shows as 0% and
-"Sleeping". While every popup is closed, a non-integrated GPU that is allowed
-to runtime-suspend is read at most every 30 seconds, so polling alone never
-keeps it awake; the samples in between skip its call. AMD and Intel GPUs
-driving a connected display are exempt, since the display keeps them awake. An integrated AMD GPU's memory is shown as "GPU memory": its VRAM
-carve-out plus GTT, the system memory it borrows.
+`nouveau` GPUs from sysfs, Intel GPUs by the DRM client scan above, NVIDIA GPUs
+by `nvidia-smi`. Earlier versions read only one GPU, so alongside another GPU
+an NVIDIA GPU adds one `nvidia-smi` call to each sample it is read in, and an
+Intel GPU adds the DRM client scan (most of the Intel cost above). A GPU that
+runtime power management has suspended (hybrid laptops) is never woken: it
+shows as 0% and "Sleeping". While every popup is closed, a non-integrated GPU
+that is allowed to runtime-suspend is read at most every 30 seconds, so
+polling alone never keeps it awake; the samples in between skip its call. AMD
+and Intel GPUs driving a connected display are exempt, since the display keeps
+them awake.
+An integrated AMD GPU's memory is shown as "GPU memory": its VRAM carve-out
+plus GTT, the system memory it borrows.
 
 NVIDIA GPUs with the proprietary driver are read with one
 `nvidia-smi --query-gpu` call that covers every awake NVIDIA GPU; the shutdown
@@ -137,7 +140,7 @@ for t in tests/*.test.js tests/*.test.cjs; do node "$t"; done
 python3 -I tests/test_stats.py          # helper JSON, bar mode, NVIDIA power, state directory
 python3 -I tests/test_intel_stats.py    # Intel DRM fdinfo readings
 FOAMY_HELPER='["bin/aarch64/foamy-vitals-helper", "stats"]' python3 -I tests/test_stats.py  # aarch64 via qemu
-FOAMY_VITALS_REFERENCE='["<1.1.0 checkout>/stats.sh"]' python3 -I tests/compare_stats.py  # same bytes as the old helper
+FOAMY_VITALS_REFERENCE='["<dir>/stats.sh"]' python3 -I tests/compare_stats.py  # same bytes as #2's stats.sh (intel_stats.py beside it)
 python3 tests/runtime.py both            # offscreen, 4.0 and 4.5 (needs foamy-kit)
 python3 tests/i18n-runtime.py            # OMARCHY_PATH=<4.5 tree> for live switching
 bash tests/kit-check.sh
