@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offscreen runtime checks of the real Panel on both hosts (4.0 installed, 4.5 reference tree).
+"""Offscreen runtime checks of the real Panel on Omarchy 4.5 (the installed shell).
 
 Two bar instances share one VitalsService: only the leader samples and owns
 IPC, closed popups take bar-only samples, an open popup takes full ones,
@@ -10,14 +10,21 @@ Arabic mirrors the popup.
 
 Uses the foamy-kit harness (temp HOME/XDG, no Wayland/Hyprland, no host
 scripts): FOAMY_KIT=/path/to/foamy-kit (default ~/GitHub/Personal/foamy-kit).
-stats.sh runs for real against this machine, with state in the temp dir.
-  python3 tests/runtime.py [4.0|4.5|both]
+The stats helper (bin/<arch>/foamy-vitals-helper) runs for real against this
+machine, with state in the temp dir.
+  python3 tests/runtime.py [4.5|4.0|both]      (default: 4.5)
+
+4.5 is /usr/share/omarchy/shell, or the tree in FOAMY_HOST_45. 4.0 runs only
+against an Omarchy 4.0 shell tree in FOAMY_HOST_40; without one, 4.0 and
+`both` print a SKIP line for it.
 """
 import os
 import sys
 from pathlib import Path
 
 KIT = Path(os.environ.get("FOAMY_KIT", Path.home() / "GitHub/Personal/foamy-kit"))
+# The installed shell is 4.5; set before the harness reads it.
+os.environ.setdefault("FOAMY_HOST_45", "/usr/share/omarchy/shell")
 sys.path.insert(0, str(KIT / "preview"))
 import harness  # noqa: E402
 
@@ -94,6 +101,8 @@ ShellRoot {
       case 0:
         check(a.member.isLeader !== b.member.isLeader, "exactly one leader among two bar instances")
         check(s.statsProcess.command.indexOf("--bar") >= 0, "closed popups take bar-only samples")
+        check(s.statsProcess.command.indexOf("foamy-vitals-helper") >= 0 && s.statsProcess.command.indexOf("stats") >= 0
+              && s.statsProcess.command[0] === "timeout", "samples run the native helper inside timeout")
         check(a.popup.bodyItem === null && b.popup.bodyItem === null, "popup bodies are not built before the first open")
         break
       case 1:
@@ -112,10 +121,52 @@ ShellRoot {
         var view = b.popup.bodyItem
         check(view.live && view.processes.length === s.detail.processes.length, "the open view follows the rankings")
         check(view.cursor.index === -1, "no highlight on open")
+        // Two GPUs, injected in this tick: the Graphics rows join the cursor walk.
+        s.parse(JSON.stringify(Object.assign({}, s.stats, {
+          mode: "full", sampleTimeMs: s.sampledAt + 1,
+          gpus: [
+            { id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "integrated", asleep: false, busy: 12,
+              vramUsed: 536870912, vramTotal: 4294967296, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" },
+            { id: "0000:05:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "discrete", asleep: false, busy: 40,
+              vramUsed: 2147483648, vramTotal: 17179869184, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" }
+          ]
+        })))
+        check(view.graphicsStops === 2 && view.cpuStart === 3, "two GPUs: two Graphics stops before the CPU rows (" + view.graphicsStops + ", " + view.cpuStart + ")")
+        check(b.readings.barGpu && b.readings.barGpu.id === "0000:05:00.0", "unpinned: the bar follows the busiest GPU")
         shell.down(view)
         check(view.cursor.index === 0, "Down: cursor on Settings")
         shell.down(view)
-        check(view.cursor.index === 1, "next: first CPU process row")
+        check(view.cursor.index === 1 && view.cursor.index === view.graphicsStart, "next: first GPU row")
+        var pinSaves = bar.saved.length
+        view.activateRequested()
+        var pinSaved = bar.saved[bar.saved.length - 1]
+        check(bar.saved.length === pinSaves + 1 && pinSaved.settings.pinnedGpu === "0000:c1:00.0", "Enter on a GPU row pins it (" + JSON.stringify(pinSaved && pinSaved.settings) + ")")
+        check(b.readings.barGpu && b.readings.barGpu.id === "0000:c1:00.0", "the bar follows the pinned GPU once saved")
+        // The cursor is on the second GPU row; losing a GPU must not leave it on a process row.
+        view.cursor.hover(2)
+        s.parse(JSON.stringify(Object.assign({}, s.stats, {
+          mode: "full", sampleTimeMs: s.sampledAt + 2, gpus: s.stats.gpus.slice(0, 1)
+        })))
+        check(view.graphicsStops === 0 && view.cursor.index < view.cpuStart, "one GPU left: the cursor is not on a process row (" + view.cursor.index + ", cpuStart " + view.cpuStart + ")")
+        check(view.cursor.index === -1, "no GPU rows left: the cursor resets (" + view.cursor.index + ")")
+        var twoGpus = [
+          { id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "integrated", asleep: false, busy: 12,
+            vramUsed: 536870912, vramTotal: 4294967296, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" },
+          { id: "0000:05:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "discrete", asleep: false, busy: 40,
+            vramUsed: 2147483648, vramTotal: 17179869184, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" }
+        ]
+        s.parse(JSON.stringify(Object.assign({}, s.stats, { mode: "full", sampleTimeMs: s.sampledAt + 3, gpus: twoGpus })))
+        // On a process row, a change in the GPU count shifts every row after
+        // the Graphics rows: the cursor resets instead of drifting.
+        view.cursor.hover(view.cpuStart)
+        var onProcess = view.cursor.index
+        s.parse(JSON.stringify(Object.assign({}, s.stats, { mode: "full", sampleTimeMs: s.sampledAt + 4, gpus: twoGpus.slice(0, 1) })))
+        check(onProcess === 3 && view.cursor.index === -1, "a process row under the cursor: a GPU count change resets it (" + onProcess + " -> " + view.cursor.index + ")")
+        s.parse(JSON.stringify(Object.assign({}, s.stats, { mode: "full", sampleTimeMs: s.sampledAt + 5, gpus: twoGpus })))
+        view.cursor.hover(1)
+        shell.down(view)
+        shell.down(view)
+        check(view.cursor.index === view.cpuStart, "next: first CPU process row")
         for (var i = 0; i < 40; i++) shell.down(view)
         check(view.cursor.index === view.btopStop, "Down walks to btop at the end (" + view.cursor.index + ")")
         check(view.flick.contentY > 0 || view.flick.contentHeight <= view.flick.height, "keyboard cursor scrolls into view")
@@ -217,9 +268,15 @@ ShellRoot {
 
 
 def main():
-    which = sys.argv[1] if len(sys.argv) > 1 else "both"
+    which = sys.argv[1] if len(sys.argv) > 1 else "4.5"
+    if which not in ("4.0", "4.5", "both"):
+        sys.exit(f"unknown host {which!r}: use 4.5, 4.0 or both")
+    hosts = ["4.5", "4.0"] if which == "both" else [which]
+    if "4.0" in hosts and not os.environ.get("FOAMY_HOST_40"):
+        print("SKIP 4.0: set FOAMY_HOST_40 to an Omarchy 4.0 shell tree")
+        hosts.remove("4.0")
     status = 0
-    for host in (["4.0", "4.5"] if which == "both" else [which]):
+    for host in hosts:
         qml = SHELL.replace("HOST", '"%s"' % host)
         run = harness.Run(host, qml, plugin=PLUGIN, language="ar" if host == "4.5" else None, prefix="foamy-vitals-runtime-")
         run.run(timeout=90)
