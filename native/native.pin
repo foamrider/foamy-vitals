@@ -1,11 +1,11 @@
-# native.pin: written by foamy-kit tools/build-native.sh; do not edit.
+# native.pin: written by kit/native/build-native.sh; do not edit.
 # check.sh and tests/kit-check.sh verify bin/<arch>/<binary> against it and
 # report the binaries stale when `source` no longer matches the crate, kit/rust,
-# Cargo.toml, Cargo.lock and rust-toolchain.toml. Rebuild: foamy-kit tools/build-native.sh <plugin>.
+# Cargo.toml, Cargo.lock and rust-toolchain.toml. Rebuild: kit/native/build-native.sh .
 crate native
 binary foamy-vitals-helper
 toolchain 1.99.1
-kit 0.5.2
-source e118031347e58ef157266ecac501d0d7f0e0c66e2b35d3fd069692f963ee2e90
-3fa1a3ca7f47c681c51672b1b5bcf30dadc835b71bf1fff5faa7fb3b893d9c7d  bin/aarch64/foamy-vitals-helper
-9e3f508a1fcec66496a04cc5eb7c50a316f76966dae6f94709df22a7a401c3c9  bin/x86_64/foamy-vitals-helper
+kit 0.7.0
+source b9588309ce96fe21e6c8d37143fb3e6b59f2f13ca4029fb09b47223e747d49d2
+7ea9382844da570c9c34cd7b153f42a10c7915a4df6875b4ab65d68aeff8ccd3  bin/aarch64/foamy-vitals-helper
+9529fbf0c813306c79cc6020598a6ab6fd55daf4f6fa29daddc147aa8cf977d6  bin/x86_64/foamy-vitals-helper
