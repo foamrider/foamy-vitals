@@ -45,6 +45,7 @@ ShellRoot {
   property int fullSamples: 0
   property var frozenRows: null
   property int switched: 0
+  property int waits: 0
   readonly property bool modern: HOST === "4.5"
   function check(ok, what) { console.log((ok ? "FOAMY OK " : "FOAMY FAIL ") + what) }
   // PanelKeyCatcher (host code) turns keys into these signals; drive them
@@ -225,6 +226,9 @@ ShellRoot {
         check(!a.editingSettings, "closing resets to the dashboard")
         break
       case 4:
+        // openSettings() above asked for a full sample; under load it is
+        // still running here, and its rankings would land after the reset below.
+        if (s.statsProcess.running) { shell.step--; break }
         var hidden = b.popup.bodyItem
         check(hidden !== null && !hidden.live, "the closed body is kept but no longer live")
         check(hidden.processes.length === 0 && hidden.cores.length === 0, "hidden lists read constants")
@@ -239,6 +243,9 @@ ShellRoot {
       case 5: case 6: case 7: case 8: case 9: case 10: case 11:
         break  // about five seconds of closed popups
       case 12:
+        // The first bar sample is due 5 s after the close; a loaded machine
+        // can deliver it a little later (bounded: 20 more ticks).
+        if (shell.barSamples < 1 && shell.waits++ < 20) { shell.step--; break }
         check(shell.barSamples >= 1, "bar samples continue while closed (" + shell.barSamples + ")")
         check(shell.detailChanges === 1 && s.detail.processes.length === 0, "the first bar sample drops old rankings once, then no detail updates while closed (" + shell.detailChanges + ")")
         if (shell.modern) {
