@@ -90,7 +90,7 @@ Panel {
   // Checked on each use, so installing btop later needs no shell restart.
   Process {
     id: btopCheck
-    command: ["sh", "-c", "command -v btop >/dev/null 2>&1"]
+    command: ["omarchy-cmd-present", "btop"]
     onExited: function(code) {
       if (code !== 0) { root.launchError = "Install btop to use this shortcut."; return }
       Quickshell.execDetached(["omarchy-launch-or-focus-tui", "btop"])

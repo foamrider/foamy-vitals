@@ -4,7 +4,8 @@
 Fake commands stand in for the boundaries: `timeout` passes through to the
 real one except for the stats helper, whose outcome a mode file picks (a
 nonzero exit, output that is not a sample, exit 127 as on a CPU without a
-helper); `df` fails.
+helper); `df` fails; `omarchy-cmd-present` and `omarchy-launch-or-focus-tui`
+answer from and write to the run's out directory, so btop is never started.
 
   python3 tests/failure-runtime.py      (FOAMY_KIT, FOAMY_HOST_45 as in runtime.py)
 """
@@ -36,6 +37,8 @@ exec {TIMEOUT} "$@"
 """,
     "df": "#!/bin/sh\necho 'df: /mnt/x: Input/output error' >&2\nexit 1\n",
     "hostnamectl": "#!/bin/sh\necho laptop\n",
+    "omarchy-cmd-present": '#!/bin/sh\n[ "$1" = btop ] && [ -e "$FOAMY_OUT/btop-present" ]\n',
+    "omarchy-launch-or-focus-tui": '#!/bin/sh\nprintf "%s\\n" "$*" >>"$FOAMY_OUT/launched"\n',
 }
 
 SHELL = r'''
@@ -62,6 +65,8 @@ ShellRoot {
   }
   FileView { id: modeFile; path: shell.out + "/helper-mode"; blockWrites: true; atomicWrites: false }
   FileView { id: callsFile; path: shell.out + "/helper-calls"; blockLoading: true; printErrors: false }
+  FileView { id: launchedFile; path: shell.out + "/launched"; blockLoading: true; printErrors: false }
+  FileView { id: btopFile; path: shell.out + "/btop-present"; blockWrites: true; atomicWrites: false }
   MockBar { id: bar; moduleName: "foamy.vitals" }
   Connections {
     target: Vitals.VitalsService.statsProcess
@@ -110,10 +115,20 @@ ShellRoot {
         s.sample(false)
         check(!s.statsProcess.running && shell.text(callsFile).split("\n").length === shell.calls,
               "an unavailable helper is not run again")
-        a.open()
+        a.openBtop()
         break
       case 4:
-        if (!shell.ready(!s.diskProcess.running && s.diskStatus !== "Reading disk capacity")) return
+        if (!shell.ready(a.launchError !== "")) return
+        check(a.launchError === "Install btop to use this shortcut." && shell.text(launchedFile) === "",
+              "btop missing: a hint, nothing launched (" + a.launchError + ")")
+        btopFile.setText("yes\n")
+        a.open()
+        a.openBtop()
+        break
+      case 5:
+        if (!shell.ready(shell.text(launchedFile) !== "" && !s.diskProcess.running)) return
+        check(shell.text(launchedFile) === "btop\n", "btop present: launched through omarchy-launch-or-focus-tui")
+        check(!a.opened && a.launchError === "", "and the popup closes")
         check(s.diskStatus === "Disk capacity unavailable" && s.disks.length === 0,
               "a failed df says so (" + s.diskStatus + ")")
         console.log("FOAMY DONE")
