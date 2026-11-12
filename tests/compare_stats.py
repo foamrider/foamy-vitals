@@ -797,7 +797,7 @@ def s_fractional_rankings(t, run):
     run()
     stat(2)
     t.uptime(1002)
-    for pid, used in zip(range(400, 408), (1, 2, 3, 7, 0.05, 0.15, 1.25, 0)):
+    for pid, used in zip(range(400, 408), (1, 2, 3, 7, 0.05, 0.15, 1.25, 0), strict=True):
         t.process(pid, f"f{pid}", used, 3 * pid)
     run()
     stat(3)
@@ -890,7 +890,7 @@ def make_test(name, scenario):
         expected = self.record(REFERENCE, scenario)
         actual = self.record(HELPER, scenario)
         self.assertEqual(len(actual), len(expected))
-        for index, (want, got) in enumerate(zip(expected, actual)):
+        for index, (want, got) in enumerate(zip(expected, actual, strict=True)):
             with self.subTest(step=index, args=want["args"]):
                 self.assertEqual(got["stdout"], want["stdout"])
                 self.assertEqual(got, want)

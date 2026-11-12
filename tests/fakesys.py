@@ -173,8 +173,8 @@ class Tree:
         class_="0x030000",
         control="on",
         status="active",
-        files={},
-        hwmon=[],
+        files=None,
+        hwmon=(),
         vendor="0x1002",
         device="0x150e",
     ):
@@ -201,7 +201,7 @@ class Tree:
                 contents[f"hwmon/hwmon0/temp{number}_label"] = label + "\n"
             if crit_milli is not None:
                 contents[f"hwmon/hwmon0/temp{number}_crit"] = f"{crit_milli}\n"
-        contents.update(files)
+        contents.update(files or {})
         for name, content in contents.items():
             target = path / name
             target.parent.mkdir(parents=True, exist_ok=True)

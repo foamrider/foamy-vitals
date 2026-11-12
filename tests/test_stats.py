@@ -90,7 +90,7 @@ class FakeTreeTest(TreeCase):
         first, _ = tree.run()
         self.assertEqual(first["processes"], [])
         self.advance(1, 2)
-        for pid, (name, jiffies, rss, cwd, kernel) in specs.items():
+        for pid, (name, jiffies, rss, _cwd, kernel) in specs.items():
             tree.process(pid, name, jiffies, rss, kernel=kernel)
         sample, _ = tree.run()
         names = [entry["name"] for entry in sample["processes"]]
@@ -278,7 +278,10 @@ class FakeTreeTest(TreeCase):
         log, _ = self.tree.nvidia(status="active", control="on")
         failtemp = self.base / "nvidia-smi.failtemp"
         failtemp.write_text("")
-        limit_probes = lambda: sum("TEMPERATURE" in call for call in log.read_text().splitlines())
+
+        def limit_probes():
+            return sum("TEMPERATURE" in call for call in log.read_text().splitlines())
+
         sample, _ = self.tree.run()
         self.assertIsNone(only(sample)["thermals"][0]["critical"])
         self.assertEqual(only(sample)["busy"], 37, "a failed limit probe never hides the readings")
@@ -304,7 +307,10 @@ class FakeTreeTest(TreeCase):
     def test_failed_limit_probes_back_off_exponentially(self):
         log, _ = self.tree.nvidia(status="active", control="on")
         (self.base / "nvidia-smi.failtemp").write_text("")
-        limit_probes = lambda: sum("TEMPERATURE" in call for call in log.read_text().splitlines())
+
+        def limit_probes():
+            return sum("TEMPERATURE" in call for call in log.read_text().splitlines())
+
         seconds, tick = 0, 0
         for expected_gap in (30, 60, 120):
             self.tree.run()
@@ -339,7 +345,10 @@ class FakeTreeTest(TreeCase):
             self.advance(step, 5 * step)
             sample, _ = self.tree.run("--bar")
             self.assertEqual(only(sample)["busy"], 37, "throttled samples reuse the last reading")
-        queries = lambda: sum("--query-gpu" in call for call in log.read_text().splitlines())
+
+        def queries():
+            return sum("--query-gpu" in call for call in log.read_text().splitlines())
+
         self.assertEqual(queries(), 1, "at most one query per 30 s while closed")
         self.advance(5, 31)
         self.tree.run("--bar")
@@ -693,7 +702,7 @@ class GpuTest(TreeCase):
         # A FIFO blocks whoever opens it: a full sample of an AMD or NVIDIA
         # GPU has no use for power/control and must not open it.
         tree = self.tree
-        device = tree.gpu("0000:05:00.0", "amdgpu", files=amd_files(10, 1, 2, discrete=True))
+        tree.gpu("0000:05:00.0", "amdgpu", files=amd_files(10, 1, 2, discrete=True))
         tree.nvidia(addresses=["0000:01:00.0"])
         for address in ("0000:05:00.0", "0000:01:00.0"):
             (tree.device(address) / "power/control").unlink()
@@ -829,7 +838,10 @@ class GpuTest(TreeCase):
         ids.write_text(PCI_IDS)
         for address, device in (("0000:05:00.0", "0x7590"), ("0000:06:00.0", "0x7591"), ("0000:07:00.0", "0x7592")):
             tree.gpu(address, "amdgpu", device=device, files=amd_files(1, 1, 2, discrete=True))
-        names = lambda: {gpu["id"]: gpu["name"] for gpu in tree.run()[0]["gpus"]}
+
+        def names():
+            return {gpu["id"]: gpu["name"] for gpu in tree.run()[0]["gpus"]}
+
         self.assertEqual(
             names(),
             {"0000:05:00.0": "Radeon RX 9050 / 9060 XT", "0000:06:00.0": "Evil quote  backslash", "0000:07:00.0": None},

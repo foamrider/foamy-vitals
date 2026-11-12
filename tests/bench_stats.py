@@ -122,7 +122,10 @@ def main():
     runtime = Path(tempfile.mkdtemp(prefix="foamy-vitals-bench-"))
     os.chmod(runtime, 0o700)
     env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime))
-    advance = lambda: time.sleep(2.1)
+
+    def advance():
+        time.sleep(2.1)
+
     if args.fixture:
         fixture_env, advance = build_fixture(runtime / "tree", args.fixture)
         env.update(fixture_env)

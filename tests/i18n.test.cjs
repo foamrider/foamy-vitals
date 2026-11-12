@@ -41,7 +41,7 @@ const indirect = [
   ...[...fs.readFileSync(path.join(root, 'VitalsService.qml'), 'utf8').matchAll(/(?:fail\(|diskStatus = )([^\n]*)/g)]
     .flatMap(m => [...m[1].matchAll(/"([A-Z][^"]+)"/g)].map(literal => literal[1])),
   'Reading disk capacity', 'Install btop to use this shortcut.', 'Edge', 'Hotspot', 'Memory', 'GPU',
-  ...['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', "That value isn't allowed.", "Settings can't be saved: this widget has no bar entry."],
+  'Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', "That value isn't allowed.", "Settings can't be saved: this widget has no bar entry.",
 ];
 assert.ok(indirect.includes('Telemetry unavailable. Retrying…') && indirect.includes('NVIDIA readings unavailable. Check nvidia-smi.'));
 assert.ok(indirect.includes('Intel GPU readings unavailable. Retrying…') && indirect.includes("This plugin's helper isn't available for this CPU."));
