@@ -4,7 +4,7 @@
 Fake commands stand in for the boundaries: `timeout` passes through to the
 real one except for the stats helper, whose outcome a mode file picks (a
 nonzero exit, output that is not a sample, exit 127 as on a CPU without a
-helper); `df` fails for every mount or for one; `omarchy-cmd-present` and `omarchy-launch-or-focus-tui`
+helper, or a slow sample); `df` fails for every mount or for one; `omarchy-cmd-present` and `omarchy-launch-or-focus-tui`
 answer from and write to the run's out directory, so btop is never started.
 
   python3 tests/failure-runtime.py      (FOAMY_KIT, FOAMY_HOST_45 as in runtime.py)
@@ -26,8 +26,9 @@ FAKEBIN = {
     "timeout": f"""#!/bin/sh
 case " $* " in
 *foamy-vitals-helper*)
-  echo call >>"$FOAMY_OUT/helper-calls"
+  echo "$*" >>"$FOAMY_OUT/helper-calls"
   case $(cat "$FOAMY_OUT/helper-mode" 2>/dev/null) in
+  slow) sleep 1 ;;
   fail) exit 1 ;;
   garbage) echo 'not a sample'; exit 0 ;;
   missing) exit 127 ;;
@@ -108,6 +109,19 @@ ShellRoot {
   Component.onCompleted: wait.waitFor(function() { return s.samples >= 1 && !s.statsProcess.running }, 15000, step0, "the real helper answers")
   function step0() {
     check(s.telemetryError === "", "the real helper answers first")
+    // The popup opens (Panel.refresh) while a bar sample is running: the
+    // full sample it asks for runs once that one ends. The popup stays
+    // closed here, so no 2 s tick could take a full sample instead.
+    shell.sampleIn("slow")
+    a.refresh()
+    wait.waitFor(function() { return shell.exits >= shell.seen + 2 && !s.statsProcess.running }, 15000, queued, "two samples end")
+  }
+  function queued() {
+    var calls = shell.text(callsFile).trim().split("\n")
+    var last = calls[calls.length - 1]
+    check(calls[calls.length - 2].indexOf("--bar") >= 0 && last.indexOf("stats") >= 0 && last.indexOf("--bar") < 0,
+          "a refresh during a bar sample runs a full sample after it (" + calls.slice(-2).join(" | ") + ")")
+    check(s.stats.mode === "full" && s.detail.processes !== undefined, "and its readings land (" + s.stats.mode + ")")
     shell.sampleIn("fail")
     wait.waitFor(sampled, 15000, step1, "the failing sample ends")
   }

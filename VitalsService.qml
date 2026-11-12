@@ -34,6 +34,9 @@ QtObject {
   property real networkDown: NaN
   property string telemetryError: ""
   property bool fullSample: false
+  // A full sample asked for while a bar sample was running (a popup opened
+  // mid-sample); onExited starts it, so the rankings don't wait for a tick.
+  property bool pendingFull: false
   property int samples: 0
 
   property string hostname: "Vitals"
@@ -63,7 +66,12 @@ QtObject {
 
   function sample(full) {
     start()
-    if (statsProcess.running || helperUnavailable) return
+    if (helperUnavailable) return
+    if (statsProcess.running) {
+      if (full && !fullSample) pendingFull = true
+      return
+    }
+    pendingFull = false
     fullSample = !!full
     statsProcess.command = ["timeout", "--kill-after=1s", "5s"].concat(FoamyNative.command(
       pluginDir, "foamy-vitals-helper", full ? ["stats"] : ["stats", "--bar"]))
@@ -157,6 +165,7 @@ QtObject {
         service.fail("This plugin's helper isn't available for this CPU.")
       } else if (code !== 0) service.fail("Telemetry unavailable. Retrying…")
       else service.parse(statsOutput.text)
+      if (service.pendingFull) service.sample(true)
     }
   }
 
