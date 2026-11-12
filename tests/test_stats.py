@@ -949,13 +949,20 @@ class RealSystemTest(unittest.TestCase):
         )
         try:
             self.assertEqual(burner.stdout.readline().strip(), "ready")
-            env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime))
+            # The real /proc with only the burner's process in it: on a busy
+            # machine other processes would push it out of the top five.
+            proc = runtime / "proc"
+            proc.mkdir()
+            for entry in os.listdir("/proc"):
+                if not entry.isdigit() or entry == str(burner.pid):
+                    (proc / entry).symlink_to(Path("/proc") / entry)
+            env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), FOAMY_VITALS_PROC=str(proc))
             subprocess.run(HELPER, env=env, capture_output=True, check=True)
             time.sleep(2.2)
             output = subprocess.run(HELPER, env=env, capture_output=True, check=True).stdout
             sample = strict(output.decode("utf-8", "replace"))
             names = [entry["name"] for entry in sample["processes"] + sample["memoryProcesses"]]
-            self.assertIn("evilname", names, "the burner is the busiest process; it must be listed, cleaned")
+            self.assertIn("evilname", names, "the burner must be listed, its name cleaned")
         finally:
             burner.send_signal(signal.SIGKILL)
             burner.wait()
