@@ -154,9 +154,6 @@ VitalsView.qml: unqualified: Unqualified access | width: view.cores.length ? Mat
 VitalsView.qml: unqualified: Unqualified access | width: view.cores.length ? Math.max(0, (coreRow.width - coreRow.spacing * (view.cores.length - 1)) / view.cores.length) : 0
 VitalsView.qml: unqualified: Unqualified access | width: view.cores.length ? Math.max(0, (coreRow.width - coreRow.spacing * (view.cores.length - 1)) / view.cores.length) : 0
 VitalsView.qml: unqualified: Unqualified access | zeroColor: Qt.alpha(view.foreground, 0.40)
-preview/BarPreview.qml: id-shadows-member: Id for object FoamyPopup shadows property "popup". Rename one or the other. | readonly property Item popup: popup
-preview/BarPreview.qml: id-shadows-member: Note: Id defined here | id: popup
-preview/BarPreview.qml: incompatible-type: Cannot assign binding of type FoamyPopup to QQuickItem | readonly property Item popup: popup
 preview/BarPreview.qml: missing-property: Member "background" not found on type "QObject" | color: Commons.Color.bar.background
 preview/BarPreview.qml: missing-property: Member "background" not found on type "QObject" | warningColor: readings.warningColor(Commons.Color.bar.background, Commons.Color.urgent)
 preview/BarPreview.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: FoamyStyle.font.body
@@ -168,14 +165,6 @@ preview/BarPreview.qml: unqualified: Unqualified access | useThemeWarningColors:
 preview/BarPreview.qml: unqualified: Unqualified access | warning: modelData.warning
 preview/Preview.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var i = 0; i < gpus.length; i++)
 preview/Preview.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var i = 0; i <= 60; i++)
-preview/Preview.qml: id-shadows-member: Id for object FoamyPopup shadows property "popup". Rename one or the other. | readonly property Item popup: popup
-preview/Preview.qml: id-shadows-member: Note: Id defined here | id: popup
-preview/Preview.qml: incompatible-type: Cannot assign binding of type FoamyPopup to QQuickItem | readonly property Item popup: popup
-preview/Preview.qml: missing-property: Member "cursor" not found on type "QQuickItem" | view.cursor.reset()
-preview/Preview.qml: missing-property: Member "hoveredCore" not found on type FoamyPopup::bodyItem with type QQuickItem | view.hoveredCore = -1
-preview/Preview.qml: missing-property: Member "moveRequested" not found on type "QQuickItem" | view.moveRequested(0, 1)
-preview/Preview.qml: missing-property: Member "moveRequested" not found on type "QQuickItem" | view.moveRequested(0, 1)
-preview/Preview.qml: missing-property: Member "moveRequested" not found on type "QQuickItem" | view.moveRequested(0, 1)
 preview/Preview.qml: unqualified: Unqualified access | editingSettings: preview.previewState.indexOf("settings") === 0
 preview/Preview.qml: unqualified: Unqualified access | retryable: preview.previewState === "settings-error"
 preview/Preview.qml: unqualified: Unqualified access | settings: preview.previewState === "warning" ? ({

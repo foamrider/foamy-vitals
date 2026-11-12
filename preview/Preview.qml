@@ -11,7 +11,7 @@ Item {
   property var previewStates: ["dashboard", "warning", "intel", "nvidia-sleeping", "graphics", "keyboard", "error", "disks-partial", "settings", "settings-error"]
   property string previewState: "dashboard"
   property int settleMs: 700
-  readonly property Item popup: popup
+  readonly property var popup: previewPopup
 
   readonly property real now: 600000
   function series(base, swing, phase) {
@@ -285,6 +285,7 @@ Item {
 
   onPreviewStateChanged: {
     apply(previewState)
+    // The root `popup` property (the FoamyPopup below), as the harness reads it.
     var view = popup.bodyItem
     if (!view)
       return
@@ -299,7 +300,7 @@ Item {
   Component.onCompleted: apply(previewState)
 
   FoamyPopup {
-    id: popup
+    id: previewPopup
     anchorItem: preview.anchorItem
     bar: preview.bar
     open: true
