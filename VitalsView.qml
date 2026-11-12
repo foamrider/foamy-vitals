@@ -146,7 +146,8 @@ PanelKeyCatcher {
   onCloseRequested: closeRequestedByView()
   onTabRequested: function(direction) { switchPanelRequested(direction) }
   onTextKey: function(text, modifiers) {
-    if (!cursor.plain(modifiers)) return  // Ctrl/Alt/Super shortcuts are not ours
+    // Ctrl/Alt/Super shortcuts are not ours.
+    if (!cursor.plain(modifiers)) return
     if (text === "s") settingsRequested()
     else if (text === "r") refreshRequested()
     else if (text === "b") btopRequested()
