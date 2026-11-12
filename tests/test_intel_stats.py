@@ -15,8 +15,10 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -44,7 +46,7 @@ class IntelTest(unittest.TestCase):
         shutil.rmtree(self.base, ignore_errors=True)
 
     def later(self):
-        """Move the sample clock past the 2 s sample cache."""
+        """Move the sample clock past the sample cache."""
         self.clock += 1
         self.tree.advance(self.clock, 3 * self.clock)
 
@@ -312,6 +314,23 @@ class IntelTest(unittest.TestCase):
         gpus, _ = self.gpus()
         self.assertEqual(list(gpus), ["0000:00:02.0", "0000:00:01.0"], "i915 before xe, then by address")
         self.assertEqual((gpus["0000:00:01.0"]["type"], gpus["0000:00:02.0"]["type"]), ("discrete", "integrated"))
+
+
+    def test_a_long_lock_wait_shortens_the_intel_wait(self):
+        # The scan has 1.5 s from its start, but after a 4.2 s wait for the
+        # state lock that would end past the Panel's `timeout 5s`: the
+        # sample must reply in time, with the Intel fallback text.
+        self.tree.descriptor(41, 3, FIFO)  # opening it blocks the scan
+        self.tree.state.mkdir(mode=0o700)
+        holder = subprocess.Popen(["flock", str(self.tree.state / "lock"), "sleep", "4.2"])
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        time.sleep(0.2)  # flock has the lock before the helper starts
+        result = subprocess.run(["timeout", "--kill-after=1s", "5s", *self.tree.helper, "--bar"], env=self.tree.env(),
+                                capture_output=True, timeout=20)
+        self.assertEqual(result.returncode, 0, "killed by the wrapper")
+        sample = json.loads(result.stdout)
+        self.assertEqual(sample["gpus"][0]["error"], UNAVAILABLE)
 
 
 if __name__ == "__main__":

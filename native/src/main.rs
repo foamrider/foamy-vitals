@@ -142,6 +142,10 @@
 //! - `nvidia-smi` gets `SIGKILL` (its whole process group) at 1.5 s instead
 //!   of `SIGTERM` and `SIGKILL` 0.2 s later, at most 1 MiB of output, and
 //!   stdin `/dev/null`.
+//! - The whole run has a 4 s budget (`RUN_BUDGET`): an `nvidia-smi` call
+//!   ends by then, and one that would start later doesn't (its GPUs read the
+//!   NVIDIA error); the wait for the Intel scan ends by then too. The Panel's `timeout 5s` would otherwise kill a helper
+//!   that waited long for the state lock, and the bar would get no sample.
 //! - The Intel scan runs on a thread beside the other readings, with no
 //!   interpreter to start; past 1.5 s from its start the sample uses the
 //!   fallback text and the thread ends with the process.
@@ -187,6 +191,8 @@ use crate::state::{Pointer, Store};
 /// shell right after a tick, but well under the popup's 2 s poll.
 const CACHE_MS: i64 = 1000;
 const STALE_MS: i64 = 15_000;
+/// Below the Panel's `timeout --kill-after=1s 5s`, with room to reply.
+const RUN_BUDGET: Duration = Duration::from_secs(4);
 /// The shell's `timeout 1.5s python3 intel_stats.py`, counted from the scan's start.
 const INTEL_TIMEOUT: Duration = Duration::from_millis(1500);
 
@@ -221,6 +227,9 @@ fn main() -> ExitCode {
         )));
         std::process::exit(101);
     }));
+    // A wait for the state lock counts against it, so the children get
+    // what is left and the helper still replies before the wrapper's kill.
+    foamy_helper::process::set_run_budget(RUN_BUDGET);
     let args: Vec<OsString> = env::args_os().skip(1).collect();
     let mode = match args.iter().map(|arg| arg.as_bytes()).collect::<Vec<_>>()[..] {
         [b"stats"] => Mode::Full,
@@ -342,7 +351,11 @@ fn sample(mode: Mode) -> Vec<u8> {
             };
             let _ = send.send(intel::collect(&paths, &requests, uid, intel::SCAN_BUDGET));
         });
-        (receive, Instant::now() + INTEL_TIMEOUT)
+        // Never past the run budget: a long wait for the lock leaves less.
+        let deadline = Instant::now() + INTEL_TIMEOUT;
+        let deadline =
+            foamy_helper::process::run_deadline().map_or(deadline, |end| end.min(deadline));
+        (receive, deadline)
     });
 
     // Processor, memory and network.
