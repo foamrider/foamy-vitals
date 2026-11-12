@@ -16,6 +16,7 @@ machine, with state in the temp dir.
 
 The shell is /usr/share/omarchy/shell, or the tree in FOAMY_HOST_45.
 """
+
 import os
 import sys
 from pathlib import Path
@@ -28,7 +29,7 @@ import harness  # noqa: E402
 
 PLUGIN = Path(__file__).resolve().parents[1]
 
-SHELL = r'''
+SHELL = r"""
 import QtQuick
 import Quickshell
 import qs.Commons
@@ -264,7 +265,7 @@ ShellRoot {
     Qt.quit()
   }
 }
-'''
+"""
 
 
 def main():

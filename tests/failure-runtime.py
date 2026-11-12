@@ -9,6 +9,7 @@ answer from and write to the run's out directory, so btop is never started.
 
   python3 tests/failure-runtime.py      (FOAMY_KIT, FOAMY_HOST_45 as in runtime.py)
 """
+
 import os
 import shutil
 import sys
@@ -54,7 +55,7 @@ exit 1
     "omarchy-launch-or-focus-tui": '#!/bin/sh\nprintf "%s\\n" "$*" >>"$FOAMY_OUT/launched"\n',
 }
 
-SHELL = r'''
+SHELL = r"""
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -175,7 +176,7 @@ ShellRoot {
     Qt.quit()
   }
 }
-'''
+"""
 
 
 def main():

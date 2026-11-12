@@ -11,6 +11,7 @@ CLOCK_MONOTONIC nanoseconds); the tests write that baseline themselves, a known
 time ago, so the expected percentages are exact up to the few milliseconds the
 helper takes to start. The sample shows the busiest engine (busy).
 """
+
 import json
 import os
 from pathlib import Path
@@ -27,8 +28,21 @@ from fakesys import FIFO, INTEL_DEVICE, Tree, intel_fdinfo as fdinfo  # noqa: E4
 UNAVAILABLE = "Intel GPU readings unavailable. Retrying…"
 SECOND = 1_000_000_000
 OTHER = "0000:03:00.0"
-DEVICE_KEYS = ["id", "vendor", "driver", "name", "type", "asleep", "busy", "vramUsed", "vramTotal",
-               "memoryPrivate", "frequencyMHz", "thermals", "error"]
+DEVICE_KEYS = [
+    "id",
+    "vendor",
+    "driver",
+    "name",
+    "type",
+    "asleep",
+    "busy",
+    "vramUsed",
+    "vramTotal",
+    "memoryPrivate",
+    "frequencyMHz",
+    "thermals",
+    "error",
+]
 
 
 def client(render=100, video=0, capacity=2, private=63 * 1048576):
@@ -84,8 +98,16 @@ class IntelTest(unittest.TestCase):
         saved = self.saved()
         self.assertEqual(saved["device"], INTEL_DEVICE)
         self.assertEqual(saved["boot"], "boot-1")
-        self.assertEqual(saved["clients"], {"1": {"engines": {"render": 500_000_100, "video": 2_000_000_000},
-                                                  "capacities": {"video": 2}, "private": 63 * 1048576}})
+        self.assertEqual(
+            saved["clients"],
+            {
+                "1": {
+                    "engines": {"render": 500_000_100, "video": 2_000_000_000},
+                    "capacities": {"video": 2},
+                    "private": 63 * 1048576,
+                }
+            },
+        )
 
     def test_busy_engine_is_capped_at_100(self):
         self.tree.descriptor(41, 3, fdinfo(render=90 * SECOND))
@@ -121,7 +143,9 @@ class IntelTest(unittest.TestCase):
         self.tree.intel_state(10 * SECOND, {"1": client(render=500_000_000)})
         gpu, _ = self.sample()
         self.assertEqual(gpu["busy"], 0.0)
-        self.assertEqual(self.saved()["clients"]["1"]["engines"]["render"], 500_000_000, "the baseline keeps the high-water mark")
+        self.assertEqual(
+            self.saved()["clients"]["1"]["engines"]["render"], 500_000_000, "the baseline keeps the high-water mark"
+        )
 
     def test_separate_clients_on_one_engine_add_up(self):
         self.tree.descriptor(41, 3, fdinfo(1, render=2 * SECOND + 100))
@@ -138,8 +162,14 @@ class IntelTest(unittest.TestCase):
         self.assertEqual(gpu["busy"], 0.0, "the video engine changed capacity: only render counts")
 
     def test_unrelated_clients_are_ignored(self):
-        for number, text in enumerate((fdinfo(1, driver="amdgpu"), fdinfo(2, device="0000:01:00.0"),
-                                       fdinfo().replace("drm-client-id: 1", "drm-client-id: bad")), 3):
+        for number, text in enumerate(
+            (
+                fdinfo(1, driver="amdgpu"),
+                fdinfo(2, device="0000:01:00.0"),
+                fdinfo().replace("drm-client-id: 1", "drm-client-id: bad"),
+            ),
+            3,
+        ):
             self.tree.descriptor(41, number, text)
         gpu, stderr = self.sample()
         self.assertEqual((gpu["memoryPrivate"], gpu["error"]), (None, ""))
@@ -156,13 +186,21 @@ class IntelTest(unittest.TestCase):
             self.later()
             self.tree.descriptor(41, 3, text)
             gpu, stderr = self.sample()
-            self.assertEqual((gpu["busy"], gpu["memoryPrivate"], gpu["frequencyMHz"], gpu["thermals"]), (None, None, None, []))
+            self.assertEqual(
+                (gpu["busy"], gpu["memoryPrivate"], gpu["frequencyMHz"], gpu["thermals"]), (None, None, None, [])
+            )
             self.assertEqual(gpu["error"], UNAVAILABLE)
             self.assertIn("Intel telemetry:", stderr)
 
     def test_unknown_private_memory(self):
-        for number, text in enumerate((fdinfo().replace("1024 KiB", "65 MiB"), fdinfo().replace("1024 KiB", "bad"),
-                                       fdinfo().replace("drm-shared-system0: 1024 KiB", "")), 1):
+        for number, text in enumerate(
+            (
+                fdinfo().replace("1024 KiB", "65 MiB"),
+                fdinfo().replace("1024 KiB", "bad"),
+                fdinfo().replace("drm-shared-system0: 1024 KiB", ""),
+            ),
+            1,
+        ):
             self.later()
             self.tree.descriptor(40 + number, 3, text.replace("drm-client-id: 1", f"drm-client-id: {number}"))
             gpu, _ = self.sample()
@@ -221,8 +259,9 @@ class IntelTest(unittest.TestCase):
         gpus, _ = self.gpus()
         self.assertClose(gpus[INTEL_DEVICE]["busy"], 5.0)
         self.assertClose(gpus[OTHER]["busy"], 20.0)
-        self.assertEqual((gpus[INTEL_DEVICE]["memoryPrivate"], gpus[OTHER]["memoryPrivate"]),
-                         (63 * 1048576, 2 * 63 * 1048576))
+        self.assertEqual(
+            (gpus[INTEL_DEVICE]["memoryPrivate"], gpus[OTHER]["memoryPrivate"]), (63 * 1048576, 2 * 63 * 1048576)
+        )
         self.assertEqual(list(self.saved()["clients"]), ["1"])
         self.assertEqual(sorted(self.saved(OTHER)["clients"]), ["1", "2"])
         self.assertEqual(self.saved(OTHER)["device"], OTHER)
@@ -256,8 +295,13 @@ class IntelTest(unittest.TestCase):
         (sensor / "temp2_label").write_text("  vram °\n")
         self.later()
         gpu, _ = self.sample()
-        self.assertEqual(gpu["thermals"], [{"temperature": 45, "critical": 95, "label": "GPU"},
-                                           {"temperature": 51.5, "critical": None, "label": "vram °"}])
+        self.assertEqual(
+            gpu["thermals"],
+            [
+                {"temperature": 45, "critical": 95, "label": "GPU"},
+                {"temperature": 51.5, "critical": None, "label": "vram °"},
+            ],
+        )
         for invalid in ("broken", "{}", '{"device":"x","boot":"b","time":true,"clients":{}}'):
             (self.tree.state / f"intel-{INTEL_DEVICE}.json").write_text(invalid)
             self.later()
@@ -267,8 +311,11 @@ class IntelTest(unittest.TestCase):
         (self.card / "device").unlink()
         self.later()
         gpu, _ = self.sample()
-        self.assertEqual((gpu["frequencyMHz"], gpu["thermals"], gpu["error"]), (1250, [], ""),
-                         "sensors are read through the card's device link only")
+        self.assertEqual(
+            (gpu["frequencyMHz"], gpu["thermals"], gpu["error"]),
+            (1250, [], ""),
+            "sensors are read through the card's device link only",
+        )
 
     def test_one_failing_sensor_skips_only_that_sensor(self):
         for gt, content in (("gt0", "800\n"), ("gt1", None)):
@@ -286,8 +333,13 @@ class IntelTest(unittest.TestCase):
         (sensor / "temp3_label").mkdir()  # unreadable label: "GPU"
         gpu, stderr = self.sample()
         self.assertEqual((gpu["error"], gpu["frequencyMHz"]), ("", 800))
-        self.assertEqual(gpu["thermals"], [{"temperature": 45.0, "critical": None, "label": "GPU"},
-                                           {"temperature": 50.0, "critical": None, "label": "GPU"}])
+        self.assertEqual(
+            gpu["thermals"],
+            [
+                {"temperature": 45.0, "critical": None, "label": "GPU"},
+                {"temperature": 50.0, "critical": None, "label": "GPU"},
+            ],
+        )
         self.assertNotIn("Intel telemetry", stderr)
 
     def test_lowest_card_of_a_device_is_read(self):
@@ -315,7 +367,6 @@ class IntelTest(unittest.TestCase):
         self.assertEqual(list(gpus), ["0000:00:02.0", "0000:00:01.0"], "i915 before xe, then by address")
         self.assertEqual((gpus["0000:00:01.0"]["type"], gpus["0000:00:02.0"]["type"]), ("discrete", "integrated"))
 
-
     def test_a_long_lock_wait_shortens_the_intel_wait(self):
         # The scan has 1.5 s from its start, but after a 4.2 s wait for the
         # state lock that would end past the Panel's `timeout 5s`: the
@@ -326,8 +377,12 @@ class IntelTest(unittest.TestCase):
         self.addCleanup(holder.wait)
         self.addCleanup(holder.kill)
         time.sleep(0.2)  # flock has the lock before the helper starts
-        result = subprocess.run(["timeout", "--kill-after=1s", "5s", *self.tree.helper, "--bar"], env=self.tree.env(),
-                                capture_output=True, timeout=20)
+        result = subprocess.run(
+            ["timeout", "--kill-after=1s", "5s", *self.tree.helper, "--bar"],
+            env=self.tree.env(),
+            capture_output=True,
+            timeout=20,
+        )
         self.assertEqual(result.returncode, 0, "killed by the wrapper")
         sample = json.loads(result.stdout)
         self.assertEqual(sample["gpus"][0]["error"], UNAVAILABLE)
