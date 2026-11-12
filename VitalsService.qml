@@ -26,8 +26,17 @@ QtObject {
   property bool helperUnavailable: false
 
   property var stats: ({})
-  property var detail: ({ processes: [], memoryProcesses: [] })
-  property var history: ({ cpu: [], memory: [], gpus: {}, up: [], down: [] })
+  property var detail: ({
+      processes: [],
+      memoryProcesses: []
+    })
+  property var history: ({
+      cpu: [],
+      memory: [],
+      gpus: {},
+      up: [],
+      down: []
+    })
   property var networkSnapshot: null
   property real sampledAt: 0
   property real networkUp: NaN
@@ -52,29 +61,32 @@ QtObject {
 
   function reading(source, key) {
     var v = source ? source[key] : null
-    if (v === null || v === undefined) return NaN
+    if (v === null || v === undefined)
+      return NaN
     var n = Number(v)
     return isFinite(n) ? n : NaN
   }
 
   // full: popup readings too (a popup is open); otherwise the bar-only sample.
   function start() {
-    if (started) return
+    if (started)
+      return
     started = true
     chassisProcess.running = true
   }
 
   function sample(full) {
     start()
-    if (helperUnavailable) return
+    if (helperUnavailable)
+      return
     if (statsProcess.running) {
-      if (full && !fullSample) pendingFull = true
+      if (full && !fullSample)
+        pendingFull = true
       return
     }
     pendingFull = false
     fullSample = !!full
-    statsProcess.command = ["timeout", "--kill-after=1s", "5s"].concat(FoamyNative.command(
-      pluginDir, "foamy-vitals-helper", full ? ["stats"] : ["stats", "--bar"]))
+    statsProcess.command = ["timeout", "--kill-after=1s", "5s"].concat(FoamyNative.command(pluginDir, "foamy-vitals-helper", full ? ["stats"] : ["stats", "--bar"]))
     statsProcess.running = true
     if (full) {
       uptimeFile.reload()
@@ -84,13 +96,15 @@ QtObject {
 
   function refreshDisks() {
     start()
-    if (!diskProcess.running) diskProcess.running = true
+    if (!diskProcess.running)
+      diskProcess.running = true
   }
 
   function recordSample(parsed) {
     var time = Number(parsed.sampleTimeMs)
     // Cached samples can serve several callers; only append each sample once.
-    if (!isFinite(time) || time <= sampledAt) return
+    if (!isFinite(time) || time <= sampledAt)
+      return
     var net = History.networkRate(networkSnapshot, parsed.network, time)
     networkSnapshot = net.snapshot
     networkUp = net.up
@@ -109,7 +123,10 @@ QtObject {
   function fail(message) {
     stats = ({})
     // Rankings from an earlier sample must not pass for current activity.
-    detail = { processes: [], memoryProcesses: [] }
+    detail = {
+      processes: [],
+      memoryProcesses: []
+    }
     telemetryError = message
     networkSnapshot = null
     networkUp = NaN
@@ -117,8 +134,11 @@ QtObject {
     // Missing samples break history instead of presenting the last reading as current.
     var at = sampledAt + (fullSample ? 2000 : 5000)
     history = {
-      cpu: History.append(history.cpu, at, NaN), memory: History.append(history.memory, at, NaN),
-      gpus: Gpus.appendHistory(history.gpus, [], at), up: History.append(history.up, at, NaN), down: History.append(history.down, at, NaN)
+      cpu: History.append(history.cpu, at, NaN),
+      memory: History.append(history.memory, at, NaN),
+      gpus: Gpus.appendHistory(history.gpus, [], at),
+      up: History.append(history.up, at, NaN),
+      down: History.append(history.down, at, NaN)
     }
     console.warn("foamy.vitals: " + message)
   }
@@ -130,42 +150,55 @@ QtObject {
     } catch (error) {
       parsed = null
     }
-    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object"
-        || typeof parsed.sampleTimeMs !== "number" || !isFinite(parsed.sampleTimeMs)
-        || !Array.isArray(parsed.cores) || !Array.isArray(parsed.processes)
-        || !Array.isArray(parsed.memoryProcesses)) {
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object" || typeof parsed.sampleTimeMs !== "number" || !isFinite(parsed.sampleTimeMs) || !Array.isArray(parsed.cores) || !Array.isArray(parsed.processes) || !Array.isArray(parsed.memoryProcesses)) {
       fail("Telemetry unavailable. Retrying…")
       return
     }
     stats = parsed
     telemetryError = ""
     samples++
-    if (parsed.mode !== "bar") detail = { processes: parsed.processes, memoryProcesses: parsed.memoryProcesses }
+    if (parsed.mode !== "bar")
+      detail = {
+        processes: parsed.processes,
+        memoryProcesses: parsed.memoryProcesses
+      }
+    else
     // Bar samples carry no rankings: drop the last ones once, so a popup
     // opened later never shows minutes-old activity as current.
-    else if (detail.processes.length || detail.memoryProcesses.length) detail = { processes: [], memoryProcesses: [] }
+    if (detail.processes.length || detail.memoryProcesses.length)
+      detail = {
+        processes: [],
+        memoryProcesses: []
+      }
     recordSample(parsed)
   }
 
   property Process statsProcess: Process {
-    stdout: StdioCollector { id: statsOutput; waitForEnd: true }
+    stdout: StdioCollector {
+      id: statsOutput
+      waitForEnd: true
+    }
     // Helper diagnostics (Intel scan budget, nvidia-smi errors) go to the
     // shell log once per distinct message instead of disappearing.
     stderr: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
         var message = text.trim()
-        if (message !== "" && message !== service.lastDiagnostic) console.warn("foamy.vitals: " + message)
+        if (message !== "" && message !== service.lastDiagnostic)
+          console.warn("foamy.vitals: " + message)
         service.lastDiagnostic = message
       }
     }
-    onExited: function(code) {
+    onExited: function (code) {
       if (FoamyNative.unavailable(code)) {
         service.helperUnavailable = true
         service.fail("This plugin's helper isn't available for this CPU.")
-      } else if (code !== 0) service.fail("Telemetry unavailable. Retrying…")
-      else service.parse(statsOutput.text)
-      if (service.pendingFull) service.sample(true)
+      } else if (code !== 0)
+        service.fail("Telemetry unavailable. Retrying…")
+      else
+        service.parse(statsOutput.text)
+      if (service.pendingFull)
+        service.sample(true)
     }
   }
 
@@ -185,8 +218,10 @@ QtObject {
   // Chassis detection is stable for the session; ask once per shell.
   property Process chassisProcess: Process {
     command: ["timeout", "3s", "hostnamectl", "chassis"]
-    stdout: StdioCollector { onStreamFinished: service.chassis = text.trim() }
-    onExited: function(code) {
+    stdout: StdioCollector {
+      onStreamFinished: service.chassis = text.trim()
+    }
+    onExited: function (code) {
       if (code !== 0) {
         service.chassis = ""
         console.warn("foamy.vitals: chassis query failed", code)
@@ -200,9 +235,14 @@ QtObject {
   // others; keep those and say the list is partial.
   property Process diskProcess: Process {
     command: ["timeout", "3s", "df", "-P", "-k", "-l", "-T"]
-    environment: ({ LC_ALL: "C" })
-    stdout: StdioCollector { id: diskOutput; waitForEnd: true }
-    onExited: function(code) {
+    environment: ({
+        LC_ALL: "C"
+      })
+    stdout: StdioCollector {
+      id: diskOutput
+      waitForEnd: true
+    }
+    onExited: function (code) {
       var rows = code === 0 || code === 1 ? Filesystems.parse(diskOutput.text) : []
       if (code === 0) {
         service.disks = rows
