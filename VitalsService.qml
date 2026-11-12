@@ -186,22 +186,23 @@ QtObject {
   }
 
   // Capacity changes slowly: refreshed when a popup opens and every minute
-  // while one stays open, never on the telemetry poll.
+  // while one stays open, never on the telemetry poll. GNU df exits 1 when
+  // any mount fails (a dead FUSE mount: ENOTCONN, EIO) but still prints the
+  // others; keep those and say the list is partial.
   property Process diskProcess: Process {
     command: ["timeout", "3s", "df", "-P", "-k", "-l", "-T"]
     environment: ({ LC_ALL: "C" })
-    stdout: StdioCollector {
-      onStreamFinished: {
-        service.disks = Filesystems.parse(text)
-        service.diskStatus = service.disks.length ? "" : "No mounted local disks"
-      }
-    }
+    stdout: StdioCollector { id: diskOutput; waitForEnd: true }
     onExited: function(code) {
-      if (code !== 0) {
-        service.disks = []
-        service.diskStatus = "Disk capacity unavailable"
-        console.warn("foamy.vitals: disk capacity query failed", code)
+      var rows = code === 0 || code === 1 ? Filesystems.parse(diskOutput.text) : []
+      if (code === 0) {
+        service.disks = rows
+        service.diskStatus = rows.length ? "" : "No mounted local disks"
+        return
       }
+      console.warn("foamy.vitals: disk capacity query failed", code)
+      service.disks = rows
+      service.diskStatus = rows.length ? "Some disks couldn't be read" : "Disk capacity unavailable"
     }
   }
 }

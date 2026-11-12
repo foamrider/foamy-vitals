@@ -4,7 +4,7 @@
 Fake commands stand in for the boundaries: `timeout` passes through to the
 real one except for the stats helper, whose outcome a mode file picks (a
 nonzero exit, output that is not a sample, exit 127 as on a CPU without a
-helper); `df` fails; `omarchy-cmd-present` and `omarchy-launch-or-focus-tui`
+helper); `df` fails for every mount or for one; `omarchy-cmd-present` and `omarchy-launch-or-focus-tui`
 answer from and write to the run's out directory, so btop is never started.
 
   python3 tests/failure-runtime.py      (FOAMY_KIT, FOAMY_HOST_45 as in runtime.py)
@@ -35,7 +35,19 @@ case " $* " in
 esac
 exec {TIMEOUT} "$@"
 """,
-    "df": "#!/bin/sh\necho 'df: /mnt/x: Input/output error' >&2\nexit 1\n",
+    # df's outcome comes from a mode file too: nothing (every mount failed),
+    # "partial" (rows, then exit 1 for one dead mount, as GNU df does) or "ok".
+    "df": """#!/bin/sh
+mode=$(cat "$FOAMY_OUT/df-mode" 2>/dev/null)
+if [ "$mode" = partial ] || [ "$mode" = ok ]; then
+  echo 'Filesystem Type 1024-blocks Used Available Capacity Mounted on'
+  echo '/dev/nvme0n1p2 btrfs 2000 1000 1000 50% /'
+  echo '/dev/sdb1 ext4 1000 200 800 20% /media/disk'
+fi
+[ "$mode" = ok ] && exit 0
+echo 'df: /mnt/x: Input/output error' >&2
+exit 1
+""",
     "hostnamectl": "#!/bin/sh\necho laptop\n",
     "omarchy-cmd-present": '#!/bin/sh\n[ "$1" = btop ] && [ -e "$FOAMY_OUT/btop-present" ]\n',
     "omarchy-launch-or-focus-tui": '#!/bin/sh\nprintf "%s\\n" "$*" >>"$FOAMY_OUT/launched"\n',
@@ -66,6 +78,19 @@ ShellRoot {
   FileView { id: callsFile; path: shell.out + "/helper-calls"; blockLoading: true; printErrors: false }
   FileView { id: launchedFile; path: shell.out + "/launched"; blockLoading: true; printErrors: false }
   FileView { id: btopFile; path: shell.out + "/btop-present"; blockWrites: true; atomicWrites: false }
+  FileView { id: dfMode; path: shell.out + "/df-mode"; blockWrites: true; atomicWrites: false }
+  property int diskRuns: 0
+  Connections {
+    target: Vitals.VitalsService.diskProcess
+    function onExited() { shell.diskRuns++ }
+  }
+  // Run df in `mode` and continue once it has exited.
+  function disksIn(mode, then, label) {
+    dfMode.setText(mode)
+    var before = diskRuns
+    s.refreshDisks()
+    wait.waitFor(function() { return shell.diskRuns > before && !s.diskProcess.running }, 15000, then, label)
+  }
   MockBar { id: bar; moduleName: "foamy.vitals" }
   Connections {
     target: Vitals.VitalsService.statsProcess
@@ -122,6 +147,16 @@ ShellRoot {
     check(!a.opened && a.launchError === "", "and the popup closes")
     check(s.diskStatus === "Disk capacity unavailable" && s.disks.length === 0,
           "a failed df says so (" + s.diskStatus + ")")
+    shell.disksIn("partial", step6, "df with one dead mount ends")
+  }
+  function step6() {
+    check(s.disks.length === 2 && s.disks[0].mount === "/" && s.disks[1].mount === "/media/disk",
+          "one unreadable mount keeps the other disks (" + JSON.stringify(s.disks) + ")")
+    check(s.diskStatus === "Some disks couldn't be read", "and says the list is partial (" + s.diskStatus + ")")
+    shell.disksIn("ok", step7, "a good df ends")
+  }
+  function step7() {
+    check(s.disks.length === 2 && s.diskStatus === "", "a good df clears the caption (" + s.diskStatus + ")")
     console.log("FOAMY DONE")
     Qt.quit()
   }

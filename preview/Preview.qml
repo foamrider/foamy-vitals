@@ -8,7 +8,7 @@ Item {
   id: preview
   required property QtObject bar
   required property Item anchorItem
-  property var previewStates: ["dashboard", "warning", "intel", "nvidia-sleeping", "graphics", "keyboard", "error", "settings", "settings-error"]
+  property var previewStates: ["dashboard", "warning", "intel", "nvidia-sleeping", "graphics", "keyboard", "error", "disks-partial", "settings", "settings-error"]
   property string previewState: "dashboard"
   property int settleMs: 700
   readonly property Item popup: popup
@@ -84,7 +84,8 @@ Item {
     s.uptimeMinutes = 3 * 60 + 12
     s.loadAverages = [0.84, 0.66, 0.52]
     s.disks = [{ device: "/dev/nvme0n1p2", mount: "/", totalKb: 976000000, usedKb: 412000000 }, { device: "/dev/sda1", mount: "/data", totalKb: 1953000000, usedKb: 1520000000 }]
-    s.diskStatus = ""
+    // One mount df couldn't read: the others stay, under a caption.
+    s.diskStatus = state === "disks-partial" ? "Some disks couldn't be read" : ""
     s.networkDown = 2.4 * 1048576
     s.networkUp = 180 * 1024
     s.sampledAt = now

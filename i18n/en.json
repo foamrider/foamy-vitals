@@ -49,6 +49,7 @@
   "No mounted local disks": "No mounted local disks",
   "Reading disk capacity": "Reading disk capacity",
   "Disk capacity unavailable": "Disk capacity unavailable",
+  "Some disks couldn't be read": "Some disks couldn't be read",
   "Telemetry unavailable. Retrying…": "Telemetry unavailable. Retrying…",
   "Intel GPU readings unavailable. Retrying…": "Intel GPU readings unavailable. Retrying…",
   "This plugin's helper isn't available for this CPU.": "This plugin's helper isn't available for this CPU.",
