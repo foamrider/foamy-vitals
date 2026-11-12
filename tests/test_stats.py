@@ -870,19 +870,19 @@ class GpuTest(TreeCase):
 
     def test_a_long_lock_wait_still_replies_inside_the_qml_timeout(self):
         # The Panel runs the helper under `timeout --kill-after=1s 5s`. A
-        # second shell's sample holding the state lock for 4.2 s, then a
+        # second shell's sample holding the state lock for about 3.7 s, then a
         # hung nvidia-smi (1.5 s of its own), would add up past that: the
         # wrapper kills the helper and the bar gets no sample at all.
         log, _ = self.tree.nvidia(control="on")
         (self.tree.bin / "nvidia-smi").write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >>'{log}'\nexec sleep 10\n")
         self.tree.state.mkdir(mode=0o700)
-        holder = subprocess.Popen(["flock", str(self.tree.state / "lock"), "sleep", "4.2"])
+        holder = subprocess.Popen(["flock", str(self.tree.state / "lock"), "sleep", "3.9"])
         self.addCleanup(holder.wait)
         self.addCleanup(holder.kill)
         time.sleep(0.2)  # flock has the lock before the helper starts
         started = time.monotonic()
         result = subprocess.run(
-            ["timeout", "--kill-after=1s", "5s", *self.tree.helper],
+            ["timeout", "--kill-after=1s", "5s", *self.tree.helper, "--bar"],
             env=self.tree.env(),
             capture_output=True,
             timeout=20,

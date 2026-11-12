@@ -368,12 +368,12 @@ class IntelTest(unittest.TestCase):
         self.assertEqual((gpus["0000:00:01.0"]["type"], gpus["0000:00:02.0"]["type"]), ("discrete", "integrated"))
 
     def test_a_long_lock_wait_shortens_the_intel_wait(self):
-        # The scan has 1.5 s from its start, but after a 4.2 s wait for the
+        # The scan has 1.5 s from its start, but after a 3.7 s wait for the
         # state lock that would end past the Panel's `timeout 5s`: the
         # sample must reply in time, with the Intel fallback text.
         self.tree.descriptor(41, 3, FIFO)  # opening it blocks the scan
         self.tree.state.mkdir(mode=0o700)
-        holder = subprocess.Popen(["flock", str(self.tree.state / "lock"), "sleep", "4.2"])
+        holder = subprocess.Popen(["flock", str(self.tree.state / "lock"), "sleep", "3.9"])
         self.addCleanup(holder.wait)
         self.addCleanup(holder.kill)
         time.sleep(0.2)  # flock has the lock before the helper starts
