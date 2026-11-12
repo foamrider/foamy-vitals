@@ -55,6 +55,19 @@ class IntelTest(unittest.TestCase):
         self.tree = Tree(self.base)
         self.card, self.device = self.tree.intel()
         self.clock = 0
+        # When the first baseline was written (and how old it claimed to be)
+        # and when the last sample finished: the helper divides by the real
+        # time since the baseline, which a slow run (load, qemu) stretches.
+        self.written = None
+        self.finished = None
+        write = self.tree.intel_state
+
+        def stamped(ago_ns, clients, **kwargs):
+            if self.written is None:
+                self.written = (time.monotonic_ns(), ago_ns)
+            return write(ago_ns, clients, **kwargs)
+
+        self.tree.intel_state = stamped
 
     def tearDown(self):
         shutil.rmtree(self.base, ignore_errors=True)
@@ -66,6 +79,7 @@ class IntelTest(unittest.TestCase):
 
     def gpus(self, timeout=20):
         sample, stderr = self.tree.run("--bar", timeout=timeout)
+        self.finished = time.monotonic_ns()
         gpus = {gpu["id"]: gpu for gpu in sample["gpus"]}
         for gpu in gpus.values():
             self.assertEqual(list(gpu), DEVICE_KEYS)
@@ -82,8 +96,15 @@ class IntelTest(unittest.TestCase):
         return json.loads((self.tree.state / f"intel-{device}.json").read_text())
 
     def assertClose(self, value, expected):
+        """expected (±1) over the baseline's claimed age; lower by as much as
+        the run took past it, since the window then really was longer."""
         self.assertIsNotNone(value)
-        self.assertAlmostEqual(value, expected, delta=1.0)
+        low = expected
+        if self.written and self.finished:
+            written, ago = self.written
+            low = expected * ago / (ago + max(0, self.finished - written))
+        self.assertGreaterEqual(value, low - 1.0)
+        self.assertLessEqual(value, expected + 1.0)
 
     def test_engine_deltas_capacity_and_private_memory(self):
         self.tree.descriptor(41, 3, fdinfo(render=500_000_100, video=2_000_000_000))
