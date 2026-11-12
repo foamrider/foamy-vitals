@@ -1,0 +1,2 @@
+# <name>  # reason: dynamic entry points Vulture can't see
+s_*  # compare_stats.py scenarios: SCENARIOS collects every s_ function from globals() by name

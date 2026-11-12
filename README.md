@@ -185,7 +185,10 @@ kit/native/build-native.sh .          # bin/x86_64, bin/aarch64, native.pin
 kit/native/build-native.sh . --verify # clean rebuild is byte-identical
 ```
 
-Tests (Python 3 and Node are needed only here):
+Tests (Python 3 and Node are needed only here). `tests/validate.sh` runs the
+kit's linters and then `tests/suite.sh` (every test below except the
+benchmark; `--ci` keeps to node and the helper tests, `--fast` skips the
+offscreen runtime tests); `mise install` first installs the pinned tools.
 
 ```sh
 for t in tests/*.test.js tests/*.test.cjs; do node "$t"; done
