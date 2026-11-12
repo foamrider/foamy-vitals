@@ -50,7 +50,6 @@ import "plugin" as Vitals
 
 ShellRoot {
   id: shell
-  property int step: 0
   property int exits: 0
   property int seen: 0
   property int calls: 0
@@ -76,66 +75,55 @@ ShellRoot {
     visible: true; implicitWidth: 300; implicitHeight: 60
     Vitals.Panel { id: a; bar: bar; moduleName: "foamy.vitals"; width: 100; height: 32 }
   }
-  // Steps wait on events, not sleeps: each one returns until its condition
-  // holds (or 15 s pass, and the check then fails with what it saw).
-  property int tries: 0
-  function ready(condition) {
-    if (condition || ++tries > 75) { tries = 0; return true }
-    return false
+  FoamyWait { id: wait }
+  readonly property var s: Vitals.VitalsService
+  // The sample started by sampleIn() has finished.
+  function sampled() { return !s.statsProcess.running && shell.exits > shell.seen }
+  // Steps wait on events, not sleeps: a timeout fails the run with its label.
+  Component.onCompleted: wait.waitFor(function() { return s.samples >= 1 && !s.statsProcess.running }, 15000, step0, "the real helper answers")
+  function step0() {
+    check(s.telemetryError === "", "the real helper answers first")
+    shell.sampleIn("fail")
+    wait.waitFor(sampled, 15000, step1, "the failing sample ends")
   }
-  Timer {
-    interval: 200; repeat: true; running: true
-    onTriggered: {
-      var s = Vitals.VitalsService
-      var sampled = !s.statsProcess.running && shell.exits > shell.seen
-      switch (shell.step) {
-      case 0:
-        if (!shell.ready(s.samples >= 1 && !s.statsProcess.running)) return
-        check(s.telemetryError === "", "the real helper answers first")
-        shell.sampleIn("fail")
-        break
-      case 1:
-        if (!shell.ready(sampled)) return
-        check(s.telemetryError === "Telemetry unavailable. Retrying…" && s.stats.mode === undefined,
-              "a failed sample is an error, not the last reading (" + s.telemetryError + ")")
-        check(!s.helperUnavailable, "and sampling goes on")
-        shell.sampleIn("garbage")
-        break
-      case 2:
-        if (!shell.ready(sampled)) return
-        check(s.telemetryError === "Telemetry unavailable. Retrying…" && s.stats.mode === undefined,
-              "output that is not a sample is an error")
-        shell.sampleIn("missing")
-        break
-      case 3:
-        if (!shell.ready(sampled)) return
-        check(s.helperUnavailable && s.telemetryError === "This plugin's helper isn't available for this CPU.",
-              "exit 127: the helper is unavailable (" + s.telemetryError + ")")
-        shell.calls = shell.text(callsFile).split("\n").length
-        s.sample(false)
-        check(!s.statsProcess.running && shell.text(callsFile).split("\n").length === shell.calls,
-              "an unavailable helper is not run again")
-        a.openBtop()
-        break
-      case 4:
-        if (!shell.ready(a.launchError !== "")) return
-        check(a.launchError === "Install btop to use this shortcut." && shell.text(launchedFile) === "",
-              "btop missing: a hint, nothing launched (" + a.launchError + ")")
-        btopFile.setText("yes\n")
-        a.open()
-        a.openBtop()
-        break
-      case 5:
-        if (!shell.ready(shell.text(launchedFile) !== "" && !s.diskProcess.running)) return
-        check(shell.text(launchedFile) === "btop\n", "btop present: launched through omarchy-launch-or-focus-tui")
-        check(!a.opened && a.launchError === "", "and the popup closes")
-        check(s.diskStatus === "Disk capacity unavailable" && s.disks.length === 0,
-              "a failed df says so (" + s.diskStatus + ")")
-        console.log("FOAMY DONE")
-        Qt.quit()
-      }
-      shell.step++
-    }
+  function step1() {
+    check(s.telemetryError === "Telemetry unavailable. Retrying…" && s.stats.mode === undefined,
+          "a failed sample is an error, not the last reading (" + s.telemetryError + ")")
+    check(!s.helperUnavailable, "and sampling goes on")
+    shell.sampleIn("garbage")
+    wait.waitFor(sampled, 15000, step2, "the garbage sample ends")
+  }
+  function step2() {
+    check(s.telemetryError === "Telemetry unavailable. Retrying…" && s.stats.mode === undefined,
+          "output that is not a sample is an error")
+    shell.sampleIn("missing")
+    wait.waitFor(sampled, 15000, step3, "the missing-helper sample ends")
+  }
+  function step3() {
+    check(s.helperUnavailable && s.telemetryError === "This plugin's helper isn't available for this CPU.",
+          "exit 127: the helper is unavailable (" + s.telemetryError + ")")
+    shell.calls = shell.text(callsFile).split("\n").length
+    s.sample(false)
+    check(!s.statsProcess.running && shell.text(callsFile).split("\n").length === shell.calls,
+          "an unavailable helper is not run again")
+    a.openBtop()
+    wait.waitFor(function() { return a.launchError !== "" }, 15000, step4, "the btop check ends")
+  }
+  function step4() {
+    check(a.launchError === "Install btop to use this shortcut." && shell.text(launchedFile) === "",
+          "btop missing: a hint, nothing launched (" + a.launchError + ")")
+    btopFile.setText("yes\n")
+    a.open()
+    a.openBtop()
+    wait.waitFor(function() { return shell.text(launchedFile) !== "" && !s.diskProcess.running }, 15000, step5, "btop is launched")
+  }
+  function step5() {
+    check(shell.text(launchedFile) === "btop\n", "btop present: launched through omarchy-launch-or-focus-tui")
+    check(!a.opened && a.launchError === "", "and the popup closes")
+    check(s.diskStatus === "Disk capacity unavailable" && s.disks.length === 0,
+          "a failed df says so (" + s.diskStatus + ")")
+    console.log("FOAMY DONE")
+    Qt.quit()
   }
 }
 '''
@@ -143,8 +131,12 @@ ShellRoot {
 
 def main():
     run = harness.Run("4.5", SHELL, plugin=PLUGIN, prefix="foamy-vitals-failure-", fakebin=FAKEBIN)
-    run.run(timeout=90)
+    run.run(timeout=120)
     oks = run.log.count("FOAMY OK")
+    # Every host command the Panel runs has a stand-in above.
+    for line in run.host_commands():
+        run.ok = False
+        print(f"host command reached: {line}")
     if run.ok:
         print(f"4.5 failures: {oks} checks passed")
         run.cleanup()
