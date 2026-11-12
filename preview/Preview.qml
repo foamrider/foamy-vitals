@@ -3,7 +3,7 @@ import "../kit"
 import ".." as Vitals
 
 // Popup states for the foamy-kit preview harness (mock data only: no
-// processes, no files). render.py <plugin> [--states a,b] [--host 4.5|4.0|both]
+// processes, no files). render.py <plugin> [--states a,b]
 Item {
   id: preview
   required property QtObject bar

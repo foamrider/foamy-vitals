@@ -5,18 +5,16 @@ Two bar instances share one VitalsService: only the leader samples and owns
 IPC, closed popups take bar-only samples, an open popup takes full ones,
 the popup body is built on first open and its lists and charts stop
 following samples while hidden, the single keyboard cursor walks the
-dashboard, `s`/Esc enter and leave Settings, saves go inline, and on 4.5
-Arabic mirrors the popup.
+dashboard, `s`/Esc enter and leave Settings, saves go inline, and Arabic
+mirrors the popup.
 
 Uses the foamy-kit harness (temp HOME/XDG, no Wayland/Hyprland, no host
 scripts): FOAMY_KIT=/path/to/foamy-kit (default ~/GitHub/Personal/foamy-kit).
 The stats helper (bin/<arch>/foamy-vitals-helper) runs for real against this
 machine, with state in the temp dir.
-  python3 tests/runtime.py [4.5|4.0|both]      (default: 4.5)
+  python3 tests/runtime.py
 
-4.5 is /usr/share/omarchy/shell, or the tree in FOAMY_HOST_45. 4.0 runs only
-against an Omarchy 4.0 shell tree in FOAMY_HOST_40; without one, 4.0 and
-`both` print a SKIP line for it.
+The shell is /usr/share/omarchy/shell, or the tree in FOAMY_HOST_45.
 """
 import os
 import sys
@@ -46,7 +44,6 @@ ShellRoot {
   property var frozenRows: null
   property int switched: 0
   property int waits: 0
-  readonly property bool modern: HOST === "4.5"
   function check(ok, what) { console.log((ok ? "FOAMY OK " : "FOAMY FAIL ") + what) }
   // PanelKeyCatcher (host code) turns keys into these signals; drive them
   // directly, since offscreen windows get no keyboard focus.
@@ -178,10 +175,8 @@ ShellRoot {
         check(view.hoveredCore === 2, "Right picks a thread on the cores strip")
         view.tabRequested(1)
         check(shell.switched === 1, "Tab switches to the next bar panel")
-        if (shell.modern) {  // 4.0's catcher passes no modifiers
-          view.cursor.emitTextKey(view, "s", Qt.ControlModifier)
-          check(!b.editingSettings, "Ctrl+S is not the s shortcut")
-        }
+        view.cursor.emitTextKey(view, "s", Qt.ControlModifier)
+        check(!b.editingSettings, "Ctrl+S is not the s shortcut")
         view.cursor.emitTextKey(view, "s")
         check(b.editingSettings && view.editingSettings, "s opens Settings")
         break
@@ -248,23 +243,19 @@ ShellRoot {
         if (shell.barSamples < 1 && shell.waits++ < 20) { shell.step--; break }
         check(shell.barSamples >= 1, "bar samples continue while closed (" + shell.barSamples + ")")
         check(shell.detailChanges === 1 && s.detail.processes.length === 0, "the first bar sample drops old rankings once, then no detail updates while closed (" + shell.detailChanges + ")")
-        if (shell.modern) {
-          a.open()
-        }
+        a.open()
         break
       case 13:
-        if (shell.modern) {
-          var body = a.popup.bodyItem
-          check(body !== null, "leader popup built")
-          check(Vitals.VitalsService.statsProcess.running || shell.fullSamples > 0, "open again: full samples")
-          check(body.band.x === 0 && body.band.width === body.width, "the hero band is full bleed")
-          check(body.band.hasHero, "the band carries the host line")
-          // The 4.5 run uses Arabic: the popup mirrors, Settings moves to the left edge.
-          var header = body.band
-          check(header && body.LayoutMirroring.enabled, "RTL: the popup body is mirrored")
-          var at = header.settingsButton.mapToItem(body, 0, 0)
-          check(at.x < body.width / 2, "RTL: Settings sits at the leading (left) edge (" + Math.round(at.x) + ")")
-        }
+        var body = a.popup.bodyItem
+        check(body !== null, "leader popup built")
+        check(Vitals.VitalsService.statsProcess.running || shell.fullSamples > 0, "open again: full samples")
+        check(body.band.x === 0 && body.band.width === body.width, "the hero band is full bleed")
+        check(body.band.hasHero, "the band carries the host line")
+        // The run uses Arabic: the popup mirrors, Settings moves to the left edge.
+        var header = body.band
+        check(header && body.LayoutMirroring.enabled, "RTL: the popup body is mirrored")
+        var at = header.settingsButton.mapToItem(body, 0, 0)
+        check(at.x < body.width / 2, "RTL: Settings sits at the leading (left) edge (" + Math.round(at.x) + ")")
         console.log("FOAMY DONE")
         Qt.quit()
       }
@@ -275,28 +266,17 @@ ShellRoot {
 
 
 def main():
-    which = sys.argv[1] if len(sys.argv) > 1 else "4.5"
-    if which not in ("4.0", "4.5", "both"):
-        sys.exit(f"unknown host {which!r}: use 4.5, 4.0 or both")
-    hosts = ["4.5", "4.0"] if which == "both" else [which]
-    if "4.0" in hosts and not os.environ.get("FOAMY_HOST_40"):
-        print("SKIP 4.0: set FOAMY_HOST_40 to an Omarchy 4.0 shell tree")
-        hosts.remove("4.0")
-    status = 0
-    for host in hosts:
-        qml = SHELL.replace("HOST", '"%s"' % host)
-        run = harness.Run(host, qml, plugin=PLUGIN, language="ar" if host == "4.5" else None, prefix="foamy-vitals-runtime-")
-        run.run(timeout=90)
-        oks = run.log.count("FOAMY OK")
-        if run.ok:
-            print(f"{host}: {oks} checks passed")
-            run.cleanup()
-        else:
-            status = 1
-            print(f"{host}: FAILED ({oks} ok)\n" + "\n".join(run.failures() or run.log.splitlines()[-40:]))
-            print(f"log kept at {run.base}")
-    sys.exit(status)
+    run = harness.Run("4.5", SHELL, plugin=PLUGIN, language="ar", prefix="foamy-vitals-runtime-")
+    run.run(timeout=90)
+    oks = run.log.count("FOAMY OK")
+    if run.ok:
+        print(f"4.5: {oks} checks passed")
+        run.cleanup()
+        return 0
+    print(f"4.5: FAILED ({oks} ok)\n" + "\n".join(run.failures() or run.log.splitlines()[-40:]))
+    print(f"log kept at {run.base}")
+    return 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

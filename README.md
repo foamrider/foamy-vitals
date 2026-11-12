@@ -202,9 +202,7 @@ python3 -I tests/bench_stats.py --fixture nvidia [--bar]  # fake trees: amd, nvi
 ```
 
 The runtime test targets Omarchy 4.5, the installed `/usr/share/omarchy/shell`
-(`FOAMY_HOST_45` selects another shell tree). `runtime.py 4.0` and
-`runtime.py both` run 4.0 only against an Omarchy 4.0 shell tree in
-`FOAMY_HOST_40`, and print a SKIP line without one.
+(`FOAMY_HOST_45` selects another shell tree).
 
 `preview/Preview.qml` and `preview/BarPreview.qml` hold mock states for the
 foamy-kit preview harness.
