@@ -47,6 +47,4 @@ for (const key of indirect) assert.ok(Object.hasOwn(en, key), `missing indirect 
 
 assert.equal(manifest.barWidget?.defaults?.language, undefined);
 assert.equal((manifest.barWidget?.schema || []).some(f => f.key === 'language'), false);
-const kit = fs.readFileSync(path.join(root, 'kit/FoamyI18n.qml'), 'utf8');
-assert.ok(kit.includes('Qt.createQmlObject'), '4.0 must not statically require a 4.5 QML type');
 console.log('i18n catalogs ok:', Object.keys(en).length, 'keys');

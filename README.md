@@ -195,7 +195,7 @@ FOAMY_HELPER='["bin/aarch64/foamy-vitals-helper", "stats"]' python3 -I tests/tes
 FOAMY_VITALS_REFERENCE='["<dir>/stats.sh"]' python3 -I tests/compare_stats.py  # same bytes as #2's stats.sh (intel_stats.py beside it)
 python3 tests/runtime.py                 # offscreen on 4.5 (needs foamy-kit)
 python3 tests/failure-runtime.py         # failed, malformed and unavailable helper; failed df; btop launch
-python3 tests/i18n-runtime.py            # live switching; OMARCHY_PATH for another tree
+python3 "$FOAMY_KIT/preview/i18n_runtime.py" .  # catalogs, live no/ar/en switching (the kit's check)
 bash tests/kit-check.sh
 python3 -I tests/bench_stats.py [--bar]  # CPU, wall time and processes per sample
 python3 -I tests/bench_stats.py --fixture nvidia [--bar]  # fake trees: amd, nvidia, nvidia2, amd-nvidia, intel-nvidia, intel-amd
