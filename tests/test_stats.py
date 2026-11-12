@@ -125,6 +125,22 @@ class FakeTreeTest(TreeCase):
         self.assertEqual(full_again["mode"], "full", "a bar sample never answers a full request")
         self.assertEqual(full_again["sampleTimeMs"], bar["sampleTimeMs"])
 
+    def test_the_cache_window_is_shorter_than_the_popup_poll(self):
+        # The open popup asks every 2 s, but a tick can start late (a busy
+        # event loop) and the next one on time: a full call 1.98 s after the
+        # last one must get a new sample, not the previous one back.
+        tree = self.tree
+        tree.process(300, "busy", 0, 50)
+        first, _ = tree.run()
+        self.tree.uptime(1000.5)
+        again, _ = tree.run()
+        self.assertEqual(again["sampleTimeMs"], first["sampleTimeMs"], "a call 0.5 s later is served from the cache")
+        self.advance(1, 1.98)
+        tree.process(300, "busy", 40, 50)
+        late, _ = tree.run()
+        self.assertEqual(late["sampleTimeMs"], first["sampleTimeMs"] + 1980, "a call 1.98 s later is a new sample")
+        self.assertEqual(late["processes"][0]["name"], "busy")
+
     def test_temperatures_and_amd_gpu(self):
         tree = self.tree
         tree.hwmon(0, "nvme", [("Composite", 40000, 80000)])
@@ -247,7 +263,7 @@ class FakeTreeTest(TreeCase):
             self.tree.run()
             probes = limit_probes()
             tick += 1
-            self.advance(tick, seconds + expected_gap - 3)  # 3 s: past the 2 s sample cache
+            self.advance(tick, seconds + expected_gap - 3)  # 3 s: past the sample cache
             self.tree.run()
             self.assertEqual(limit_probes(), probes, f"no retry before {expected_gap} s")
             seconds += expected_gap

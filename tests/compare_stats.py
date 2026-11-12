@@ -153,7 +153,8 @@ def s_stale_baseline_and_cache(t, run):
     t.process(300, "busy", 0, 50)
     run()
     run("--bar")
-    t.advance(1, 1.5)
+    # Inside both helpers' cache window (the reference's 2 s, this one's 1 s).
+    t.advance(1, 0.5)
     t.process(300, "busy", 40, 50)
     run()
     t.advance(2, 3)
@@ -409,7 +410,8 @@ def s_nvidia_limits_back_off(t, run):
     log, _ = t.nvidia(control="on")
     failtemp = t.base / "nvidia-smi.failtemp"
     failtemp.write_text("")
-    for step, seconds in enumerate((0, 10, 31, 40, 92, 95, 213, 214, 460, 1000, 2000, 4000)):
+    # 213.5: a call inside both helpers' cache window (#2's 2 s, this one's 1 s).
+    for step, seconds in enumerate((0, 10, 31, 40, 92, 95, 213, 213.5, 460, 1000, 2000, 4000)):
         if step == 8:
             failtemp.unlink()
         t.advance(step, seconds)
@@ -490,7 +492,8 @@ def s_spacing_and_displays(t, run):
     connector.write_text("connected\n")
     t.gpu("0000:06:00.0", "amdgpu", control=" auto ", files=amd_files(40, 1, 2, discrete=True))
     run("--bar")
-    for step, seconds in enumerate((5, 10, 29, 31, 35, 36, 62), 1):
+    # 35.5: the full sample at 35 still answers the bar call (inside both cache windows).
+    for step, seconds in enumerate((5, 10, 29, 31, 35, 35.5, 62), 1):
         for address in ("0000:c1:00.0", "0000:05:00.0", "0000:03:00.0", "0000:04:00.0", "0000:06:00.0"):
             (t.device(address) / "gpu_busy_percent").write_text(f"{step}\n")
         t.advance(step, seconds)
@@ -702,7 +705,8 @@ def s_odd_numbers_in_files(t, run):
               hwmon=[("edge", " 047000 ", "0100000"), ("junction", "061000", "-0"), ("mem", "-01", "1e3")])
     (d / "mem_info_vram_total").write_bytes(b"4096")
     (d / "hwmon/hwmon0/temp1_label").write_bytes(b"edge")
-    for text in ("0012.5 1\n", "1012.987\n", "1013.9999\n"):
+    # Each one past both helpers' cache window (#2's 2 s), so each is parsed.
+    for text in ("0012.5 1\n", "1012.987\n", "1014.9999\n"):
         (t.proc / "uptime").write_text(text)
         run("--bar")
     (t.state / "current").write_text("0 0 0123 1 0777 full 1\n")

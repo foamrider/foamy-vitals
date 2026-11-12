@@ -74,7 +74,7 @@
 //!   against it, so the first call after boot reports `null`.
 //! - `procs.N`: `#TOTAL jiffies` and `pid jiffies` per process (full samples).
 //!   A baseline older than 15 s is replaced first, 250 ms before ranking.
-//! - `cache.N`: the last sample line; a full sample younger than 2 s (by
+//! - `cache.N`: the last sample line; a full sample younger than 1 s (by
 //!   `/proc/uptime`) answers any call, a bar sample only bar calls.
 //! - `gpus.N`: `boot<TAB>boot_id`, then per GPU `id type at crit retry fails
 //!   reading` (tab-separated): its type (kept for the boot), when the reading
@@ -154,6 +154,11 @@
 //!   `/proc/stat` ends the `cores` list. Bash's octal reading of numbers with
 //!   a leading zero is kept, except where Bash failed ("value too great for
 //!   base", which aborted the sample), which now reads as decimal.
+//! - A cached sample answers for 1 s instead of 2 s. The open popup asks
+//!   every 2 s, and the age is the gap between two helper starts in
+//!   `/proc/uptime`'s 10 ms steps: one late tick followed by an on-time one
+//!   came in under 2 s and got the previous sample back (a 4 s-old reading
+//!   shown as current, a history point skipped).
 
 mod cpu;
 mod gpus;
@@ -178,7 +183,9 @@ use foamy_helper::{Failure, json};
 
 use crate::state::{Pointer, Store};
 
-const CACHE_MS: i64 = 2000;
+/// How long a sample answers later calls: a manual refresh or a second
+/// shell right after a tick, but well under the popup's 2 s poll.
+const CACHE_MS: i64 = 1000;
 const STALE_MS: i64 = 15_000;
 /// The shell's `timeout 1.5s python3 intel_stats.py`, counted from the scan's start.
 const INTEL_TIMEOUT: Duration = Duration::from_millis(1500);
