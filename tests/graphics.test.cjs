@@ -8,8 +8,12 @@ const view = fs.readFileSync(path.join(__dirname, '../VitalsView.qml'), 'utf8');
 const readings = fs.readFileSync(path.join(__dirname, '../VitalsReadings.qml'), 'utf8');
 
 // Row clicks pin, unpin or move the pin through the view's save signal.
-const code = view.match(/  function togglePin\(id\) \{.*\}\n/);
-assert.ok(code, 'VitalsView has a one-line togglePin(id)');
+// A view function's source: its body on one line or several (as qmlformat
+// writes it), up to the closing brace at its indent.
+const viewFunction = (name, args) =>
+  view.match(new RegExp('^  function ' + name + '\\(' + args + '\\) \\{(?:.*\\}$|[\\s\\S]*?\\n  \\}$)', 'm'));
+const code = viewFunction('togglePin', 'id');
+assert.ok(code, 'VitalsView has togglePin(id)');
 function click(pinned, id) {
   const saved = [];
   const scope = vm.createContext({
@@ -56,8 +60,8 @@ assert.equal(pinnedMissing({ gpus: [other] }, '', ''), false, 'empty pin');
 const tints = view.match(/  readonly property var gpuTints: (\[.*\])\n/);
 assert.ok(tints, 'VitalsView has gpuTints');
 assert.ok(view.includes('[Qt.rgba(0.95, 0.95, 0.24, 0.8), Qt.rgba(0.24, 0.95, 0.95, 0.8), Qt.rgba(0.95, 0.24, 0.77, 0.8)]'), 'tint values');
-const slotFn = view.match(/  function gpuSlotColor\(slot\) \{.*\}\n/);
-assert.ok(slotFn, 'VitalsView has a one-line gpuSlotColor(slot)');
+const slotFn = viewFunction('gpuSlotColor', 'slot');
+assert.ok(slotFn, 'VitalsView has gpuSlotColor(slot)');
 const chartIds = view.match(/  readonly property var gpuChartIds: (Object[\s\S]*?\n  \}\))/);
 assert.ok(chartIds, 'VitalsView has gpuChartIds');
 const chartScope = vm.createContext({

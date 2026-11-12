@@ -1,0 +1,2 @@
+# <glob> [checks]  # reason (tests/validate.sh; foamy-kit README "Tooling")
+preview/Before.qml  qmllint  # imports qs.Ui for FakeDisplay, which only the harness's staged qs.Ui has: qmllint's verdict on its imports is not evidence

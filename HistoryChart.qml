@@ -24,7 +24,8 @@ Canvas {
     var ctx = getContext("2d")
     ctx.reset()
     ctx.clearRect(0, 0, width, height)
-    if (width <= 0 || height <= 0) return
+    if (width <= 0 || height <= 0)
+      return
     var axis = centered ? height / 2 : height - 1
     var span = centered ? height / 2 - 2 : height - 2
     ctx.strokeStyle = gridColor
@@ -47,14 +48,22 @@ Canvas {
       for (var i = 0; i < points.length; i++) {
         var point = points[i]
         // Break the line for missing readings and suspend/resume gaps.
-        if (point.value === null || !isFinite(point.value)) { connected = false; continue }
+        if (point.value === null || !isFinite(point.value)) {
+          connected = false
+          continue
+        }
         var x = (point.time - endTime + 120000) / 120000 * width
-        if (x < 0) { connected = false; continue }
+        if (x < 0) {
+          connected = false
+          continue
+        }
         // Only the display direction is signed; traffic counters remain positive.
         var direction = centered && data.negative ? 1 : -1
         var valueY = axis + direction * Math.min(1, point.value / Math.max(1, maximum)) * span
-        if (connected && point.time - previousTime <= 15000) ctx.lineTo(x, valueY)
-        else ctx.moveTo(x, valueY)
+        if (connected && point.time - previousTime <= 15000)
+          ctx.lineTo(x, valueY)
+        else
+          ctx.moveTo(x, valueY)
         connected = true
         previousTime = point.time
       }

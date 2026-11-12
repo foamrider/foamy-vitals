@@ -33,13 +33,13 @@ PanelKeyCatcher {
   property bool retryable: false
   property string launchError: ""
 
-  signal closeRequestedByView()
-  signal settingsRequested()
-  signal settingsClosed()
-  signal refreshRequested()
-  signal btopRequested()
+  signal closeRequestedByView
+  signal settingsRequested
+  signal settingsClosed
+  signal refreshRequested
+  signal btopRequested
   signal saveRequested(string key, var value)
-  signal retryRequested()
+  signal retryRequested
   signal switchPanelRequested(int direction)
 
   readonly property alias cursor: cursor
@@ -57,7 +57,13 @@ PanelKeyCatcher {
     stats: view.live ? VitalsService.stats : ({})
   }
 
-  readonly property var emptyHistory: ({ cpu: [], memory: [], gpus: {}, up: [], down: [] })
+  readonly property var emptyHistory: ({
+      cpu: [],
+      memory: [],
+      gpus: {},
+      up: [],
+      down: []
+    })
   readonly property var history: live ? VitalsService.history : emptyHistory
   readonly property var processes: live && Array.isArray(VitalsService.detail.processes) ? VitalsService.detail.processes : []
   readonly property var memoryProcesses: live && Array.isArray(VitalsService.detail.memoryProcesses) ? VitalsService.detail.memoryProcesses : []
@@ -72,24 +78,38 @@ PanelKeyCatcher {
   readonly property color gpuColor: Qt.tint(Commons.Color.accent, Qt.alpha(Commons.Color.urgent, 0.6))
   // Later slots tint the accent; each stays ΔE ≥ 24 from CPU, RAM, GPU and each other in every bundled theme.
   readonly property var gpuTints: [Qt.rgba(0.95, 0.95, 0.24, 0.8), Qt.rgba(0.24, 0.95, 0.95, 0.8), Qt.rgba(0.95, 0.24, 0.77, 0.8)]
-  function gpuSlotColor(slot) { return slot <= 0 ? gpuColor : Qt.tint(Commons.Color.accent, gpuTints[(slot - 1) % gpuTints.length]) }
+  function gpuSlotColor(slot) {
+    return slot <= 0 ? gpuColor : Qt.tint(Commons.Color.accent, gpuTints[(slot - 1) % gpuTints.length])
+  }
   // History lines in color-slot order: current rows first, then vanished GPUs.
-  readonly property var gpuChartIds: Object.keys(history.gpus).sort(function(a, b) {
+  readonly property var gpuChartIds: Object.keys(history.gpus).sort(function (a, b) {
     return Gpus.colorSlot(r.gpus, history.gpus, a) - Gpus.colorSlot(r.gpus, history.gpus, b)
   })
   // Legend text: a current row's short name, else a vanished GPU's address.
   function gpuLegend(id) {
-    var row = r.gpuRows.filter(function(gpu) { return gpu.id === id })[0]
-    return row ? Gpus.displayName(row, r.gpuRows, true) : Gpus.shortName({ id: id, vendor: "" })
+    var row = r.gpuRows.filter(function (gpu) {
+      return gpu.id === id
+    })[0]
+    return row ? Gpus.displayName(row, r.gpuRows, true) : Gpus.shortName({
+      id: id,
+      vendor: ""
+    })
   }
   readonly property real networkScale: Math.pow(2, Math.ceil(Math.log(Math.max(1024, History.peak(history.up), History.peak(history.down)) * 1.1) / Math.LN2))
   readonly property real cellWidth: (content.width - FoamyStyle.padding * 2 - overview.columnSpacing * (overview.columns - 1)) / overview.columns
 
   readonly property string deviceIcon: ({
-    desktop: "monitor", laptop: "laptop", convertible: "laptop",
-    server: "server", tablet: "tablet", handset: "smartphone",
-    watch: "watch", embedded: "cpu", vm: "box", container: "box"
-  })[VitalsService.chassis] || "monitor"
+      desktop: "monitor",
+      laptop: "laptop",
+      convertible: "laptop",
+      server: "server",
+      tablet: "tablet",
+      handset: "smartphone",
+      watch: "watch",
+      embedded: "cpu",
+      vm: "box",
+      container: "box"
+    })[VitalsService.chassis] || "monitor"
 
   // --- cursor stops: Settings, GPU rows, CPU process rows, memory rows, cores, btop
   readonly property int graphicsStart: 1
@@ -102,10 +122,15 @@ PanelKeyCatcher {
   FoamyCursor {
     id: cursor
     count: view.btopStop + 1
-    onIndexChanged: if (index !== view.coresStop && !coresMouse.containsMouse) view.hoveredCore = -1
+    onIndexChanged: if (index !== view.coresStop && !coresMouse.containsMouse)
+      view.hoveredCore = -1
   }
 
-  onLiveChanged: if (!live) { cursor.reset(); hoveredCore = -1; flick.contentY = 0 }
+  onLiveChanged: if (!live) {
+    cursor.reset()
+    hoveredCore = -1
+    flick.contentY = 0
+  }
 
   // When GPU rows vanish under the cursor, the numeric index would land on a
   // process row (Enter opens btop): move to the first GPU row, or reset. A
@@ -117,10 +142,13 @@ PanelKeyCatcher {
   onGraphicsStopsChanged: {
     var was = previousGraphicsStops
     previousGraphicsStops = graphicsStops
-    if (cursor.index >= graphicsStart + was) cursor.reset()
+    if (cursor.index >= graphicsStart + was)
+      cursor.reset()
     else if (cursor.index >= graphicsStart && cursor.index >= graphicsStart + graphicsStops) {
-      if (graphicsStops > 0) cursor.index = graphicsStart
-      else cursor.reset()
+      if (graphicsStops > 0)
+        cursor.index = graphicsStart
+      else
+        cursor.reset()
     }
   }
   onEditingSettingsChanged: {
@@ -133,49 +161,71 @@ PanelKeyCatcher {
     }
   }
 
-  onMoveRequested: function(dx, dy) {
+  onMoveRequested: function (dx, dy) {
     if (dy === 0 && cursor.index === coresStop && cores.length) {
       hoveredCore = Math.max(0, Math.min(cores.length - 1, (hoveredCore < 0 ? 0 : hoveredCore + dx)))
       return
     }
     cursor.move(dy !== 0 ? dy : dx)
-    if (cursor.index === coresStop && hoveredCore < 0) hoveredCore = 0
+    if (cursor.index === coresStop && hoveredCore < 0)
+      hoveredCore = 0
     revealCursor()
   }
   onActivateRequested: activate(cursor.index)
   onCloseRequested: closeRequestedByView()
-  onTabRequested: function(direction) { switchPanelRequested(direction) }
-  onTextKey: function(text, modifiers) {
-    if (!cursor.plain(modifiers)) return  // Ctrl/Alt/Super shortcuts are not ours
-    if (text === "s") settingsRequested()
-    else if (text === "r") refreshRequested()
-    else if (text === "b") btopRequested()
+  onTabRequested: function (direction) {
+    switchPanelRequested(direction)
+  }
+  onTextKey: function (text, modifiers) {
+    // Ctrl/Alt/Super shortcuts are not ours.
+    if (!cursor.plain(modifiers))
+      return
+    if (text === "s")
+      settingsRequested()
+    else if (text === "r")
+      refreshRequested()
+    else if (text === "b")
+      btopRequested()
   }
 
   function activate(index) {
-    if (index === 0) settingsRequested()
-    else if (index >= graphicsStart && index < cpuStart) togglePin(r.gpuRows[index - graphicsStart].id)
-    else if (index > 0 && index !== coresStop && index <= btopStop) btopRequested()
+    if (index === 0)
+      settingsRequested()
+    else if (index >= graphicsStart && index < cpuStart)
+      togglePin(r.gpuRows[index - graphicsStart].id)
+    else if (index > 0 && index !== coresStop && index <= btopStop)
+      btopRequested()
   }
 
   // A row click or Enter pins that GPU to the bar, or unpins it.
-  function togglePin(id) { saveRequested("pinnedGpu", r.pinnedGpu === id ? "" : id) }
+  function togglePin(id) {
+    saveRequested("pinnedGpu", r.pinnedGpu === id ? "" : id)
+  }
 
   function stopItem(index) {
-    if (index <= 0) return null
-    if (index < cpuStart) return gpuRows.itemAt(index - graphicsStart)
-    if (index < memoryStart) return cpuRows.itemAt(index - cpuStart)
-    if (index < memoryStart + memoryProcesses.length) return memoryRows.itemAt(index - memoryStart)
-    if (index === coresStop) return coresStrip
+    if (index <= 0)
+      return null
+    if (index < cpuStart)
+      return gpuRows.itemAt(index - graphicsStart)
+    if (index < memoryStart)
+      return cpuRows.itemAt(index - cpuStart)
+    if (index < memoryStart + memoryProcesses.length)
+      return memoryRows.itemAt(index - memoryStart)
+    if (index === coresStop)
+      return coresStrip
     return btopButton
   }
 
   function revealCursor() {
     var item = stopItem(cursor.index)
-    if (!item) { flick.contentY = 0; return }
+    if (!item) {
+      flick.contentY = 0
+      return
+    }
     var point = item.mapToItem(flick.contentItem, 0, 0)
     var margin = FoamyStyle.gap
-    if (point.y < flick.contentY) flick.contentY = Math.max(0, point.y - margin)
+    if (point.y < flick.contentY)
+      flick.contentY = Math.max(0, point.y - margin)
     else if (point.y + item.height > flick.contentY + flick.height)
       flick.contentY = Math.max(0, Math.min(flick.contentHeight - flick.height, point.y + item.height - flick.height + margin))
   }
@@ -190,64 +240,74 @@ PanelKeyCatcher {
   }
 
   function pair(used, total) {
-    if (isNaN(used) || isNaN(total) || total <= 0) return "--"
+    if (isNaN(used) || isNaN(total) || total <= 0)
+      return "--"
     return FoamyI18n.number(used, 1) + " / " + FoamyI18n.number(total, 1) + " GiB"
   }
 
   function rate(value) {
-    if (!isFinite(value)) return "--"
-    return value >= 1048576 ? FoamyI18n.number(value / 1048576, 1) + " MiB/s"
-      : FoamyI18n.number(value / 1024, 1) + " KiB/s"
+    if (!isFinite(value))
+      return "--"
+    return value >= 1048576 ? FoamyI18n.number(value / 1048576, 1) + " MiB/s" : FoamyI18n.number(value / 1024, 1) + " KiB/s"
   }
 
   function diskCapacity(usedKb, totalKb) {
     var divisor = totalKb >= 1073741824 ? 1073741824 : 1048576
-    return FoamyI18n.number(usedKb / divisor, 1) + " / " + FoamyI18n.number(totalKb / divisor, 1)
-      + (divisor === 1073741824 ? " TiB" : " GiB")
+    return FoamyI18n.number(usedKb / divisor, 1) + " / " + FoamyI18n.number(totalKb / divisor, 1) + (divisor === 1073741824 ? " TiB" : " GiB")
   }
 
   function processShare(value) {
     var n = Number(value)
-    if (!isFinite(n)) return "--"
+    if (!isFinite(n))
+      return "--"
     return FoamyI18n.number(n, n >= 100 ? 0 : 1) + "%"
   }
 
   function memoryAmount(kb) {
     var n = Number(kb)
-    if (!isFinite(n) || n < 0) return "--"
-    if (n >= 1048576) return FoamyI18n.number(n / 1048576, 1) + " GiB"
+    if (!isFinite(n) || n < 0)
+      return "--"
+    if (n >= 1048576)
+      return FoamyI18n.number(n / 1048576, 1) + " GiB"
     return FoamyI18n.number(Math.round(n / 1024)) + " MiB"
   }
 
   function uptimeText(minutes) {
-    if (minutes < 0) return "--"
+    if (minutes < 0)
+      return "--"
     return FoamyI18n.t("%1h %2m", [Math.floor(minutes / 60), minutes % 60])
   }
 
   function loadText(values) {
-    return values.length ? values.map(function(value) { return FoamyI18n.number(value, 2) }).join(" / ") : "--"
+    return values.length ? values.map(function (value) {
+      return FoamyI18n.number(value, 2)
+    }).join(" / ") : "--"
   }
 
   function temperatureDetail(thermal) {
-    if (isNaN(thermal.temperature)) return ""
+    if (isNaN(thermal.temperature))
+      return ""
     var label = thermal.label ? FoamyI18n.t(thermal.label) : ""
     return isNaN(thermal.critical) ? (label ? label + " · " : "") + FoamyI18n.t("Limit unknown") : label
   }
 
   function coreLoad(value) {
-    if (value === null || value === undefined) return 0
+    if (value === null || value === undefined)
+      return 0
     var n = Number(value)
     return isFinite(n) ? Math.max(0, Math.min(100, n)) : 0
   }
 
   function coresDetail() {
-    if (hoveredCore < 0 || hoveredCore >= cores.length) return ""
+    if (hoveredCore < 0 || hoveredCore >= cores.length)
+      return ""
     var v = cores[hoveredCore]
     return FoamyI18n.t("Thread %1 · %2", [hoveredCore, v === null || v === undefined ? "--" : percent(coreLoad(v))])
   }
 
   function processLabel(entry) {
-    if (!entry) return "?"
+    if (!entry)
+      return "?"
     var name = String(entry.name || "?")
     var where = String(entry.where || "")
     return where === "" ? name : name + " · " + where
@@ -265,10 +325,15 @@ PanelKeyCatcher {
     interactive: contentHeight > height
     onContentHeightChanged: contentY = Math.max(0, Math.min(contentY, contentHeight - height))
     onHeightChanged: contentY = Math.max(0, Math.min(contentY, contentHeight - height))
-    Controls.ScrollBar.vertical: Controls.ScrollBar { policy: Controls.ScrollBar.AsNeeded }
+    Controls.ScrollBar.vertical: Controls.ScrollBar {
+      policy: Controls.ScrollBar.AsNeeded
+    }
 
     // A wheel notch scrolls about three rows, however the mouse splits it.
-    FoamyWheelScroll { id: wheel; target: flick }
+    FoamyWheelScroll {
+      id: wheel
+      target: flick
+    }
 
     Column {
       id: page
@@ -282,7 +347,10 @@ PanelKeyCatcher {
         title: FoamyI18n.t("Vitals")
         settingsHasCursor: cursor.at(0)
         onSettingsClicked: view.settingsRequested()
-        onSettingsHovered: function(hovered) { if (hovered) cursor.hover(0) }
+        onSettingsHovered: function (hovered) {
+          if (hovered)
+            cursor.hover(0)
+        }
 
         RowLayout {
           Layout.fillWidth: true
@@ -336,8 +404,7 @@ PanelKeyCatcher {
         Caption {
           width: content.inner
           visible: r.gpuError !== ""
-          text: FoamyI18n.t(r.gpuError === "Intel GPU readings unavailable. Retrying…"
-            ? r.gpuError : "NVIDIA readings unavailable. Check nvidia-smi.")
+          text: FoamyI18n.t(r.gpuError === "Intel GPU readings unavailable. Retrying…" ? r.gpuError : "NVIDIA readings unavailable. Check nvidia-smi.")
           color: r.urgent
           wrapMode: Text.WordWrap
         }
@@ -355,23 +422,38 @@ PanelKeyCatcher {
           columnSpacing: Style.space(22)
           rowSpacing: FoamyStyle.padding
           Overview {
-            glyph: "\u{f2db}"; label: "CPU"; value: view.percent(r.cpu); meterValue: r.cpu; warning: r.cpuWarning
+            glyph: "\u{f2db}"
+            label: "CPU"
+            value: view.percent(r.cpu)
+            meterValue: r.cpu
+            warning: r.cpuWarning
             detail: view.cores.length ? FoamyI18n.tn("%1 threads", view.cores.length) : "--"
           }
           Overview {
-            glyph: "\u{f035b}"; label: "RAM"; value: view.percent(r.memory); meterValue: r.memory; warning: r.memoryWarning
+            glyph: "\u{f035b}"
+            label: "RAM"
+            value: view.percent(r.memory)
+            meterValue: r.memory
+            warning: r.memoryWarning
             detail: view.pair(r.reading("memUsedKb") / 1048576, r.reading("memTotalKb") / 1048576)
           }
           Overview {
-            glyph: "\u{f2c9}"; label: FoamyI18n.t("CPU temperature"); value: view.degrees(r.cpuThermal.temperature)
-            detail: view.temperatureDetail(r.cpuThermal); meterValue: r.cpuThermal.meter; warning: r.cpuThermal.hot
+            glyph: "\u{f2c9}"
+            label: FoamyI18n.t("CPU temperature")
+            value: view.degrees(r.cpuThermal.temperature)
+            detail: view.temperatureDetail(r.cpuThermal)
+            meterValue: r.cpuThermal.meter
+            warning: r.cpuThermal.hot
           }
           // With two or more GPUs the Graphics table below replaces these tiles.
           Overview {
             visible: !r.multiGpu
-            glyph: "\u{f108}"; label: "GPU"; value: view.percent(r.gpu); meterValue: r.gpu; warning: r.gpuWarning
-            detail: r.gpuSuspended ? FoamyI18n.t("Sleeping")
-              : r.intelGpu && !isNaN(r.gpuReading("frequencyMHz")) ? FoamyI18n.number(Math.round(r.gpuReading("frequencyMHz"))) + " MHz" : ""
+            glyph: "\u{f108}"
+            label: "GPU"
+            value: view.percent(r.gpu)
+            meterValue: r.gpu
+            warning: r.gpuWarning
+            detail: r.gpuSuspended ? FoamyI18n.t("Sleeping") : r.intelGpu && !isNaN(r.gpuReading("frequencyMHz")) ? FoamyI18n.number(Math.round(r.gpuReading("frequencyMHz"))) + " MHz" : ""
           }
           Overview {
             // An APU's memory is its VRAM carve-out plus GTT (system RAM), not VRAM.
@@ -380,20 +462,29 @@ PanelKeyCatcher {
             label: r.intelGpu || (r.barGpu && r.barGpu.vendor === "amd" && r.barGpu.type === "integrated") ? FoamyI18n.t("GPU memory") : "VRAM"
             value: r.intelGpu ? view.memoryAmount(r.gpuReading("memoryPrivate") / 1024) : view.percent(r.vram)
             detail: r.intelGpu ? FoamyI18n.t("Private") : view.pair(r.gpuReading("vramUsed") / 1073741824, r.gpuReading("vramTotal") / 1073741824)
-            meterValue: r.vram; warning: r.vramWarning
+            meterValue: r.vram
+            warning: r.vramWarning
           }
           Overview {
             visible: !r.multiGpu
-            glyph: "\u{f2c9}"; label: FoamyI18n.t("GPU temperature"); value: view.degrees(r.gpuThermal.temperature)
-            detail: r.gpuSuspended ? FoamyI18n.t("Sleeping")
-              : r.intelGpu && isNaN(r.gpuThermal.temperature) ? FoamyI18n.t("Not exposed") : view.temperatureDetail(r.gpuThermal)
-            meterValue: r.gpuThermal.meter; warning: r.gpuThermal.hot
+            glyph: "\u{f2c9}"
+            label: FoamyI18n.t("GPU temperature")
+            value: view.degrees(r.gpuThermal.temperature)
+            detail: r.gpuSuspended ? FoamyI18n.t("Sleeping") : r.intelGpu && isNaN(r.gpuThermal.temperature) ? FoamyI18n.t("Not exposed") : view.temperatureDetail(r.gpuThermal)
+            meterValue: r.gpuThermal.meter
+            warning: r.gpuThermal.hot
           }
         }
 
         GraphicsSection {
           id: graphics
-          Repeater { id: gpuRows; model: r.multiGpu ? r.gpuRows : []; GpuRow { section: graphics } }
+          Repeater {
+            id: gpuRows
+            model: r.multiGpu ? r.gpuRows : []
+            GpuRow {
+              section: graphics
+            }
+          }
         }
         Caption {
           width: content.inner
@@ -413,21 +504,41 @@ PanelKeyCatcher {
           Column {
             width: details.columnWidth
             spacing: FoamyStyle.gapLarge
-            SectionHeading { title: FoamyI18n.t("Resource usage"); detail: FoamyI18n.t("Last 2 minutes") }
+            SectionHeading {
+              title: FoamyI18n.t("Resource usage")
+              detail: FoamyI18n.t("Last 2 minutes")
+            }
             Row {
               visible: !r.multiGpu
               spacing: FoamyStyle.sectionGap
-              Legend { text: "CPU"; dotColor: view.cpuColor }
-              Legend { text: "RAM"; dotColor: view.memoryColor; dashed: true }
-              Legend { text: "GPU"; dotColor: view.gpuColor }
+              Legend {
+                text: "CPU"
+                dotColor: view.cpuColor
+              }
+              Legend {
+                text: "RAM"
+                dotColor: view.memoryColor
+                dashed: true
+              }
+              Legend {
+                text: "GPU"
+                dotColor: view.gpuColor
+              }
             }
             // One entry per GPU line; entries wrap and long names elide.
             Flow {
               visible: r.multiGpu
               width: parent.width
               spacing: FoamyStyle.sectionGap
-              Legend { text: "CPU"; dotColor: view.cpuColor }
-              Legend { text: "RAM"; dotColor: view.memoryColor; dashed: true }
+              Legend {
+                text: "CPU"
+                dotColor: view.cpuColor
+              }
+              Legend {
+                text: "RAM"
+                dotColor: view.memoryColor
+                dashed: true
+              }
               Repeater {
                 model: r.multiGpu ? view.gpuChartIds : []
                 Legend {
@@ -439,12 +550,33 @@ PanelKeyCatcher {
               }
             }
             HistoryPlot {
-              width: parent.width; height: Style.space(90)
-              topLabel: view.percent(100); middleLabel: view.percent(50); bottomLabel: view.percent(0)
+              width: parent.width
+              height: Style.space(90)
+              topLabel: view.percent(100)
+              middleLabel: view.percent(50)
+              bottomLabel: view.percent(0)
               maximum: 100
-              series: !view.live ? [] : [{ points: view.history.cpu, color: view.cpuColor }, { points: view.history.memory, color: view.memoryColor, dashed: true }].concat(r.multiGpu
-                ? view.gpuChartIds.map(function(id) { return { points: view.history.gpus[id], color: view.gpuSlotColor(Gpus.colorSlot(r.gpus, view.history.gpus, id)) } })
-                : [{ points: view.history.gpus[r.gpus.length ? r.gpus[0].id : ""] || [], color: view.gpuColor }])
+              series: !view.live ? [] : [
+                {
+                  points: view.history.cpu,
+                  color: view.cpuColor
+                },
+                {
+                  points: view.history.memory,
+                  color: view.memoryColor,
+                  dashed: true
+                }
+              ].concat(r.multiGpu ? view.gpuChartIds.map(function (id) {
+                return {
+                  points: view.history.gpus[id],
+                  color: view.gpuSlotColor(Gpus.colorSlot(r.gpus, view.history.gpus, id))
+                }
+              }) : [
+                {
+                  points: view.history.gpus[r.gpus.length ? r.gpus[0].id : ""] || [],
+                  color: view.gpuColor
+                }
+              ])
             }
           }
 
@@ -453,13 +585,23 @@ PanelKeyCatcher {
             width: details.columnWidth
             title: FoamyI18n.t("Top CPU processes")
             entries: view.processes
-            Repeater { id: cpuRows; model: view.processes; ProcessRow { section: cpuSection; first: view.cpuStart } }
+            Repeater {
+              id: cpuRows
+              model: view.processes
+              ProcessRow {
+                section: cpuSection
+                first: view.cpuStart
+              }
+            }
           }
 
           Column {
             width: details.columnWidth
             spacing: FoamyStyle.gapLarge
-            SectionHeading { title: FoamyI18n.t("Network traffic"); detail: r.stats.network ? r.stats.network.interface : FoamyI18n.t("Unavailable") }
+            SectionHeading {
+              title: FoamyI18n.t("Network traffic")
+              detail: r.stats.network ? r.stats.network.interface : FoamyI18n.t("Unavailable")
+            }
             RowLayout {
               width: parent.width
               spacing: Style.space(16)
@@ -467,24 +609,50 @@ PanelKeyCatcher {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
                 spacing: Style.space(5)
-                Legend { text: FoamyI18n.t("Incoming"); dotColor: view.gpuColor }
-                Label { width: parent.width; text: view.rate(view.live ? VitalsService.networkDown : NaN); font.pixelSize: FoamyStyle.font.heading }
+                Legend {
+                  text: FoamyI18n.t("Incoming")
+                  dotColor: view.gpuColor
+                }
+                Label {
+                  width: parent.width
+                  text: view.rate(view.live ? VitalsService.networkDown : NaN)
+                  font.pixelSize: FoamyStyle.font.heading
+                }
               }
               Column {
                 Layout.fillWidth: true
                 Layout.preferredWidth: 1
                 spacing: Style.space(5)
-                Legend { text: FoamyI18n.t("Outgoing"); dotColor: view.cpuColor }
-                Label { width: parent.width; text: view.rate(view.live ? VitalsService.networkUp : NaN); font.pixelSize: FoamyStyle.font.heading }
+                Legend {
+                  text: FoamyI18n.t("Outgoing")
+                  dotColor: view.cpuColor
+                }
+                Label {
+                  width: parent.width
+                  text: view.rate(view.live ? VitalsService.networkUp : NaN)
+                  font.pixelSize: FoamyStyle.font.heading
+                }
               }
             }
             HistoryPlot {
-              width: parent.width; height: Style.space(120)
+              width: parent.width
+              height: Style.space(120)
               topLabel: view.rate(view.networkScale)
               middleLabel: FoamyI18n.number(0)
               bottomLabel: view.rate(view.networkScale)
-              maximum: view.networkScale; centered: true
-              series: view.live ? [{ points: view.history.down, color: view.gpuColor }, { points: view.history.up, color: view.cpuColor, negative: true }] : []
+              maximum: view.networkScale
+              centered: true
+              series: view.live ? [
+                {
+                  points: view.history.down,
+                  color: view.gpuColor
+                },
+                {
+                  points: view.history.up,
+                  color: view.cpuColor,
+                  negative: true
+                }
+              ] : []
             }
           }
 
@@ -494,13 +662,23 @@ PanelKeyCatcher {
             title: FoamyI18n.t("Top memory processes")
             entries: view.memoryProcesses
             memoryMode: true
-            Repeater { id: memoryRows; model: view.memoryProcesses; ProcessRow { section: memorySection; first: view.memoryStart } }
+            Repeater {
+              id: memoryRows
+              model: view.memoryProcesses
+              ProcessRow {
+                section: memorySection
+                first: view.memoryStart
+              }
+            }
           }
 
           Column {
             width: details.columnWidth
             spacing: FoamyStyle.gapLarge
-            SectionHeading { title: FoamyI18n.t("CPU cores"); detail: view.coresDetail() }
+            SectionHeading {
+              title: FoamyI18n.t("CPU cores")
+              detail: view.coresDetail()
+            }
             FoamyCursorSurface {
               id: coresStrip
               width: parent.width
@@ -528,11 +706,12 @@ PanelKeyCatcher {
                 id: coresMouse
                 anchors.fill: coreRow
                 hoverEnabled: true
-                onPositionChanged: function(mouse) {
+                onPositionChanged: function (mouse) {
                   cursor.hover(view.coresStop)
                   view.hoveredCore = Math.min(view.cores.length - 1, Math.max(0, Math.floor((FoamyI18n.rightToLeft ? width - mouse.x : mouse.x) / Math.max(1, width) * view.cores.length)))
                 }
-                onExited: if (!cursor.at(view.coresStop)) view.hoveredCore = -1
+                onExited: if (!cursor.at(view.coresStop))
+                  view.hoveredCore = -1
               }
             }
           }
@@ -540,22 +719,38 @@ PanelKeyCatcher {
           Column {
             width: details.columnWidth
             spacing: FoamyStyle.gapLarge
-            SectionHeading { title: FoamyI18n.t("Storage") }
-            Caption { width: parent.width; visible: VitalsService.diskStatus !== ""; text: FoamyI18n.t(VitalsService.diskStatus) }
+            SectionHeading {
+              title: FoamyI18n.t("Storage")
+            }
+            Caption {
+              width: parent.width
+              visible: VitalsService.diskStatus !== ""
+              text: FoamyI18n.t(VitalsService.diskStatus)
+            }
             Repeater {
               model: view.disks
               Column {
                 required property var modelData
                 width: details.columnWidth
                 spacing: FoamyStyle.gap
-                DataRow { label: parent.modelData.mount === "/" ? FoamyI18n.t("Root filesystem") : parent.modelData.mount; value: view.diskCapacity(parent.modelData.usedKb, parent.modelData.totalKb) }
-                Meter { width: parent.width; value: 100 * parent.modelData.usedKb / parent.modelData.totalKb }
+                DataRow {
+                  label: parent.modelData.mount === "/" ? FoamyI18n.t("Root filesystem") : parent.modelData.mount
+                  value: view.diskCapacity(parent.modelData.usedKb, parent.modelData.totalKb)
+                }
+                Meter {
+                  width: parent.width
+                  value: 100 * parent.modelData.usedKb / parent.modelData.totalKb
+                }
               }
             }
           }
         }
 
-        Rectangle { width: content.inner; height: 1; color: FoamyPalette.divider }
+        Rectangle {
+          width: content.inner
+          height: 1
+          color: FoamyPalette.divider
+        }
         FoamyAction {
           id: btopButton
           iconName: "terminal"
@@ -563,7 +758,8 @@ PanelKeyCatcher {
           tooltipText: FoamyI18n.t("Open btop")
           foreground: view.dim
           hasCursor: cursor.at(view.btopStop)
-          onHoveredChanged: if (hovered) cursor.hover(view.btopStop)
+          onHoveredChanged: if (hovered)
+            cursor.hover(view.btopStop)
           onClicked: view.btopRequested()
         }
       }
@@ -593,8 +789,15 @@ PanelKeyCatcher {
         compact: true
         label: FoamyI18n.t("Show in the bar")
         value: String(r.preference("barDisplay"))
-        options: Prefs.field(Schema.fields, "barDisplay").options.map(function(v) { return { value: v, label: FoamyI18n.t(Schema.optionLabel(v)) } })
-        onChanged: function(value) { view.saveRequested("barDisplay", value) }
+        options: Prefs.field(Schema.fields, "barDisplay").options.map(function (v) {
+          return {
+            value: v,
+            label: FoamyI18n.t(Schema.optionLabel(v))
+          }
+        })
+        onChanged: function (value) {
+          view.saveRequested("barDisplay", value)
+        }
       }
       FoamyToggle {
         width: parent.width
@@ -609,17 +812,29 @@ PanelKeyCatcher {
       width: parent.width
       title: FoamyI18n.t("Usage warnings")
       description: FoamyI18n.t("Warns at or above these percentages.")
-      NumberRow { key: "cpuWarning" }
-      NumberRow { key: "memoryWarning" }
-      NumberRow { key: "gpuWarning" }
-      NumberRow { key: "vramWarning" }
+      NumberRow {
+        key: "cpuWarning"
+      }
+      NumberRow {
+        key: "memoryWarning"
+      }
+      NumberRow {
+        key: "gpuWarning"
+      }
+      NumberRow {
+        key: "vramWarning"
+      }
     }
     FoamySettingsSection {
       width: parent.width
       title: FoamyI18n.t("Temperature warning margin")
       description: FoamyI18n.t("Warn this many °C below the hardware limit.")
-      NumberRow { key: "cpuTemperatureMargin" }
-      NumberRow { key: "gpuTemperatureMargin" }
+      NumberRow {
+        key: "cpuTemperatureMargin"
+      }
+      NumberRow {
+        key: "gpuTemperatureMargin"
+      }
     }
   }
 
@@ -632,7 +847,10 @@ PanelKeyCatcher {
     elide: Text.ElideRight
     horizontalAlignment: Text.AlignLeft
   }
-  component Caption: Label { color: view.dim; font.pixelSize: FoamyStyle.font.bodySmall }
+  component Caption: Label {
+    color: view.dim
+    font.pixelSize: FoamyStyle.font.bodySmall
+  }
 
   component Overview: Column {
     id: card
@@ -646,26 +864,47 @@ PanelKeyCatcher {
     spacing: Style.space(6)
     RowLayout {
       width: parent.width
-      Caption { text: card.label; color: card.warning ? r.urgent : view.dim; Layout.fillWidth: true }
+      Caption {
+        text: card.label
+        color: card.warning ? r.urgent : view.dim
+        Layout.fillWidth: true
+      }
       OpticalGlyph {
-        Layout.preferredWidth: Style.space(14); Layout.preferredHeight: Style.space(14)
-        text: card.glyph; fontFamily: FoamyStyle.monoFamily; fontSize: FoamyStyle.font.bodySmall
+        Layout.preferredWidth: Style.space(14)
+        Layout.preferredHeight: Style.space(14)
+        text: card.glyph
+        fontFamily: FoamyStyle.monoFamily
+        fontSize: FoamyStyle.font.bodySmall
         color: card.warning ? r.urgent : view.dim
       }
     }
     Item {
       width: parent.width
       implicitHeight: cardValue.implicitHeight
-      Label { id: cardValue; anchors.left: parent.left; text: card.value; font.pixelSize: FoamyStyle.font.display; color: card.warning ? r.urgent : view.foreground }
+      Label {
+        id: cardValue
+        anchors.left: parent.left
+        text: card.value
+        font.pixelSize: FoamyStyle.font.display
+        color: card.warning ? r.urgent : view.foreground
+      }
       // Secondary detail beside the reading, aligned on its baseline.
       Caption {
-        anchors.left: cardValue.right; anchors.leftMargin: FoamyStyle.gap
-        anchors.right: parent.right; anchors.baseline: cardValue.baseline
-        text: card.detail; horizontalAlignment: Text.AlignRight
+        anchors.left: cardValue.right
+        anchors.leftMargin: FoamyStyle.gap
+        anchors.right: parent.right
+        anchors.baseline: cardValue.baseline
+        text: card.detail
+        horizontalAlignment: Text.AlignRight
         color: card.warning ? r.urgent : view.dim
       }
     }
-    Meter { width: parent.width; value: card.meterValue; opacity: isFinite(card.meterValue) ? 1 : 0; fillColor: card.warning ? r.urgent : view.foreground }
+    Meter {
+      width: parent.width
+      value: card.meterValue
+      opacity: isFinite(card.meterValue) ? 1 : 0
+      fillColor: card.warning ? r.urgent : view.foreground
+    }
   }
 
   component HistoryPlot: Item {
@@ -680,14 +919,37 @@ PanelKeyCatcher {
     property string middleLabel: ""
     property string bottomLabel: ""
     readonly property real axisWidth: Math.ceil(Math.max(topTick.implicitWidth, middleTick.implicitWidth, bottomTick.implicitWidth)) + FoamyStyle.gap
-    Caption { id: topTick; width: plotRoot.axisWidth - FoamyStyle.gap; anchors.top: parent.top; text: plotRoot.topLabel; font.pixelSize: FoamyStyle.font.caption; horizontalAlignment: Text.AlignRight }
-    Caption { id: middleTick; width: topTick.width; anchors.verticalCenter: parent.verticalCenter; text: plotRoot.middleLabel; font.pixelSize: FoamyStyle.font.caption; horizontalAlignment: Text.AlignRight }
-    Caption { id: bottomTick; width: topTick.width; anchors.bottom: parent.bottom; text: plotRoot.bottomLabel; font.pixelSize: FoamyStyle.font.caption; horizontalAlignment: Text.AlignRight }
+    Caption {
+      id: topTick
+      width: plotRoot.axisWidth - FoamyStyle.gap
+      anchors.top: parent.top
+      text: plotRoot.topLabel
+      font.pixelSize: FoamyStyle.font.caption
+      horizontalAlignment: Text.AlignRight
+    }
+    Caption {
+      id: middleTick
+      width: topTick.width
+      anchors.verticalCenter: parent.verticalCenter
+      text: plotRoot.middleLabel
+      font.pixelSize: FoamyStyle.font.caption
+      horizontalAlignment: Text.AlignRight
+    }
+    Caption {
+      id: bottomTick
+      width: topTick.width
+      anchors.bottom: parent.bottom
+      text: plotRoot.bottomLabel
+      font.pixelSize: FoamyStyle.font.caption
+      horizontalAlignment: Text.AlignRight
+    }
     HistoryChart {
       id: chart
-      anchors.fill: parent; anchors.leftMargin: plotRoot.axisWidth
+      anchors.fill: parent
+      anchors.leftMargin: plotRoot.axisWidth
       endTime: view.live ? VitalsService.sampledAt : 0
-      gridColor: Qt.alpha(view.foreground, 0.14); zeroColor: Qt.alpha(view.foreground, 0.40)
+      gridColor: Qt.alpha(view.foreground, 0.14)
+      zeroColor: Qt.alpha(view.foreground, 0.40)
     }
   }
 
@@ -697,7 +959,13 @@ PanelKeyCatcher {
     height: Style.space(4)
     radius: FoamyStyle.pillRadius(height)
     color: Qt.alpha(view.foreground, 0.12)
-    Rectangle { anchors.left: parent.left; width: parent.width * (isFinite(parent.value) ? Math.max(0, Math.min(100, parent.value)) / 100 : 0); height: parent.height; radius: parent.radius; color: parent.fillColor }
+    Rectangle {
+      anchors.left: parent.left
+      width: parent.width * (isFinite(parent.value) ? Math.max(0, Math.min(100, parent.value)) / 100 : 0)
+      height: parent.height
+      radius: parent.radius
+      color: parent.fillColor
+    }
   }
 
   component Legend: Row {
@@ -712,10 +980,19 @@ PanelKeyCatcher {
       spacing: FoamyStyle.gapTiny
       Repeater {
         model: legend.dashed ? 3 : 1
-        Rectangle { width: Style.space(legend.dashed ? 4 : 16); height: Style.space(2); radius: FoamyStyle.pillRadius(height); color: legend.dotColor }
+        Rectangle {
+          width: Style.space(legend.dashed ? 4 : 16)
+          height: Style.space(2)
+          radius: FoamyStyle.pillRadius(height)
+          color: legend.dotColor
+        }
       }
     }
-    Caption { text: legend.text; elide: Text.ElideRight; width: legend.textWidth > 0 ? Math.min(implicitWidth, legend.textWidth) : implicitWidth }
+    Caption {
+      text: legend.text
+      elide: Text.ElideRight
+      width: legend.textWidth > 0 ? Math.min(implicitWidth, legend.textWidth) : implicitWidth
+    }
   }
 
   component SectionHeading: Item {
@@ -723,8 +1000,22 @@ PanelKeyCatcher {
     property string detail: ""
     width: parent.width
     implicitHeight: Math.max(sectionTitle.implicitHeight, sectionDetail.implicitHeight)
-    Label { id: sectionTitle; anchors.left: parent.left; anchors.right: sectionDetail.left; anchors.rightMargin: FoamyStyle.gap; text: parent.title; font.weight: Font.DemiBold; font.pixelSize: FoamyStyle.font.title }
-    Caption { id: sectionDetail; anchors.right: parent.right; width: Math.min(implicitWidth, parent.width * 0.65); text: parent.detail; horizontalAlignment: Text.AlignRight }
+    Label {
+      id: sectionTitle
+      anchors.left: parent.left
+      anchors.right: sectionDetail.left
+      anchors.rightMargin: FoamyStyle.gap
+      text: parent.title
+      font.weight: Font.DemiBold
+      font.pixelSize: FoamyStyle.font.title
+    }
+    Caption {
+      id: sectionDetail
+      anchors.right: parent.right
+      width: Math.min(implicitWidth, parent.width * 0.65)
+      text: parent.detail
+      horizontalAlignment: Text.AlignRight
+    }
   }
 
   component DataRow: Item {
@@ -733,8 +1024,22 @@ PanelKeyCatcher {
     property bool subdued: false
     width: parent.width
     implicitHeight: Math.max(rowLabel.implicitHeight, rowValue.implicitHeight)
-    Caption { id: rowLabel; anchors.left: parent.left; anchors.right: rowValue.left; anchors.rightMargin: FoamyStyle.gap; text: parent.label }
-    Label { id: rowValue; anchors.right: parent.right; width: Math.min(implicitWidth, parent.width * 0.65); text: parent.value; color: parent.subdued ? view.dim : view.foreground; font.pixelSize: FoamyStyle.font.bodySmall; horizontalAlignment: Text.AlignRight }
+    Caption {
+      id: rowLabel
+      anchors.left: parent.left
+      anchors.right: rowValue.left
+      anchors.rightMargin: FoamyStyle.gap
+      text: parent.label
+    }
+    Label {
+      id: rowValue
+      anchors.right: parent.right
+      width: Math.min(implicitWidth, parent.width * 0.65)
+      text: parent.value
+      color: parent.subdued ? view.dim : view.foreground
+      font.pixelSize: FoamyStyle.font.bodySmall
+      horizontalAlignment: Text.AlignRight
+    }
   }
 
   component ProcessSection: Column {
@@ -743,9 +1048,18 @@ PanelKeyCatcher {
     property var entries: []
     property bool memoryMode: false
     spacing: FoamyStyle.gapSmall
-    SectionHeading { title: section.title }
-    DataRow { label: FoamyI18n.t("Process"); value: section.memoryMode ? FoamyI18n.t("Memory") : "CPU"; subdued: true }
-    Caption { visible: section.entries.length === 0; text: "--" }
+    SectionHeading {
+      title: section.title
+    }
+    DataRow {
+      label: FoamyI18n.t("Process")
+      value: section.memoryMode ? FoamyI18n.t("Memory") : "CPU"
+      subdued: true
+    }
+    Caption {
+      visible: section.entries.length === 0
+      text: "--"
+    }
   }
 
   // One ranking row; part of the panel cursor. Enter or a click opens btop.
@@ -764,14 +1078,17 @@ PanelKeyCatcher {
     onClicked: view.btopRequested()
     Label {
       id: processName
-      anchors.left: parent.left; anchors.leftMargin: FoamyStyle.gap
-      anchors.right: processValue.left; anchors.rightMargin: FoamyStyle.gapLarge
+      anchors.left: parent.left
+      anchors.leftMargin: FoamyStyle.gap
+      anchors.right: processValue.left
+      anchors.rightMargin: FoamyStyle.gapLarge
       anchors.verticalCenter: parent.verticalCenter
       text: view.processLabel(row.modelData)
     }
     Label {
       id: processValue
-      anchors.right: parent.right; anchors.rightMargin: FoamyStyle.gap
+      anchors.right: parent.right
+      anchors.rightMargin: FoamyStyle.gap
       anchors.verticalCenter: parent.verticalCenter
       text: row.section && row.section.memoryMode ? view.memoryAmount(row.modelData.rssKb) : view.processShare(row.modelData.pct)
     }
@@ -787,17 +1104,36 @@ PanelKeyCatcher {
     id: section
     // Name, busy, temperature and VRAM columns, as fractions of the row.
     readonly property var columns: [0.40, 0.24, 0.13, 0.23]
-    function columnWidth(i) { return width * columns[i] }
+    function columnWidth(i) {
+      return width * columns[i]
+    }
     width: content.inner
     visible: r.multiGpu
     spacing: FoamyStyle.gapSmall
-    SectionHeading { title: FoamyI18n.t("Graphics"); detail: FoamyI18n.tn("%1 GPUs", r.gpus.length) }
+    SectionHeading {
+      title: FoamyI18n.t("Graphics")
+      detail: FoamyI18n.tn("%1 GPUs", r.gpus.length)
+    }
     Row {
       width: parent.width
-      Caption { width: section.columnWidth(0); text: FoamyI18n.t("GPU") }
-      Caption { width: section.columnWidth(1); text: FoamyI18n.t("Busy") }
-      Caption { width: section.columnWidth(2); text: FoamyI18n.t("Temp"); horizontalAlignment: Text.AlignRight }
-      Caption { width: section.columnWidth(3); text: FoamyI18n.t("VRAM"); horizontalAlignment: Text.AlignRight }
+      Caption {
+        width: section.columnWidth(0)
+        text: FoamyI18n.t("GPU")
+      }
+      Caption {
+        width: section.columnWidth(1)
+        text: FoamyI18n.t("Busy")
+      }
+      Caption {
+        width: section.columnWidth(2)
+        text: FoamyI18n.t("Temp")
+        horizontalAlignment: Text.AlignRight
+      }
+      Caption {
+        width: section.columnWidth(3)
+        text: FoamyI18n.t("VRAM")
+        horizontalAlignment: Text.AlignRight
+      }
     }
     // The GpuRow repeater goes here, declared where its id is visible to the view.
   }
@@ -815,7 +1151,9 @@ PanelKeyCatcher {
     readonly property bool asleep: modelData.asleep === true
     readonly property bool intel: modelData.vendor === "intel"
     readonly property string action: pinned ? FoamyI18n.t("Click to unpin") : FoamyI18n.t("Click to pin to bar")
-    function value(key) { return VitalsService.reading(modelData, key) }
+    function value(key) {
+      return VitalsService.reading(modelData, key)
+    }
     width: section ? section.width + FoamyStyle.gap * 2 : 0
     x: -FoamyStyle.gap
     height: nameCell.implicitHeight + FoamyStyle.gapSmall * 2
@@ -826,7 +1164,8 @@ PanelKeyCatcher {
     Accessible.name: name + " · " + action
 
     Row {
-      anchors.left: parent.left; anchors.leftMargin: FoamyStyle.gap
+      anchors.left: parent.left
+      anchors.leftMargin: FoamyStyle.gap
       anchors.verticalCenter: parent.verticalCenter
       Column {
         id: nameCell
@@ -838,7 +1177,10 @@ PanelKeyCatcher {
           width: parent.width
           spacing: Style.space(6)
           // The tag follows the name; only the name elides.
-          Label { width: Math.min(implicitWidth, nameCell.width - FoamyStyle.gap - (barTag.visible ? barTag.width + nameLine.spacing : 0)); text: row.name }
+          Label {
+            width: Math.min(implicitWidth, nameCell.width - FoamyStyle.gap - (barTag.visible ? barTag.width + nameLine.spacing : 0))
+            text: row.name
+          }
           Item {
             id: barTag
             visible: row.onBar
@@ -848,18 +1190,28 @@ PanelKeyCatcher {
             OpticalGlyph {
               id: pinGlyph
               visible: row.pinned
-              width: Style.space(12); height: Style.space(12)
-              text: "\u{f0403}"; fontFamily: FoamyStyle.monoFamily; fontSize: Style.space(12)
+              width: Style.space(12)
+              height: Style.space(12)
+              text: "\u{f0403}"
+              fontFamily: FoamyStyle.monoFamily
+              fontSize: Style.space(12)
               color: view.dim
             }
             Rectangle {
               id: barPill
               visible: !row.pinned
-              width: barText.implicitWidth + Style.space(10); height: barText.implicitHeight + Style.space(2)
+              width: barText.implicitWidth + Style.space(10)
+              height: barText.implicitHeight + Style.space(2)
               radius: FoamyStyle.pillRadius(height)
               color: "transparent"
-              border.width: 1; border.color: FoamyPalette.divider
-              Caption { id: barText; anchors.centerIn: parent; text: FoamyI18n.t("bar"); font.pixelSize: FoamyStyle.font.caption }
+              border.width: 1
+              border.color: FoamyPalette.divider
+              Caption {
+                id: barText
+                anchors.centerIn: parent
+                text: FoamyI18n.t("bar")
+                font.pixelSize: FoamyStyle.font.caption
+              }
             }
           }
         }
@@ -874,8 +1226,10 @@ PanelKeyCatcher {
         spacing: FoamyStyle.gap
         Meter {
           visible: !row.asleep
-          width: Style.space(40); anchors.verticalCenter: parent.verticalCenter
-          value: row.value("busy"); fillColor: row.modelData.busyWarning ? r.urgent : view.foreground
+          width: Style.space(40)
+          anchors.verticalCenter: parent.verticalCenter
+          value: row.value("busy")
+          fillColor: row.modelData.busyWarning ? r.urgent : view.foreground
         }
         Label {
           text: row.asleep ? FoamyI18n.t("Sleeping") : view.percent(row.value("busy"))
@@ -893,22 +1247,15 @@ PanelKeyCatcher {
         width: row.section ? row.section.columnWidth(3) : 0
         anchors.verticalCenter: parent.verticalCenter
         horizontalAlignment: Text.AlignRight
-        text: row.asleep ? FoamyI18n.t("Sleeping")
-          : row.intel ? view.memoryAmount(row.value("memoryPrivate") / 1024)
-          : view.pair(row.value("vramUsed") / 1073741824, row.value("vramTotal") / 1073741824)
+        text: row.asleep ? FoamyI18n.t("Sleeping") : row.intel ? view.memoryAmount(row.value("memoryPrivate") / 1024) : view.pair(row.value("vramUsed") / 1073741824, row.value("vramTotal") / 1073741824)
         color: row.asleep ? view.dim : row.modelData.vramWarning ? r.urgent : view.foreground
       }
     }
     PanelToolTip {
       visible: row.hasCursor
-      text: [
-        row.name,
-        row.modelData.id,
-        view.temperatureDetail(row.modelData.thermal),
-        isNaN(row.value("frequencyMHz")) ? "" : FoamyI18n.number(Math.round(row.value("frequencyMHz"))) + " MHz",
-        row.intel ? FoamyI18n.t("Intel GPU: busiest engine and private allocations from accessible processes for this user.") : "",
-        row.action
-      ].filter(function(line) { return line !== "" }).join("\n")
+      text: [row.name, row.modelData.id, view.temperatureDetail(row.modelData.thermal), isNaN(row.value("frequencyMHz")) ? "" : FoamyI18n.number(Math.round(row.value("frequencyMHz"))) + " MHz", row.intel ? FoamyI18n.t("Intel GPU: busiest engine and private allocations from accessible processes for this user.") : "", row.action].filter(function (line) {
+        return line !== ""
+      }).join("\n")
       fontFamily: FoamyStyle.fontFamily
     }
   }
@@ -930,6 +1277,8 @@ PanelKeyCatcher {
     to: schemaField.max
     stepSize: schemaField.step || 1
     field.Accessible.name: FoamyI18n.t(schemaField.group || "") + " " + FoamyI18n.t(schemaField.label)
-    onCommitted: function(v) { view.saveRequested(key, v) }
+    onCommitted: function (v) {
+      view.saveRequested(key, v)
+    }
   }
 }

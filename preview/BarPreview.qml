@@ -13,17 +13,42 @@ Item {
   required property Item anchorItem
   property var previewStates: ["bar"]
   property string previewState: "bar"
-  readonly property Item popup: popup
+  readonly property var popup: previewPopup
   readonly property var rows: [
-    { label: "Normal", text: "CPU 23%", warning: false, theme: true },
-    { label: "Adaptive: RAM is busiest", text: "RAM 64%", warning: false, theme: true },
-    { label: "Warning, theme warning color", text: "CPU 97%", warning: true, theme: true },
-    { label: "Warning, theme red", text: "CPU 97%", warning: true, theme: false },
-    { label: "No reading", text: "GPU --", warning: false, theme: true }
+    {
+      label: "Normal",
+      text: "CPU 23%",
+      warning: false,
+      theme: true
+    },
+    {
+      label: "Adaptive: RAM is busiest",
+      text: "RAM 64%",
+      warning: false,
+      theme: true
+    },
+    {
+      label: "Warning, theme warning color",
+      text: "CPU 97%",
+      warning: true,
+      theme: true
+    },
+    {
+      label: "Warning, theme red",
+      text: "CPU 97%",
+      warning: true,
+      theme: false
+    },
+    {
+      label: "No reading",
+      text: "GPU --",
+      warning: false,
+      theme: true
+    }
   ]
 
   FoamyPopup {
-    id: popup
+    id: previewPopup
     anchorItem: preview.anchorItem
     bar: preview.bar
     open: true
@@ -46,10 +71,17 @@ Item {
               font.pixelSize: FoamyStyle.font.body
             }
             Rectangle {
-              width: 120; height: 30
+              width: 120
+              height: 30
               radius: FoamyStyle.radiusSmall
               color: Commons.Color.bar.background
-              Vitals.VitalsReadings { id: readings; settings: ({ useThemeWarningColors: modelData.theme }); stats: ({}) }
+              Vitals.VitalsReadings {
+                id: readings
+                settings: ({
+                    useThemeWarningColors: modelData.theme
+                  })
+                stats: ({})
+              }
               Vitals.VitalsBarLabel {
                 anchors.centerIn: parent
                 text: modelData.text

@@ -185,7 +185,10 @@ kit/native/build-native.sh .          # bin/x86_64, bin/aarch64, native.pin
 kit/native/build-native.sh . --verify # clean rebuild is byte-identical
 ```
 
-Tests (Python 3 and Node are needed only here):
+Tests (Python 3 and Node are needed only here). `tests/validate.sh` runs the
+kit's linters and then `tests/suite.sh` (every test below except the
+benchmark; `--ci` keeps to node and the helper tests, `--fast` skips the
+offscreen runtime tests); `mise install` first installs the pinned tools.
 
 ```sh
 for t in tests/*.test.js tests/*.test.cjs; do node "$t"; done
@@ -194,16 +197,15 @@ python3 -I tests/test_intel_stats.py    # Intel DRM fdinfo readings
 FOAMY_HELPER='["bin/aarch64/foamy-vitals-helper", "stats"]' python3 -I tests/test_stats.py  # aarch64 via qemu
 FOAMY_VITALS_REFERENCE='["<dir>/stats.sh"]' python3 -I tests/compare_stats.py  # same bytes as #2's stats.sh (intel_stats.py beside it)
 python3 tests/runtime.py                 # offscreen on 4.5 (needs foamy-kit)
-python3 tests/i18n-runtime.py            # live switching; OMARCHY_PATH for another tree
+python3 tests/failure-runtime.py         # failed, malformed and unavailable helper; failed df; btop launch
+python3 "$FOAMY_KIT/preview/i18n_runtime.py" .  # catalogs, live no/ar/en switching (the kit's check)
 bash tests/kit-check.sh
 python3 -I tests/bench_stats.py [--bar]  # CPU, wall time and processes per sample
 python3 -I tests/bench_stats.py --fixture nvidia [--bar]  # fake trees: amd, nvidia, nvidia2, amd-nvidia, intel-nvidia, intel-amd
 ```
 
 The runtime test targets Omarchy 4.5, the installed `/usr/share/omarchy/shell`
-(`FOAMY_HOST_45` selects another shell tree). `runtime.py 4.0` and
-`runtime.py both` run 4.0 only against an Omarchy 4.0 shell tree in
-`FOAMY_HOST_40`, and print a SKIP line without one.
+(`FOAMY_HOST_45` selects another shell tree).
 
 `preview/Preview.qml` and `preview/BarPreview.qml` hold mock states for the
 foamy-kit preview harness.

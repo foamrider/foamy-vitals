@@ -40,11 +40,21 @@ Panel {
     fields: Schema.fields
     settings: root.settings
   }
-  FoamySettingsState { id: settingsState; panel: root }
+  FoamySettingsState {
+    id: settingsState
+    panel: root
+  }
 
-  VitalsReadings { id: readings; settings: prefs.effectiveSettings }
+  VitalsReadings {
+    id: readings
+    settings: prefs.effectiveSettings
+  }
 
-  FoamyMember { id: member; scope: VitalsService.memberScope; demanding: root.opened }
+  FoamyMember {
+    id: member
+    scope: VitalsService.memberScope
+    demanding: root.opened
+  }
 
   // Bar readings every 5 s; the popup's every 2 s while any popup is open.
   Timer {
@@ -64,15 +74,26 @@ Panel {
   FoamyIpc {
     target: "foamy.vitals"
     enabled: member.isLeader
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function toggle(): void { root.toggle() }
-    function settings(): void { root.openSettings() }
-    function refresh(): void { root.refresh() }
+    function open(): void {
+      root.open()
+    }
+    function close(): void {
+      root.close()
+    }
+    function toggle(): void {
+      root.toggle()
+    }
+    function settings(): void {
+      root.openSettings()
+    }
+    function refresh(): void {
+      root.refresh()
+    }
   }
 
   onOpenedChanged: {
-    if (opened) refresh()
+    if (opened)
+      refresh()
   }
 
   function refresh() {
@@ -80,19 +101,27 @@ Panel {
     VitalsService.refreshDisks()
   }
 
-  function openSettings() { settingsState.show() }
-  function closeSettings() { settingsState.hide() }
+  function openSettings() {
+    settingsState.show()
+  }
+  function closeSettings() {
+    settingsState.hide()
+  }
 
   function openBtop() {
     launchError = ""
-    if (!btopCheck.running) btopCheck.running = true
+    if (!btopCheck.running)
+      btopCheck.running = true
   }
   // Checked on each use, so installing btop later needs no shell restart.
   Process {
     id: btopCheck
-    command: ["sh", "-c", "command -v btop >/dev/null 2>&1"]
-    onExited: function(code) {
-      if (code !== 0) { root.launchError = "Install btop to use this shortcut."; return }
+    command: ["omarchy-cmd-present", "btop"]
+    onExited: function (code) {
+      if (code !== 0) {
+        root.launchError = "Install btop to use this shortcut."
+        return
+      }
       Quickshell.execDetached(["omarchy-launch-or-focus-tui", "btop"])
       root.close()
     }
@@ -105,8 +134,7 @@ Panel {
   function percent(v) {
     return isNaN(v) ? "--" : FoamyI18n.number(Math.round(v)) + "%"
   }
-  readonly property string barText: (readings.barMetric === "gpu" ? "GPU " : readings.barMetric === "memory" ? "RAM " : "CPU ")
-    + percent(readings.barMetric === "gpu" ? readings.gpu : readings.barMetric === "memory" ? readings.memory : readings.cpu)
+  readonly property string barText: (readings.barMetric === "gpu" ? "GPU " : readings.barMetric === "memory" ? "RAM " : "CPU ") + percent(readings.barMetric === "gpu" ? readings.gpu : readings.barMetric === "memory" ? readings.memory : readings.cpu)
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -133,9 +161,11 @@ Panel {
       fontFamily: root.fontFamily
     }
 
-    onPressed: function(buttonCode) {
-      if (buttonCode === Qt.RightButton) root.openBtop()
-      else root.toggle()
+    onPressed: function (buttonCode) {
+      if (buttonCode === Qt.RightButton)
+        root.openBtop()
+      else
+        root.toggle()
     }
   }
 
@@ -160,9 +190,13 @@ Panel {
         onSettingsClosed: root.closeSettings()
         onRefreshRequested: root.refresh()
         onBtopRequested: root.openBtop()
-        onSaveRequested: function(key, value) { root.save(key, value) }
+        onSaveRequested: function (key, value) {
+          root.save(key, value)
+        }
         onRetryRequested: prefs.retry()
-        onSwitchPanelRequested: function(direction) { root.switchPanel(direction) }
+        onSwitchPanelRequested: function (direction) {
+          root.switchPanel(direction)
+        }
       }
     }
   }

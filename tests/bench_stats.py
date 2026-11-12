@@ -22,6 +22,7 @@ entries the single-GPU helper (before #2) looked for, so either can be timed.
 The fake tree has few processes to scan, so a busy desktop costs the Intel
 scan somewhat more.
 """
+
 import argparse
 import os
 from pathlib import Path
@@ -36,17 +37,27 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fakesys import ROOT, Tree, amd_files  # noqa: E402
 
-NATIVE = ["bash", "-c", 'exec -- "$1/bin/$HOSTTYPE/$2" "${@:3}"', "foamy-native", str(ROOT), "foamy-vitals-helper", "stats"]
+NATIVE = [
+    "bash",
+    "-c",
+    'exec -- "$1/bin/$HOSTTYPE/$2" "${@:3}"',
+    "foamy-native",
+    str(ROOT),
+    "foamy-vitals-helper",
+    "stats",
+]
 
 
 FIXTURES = ("amd", "nvidia", "nvidia2", "amd-nvidia", "intel-nvidia", "intel-amd")
-PCI_IDS = ("1002  Advanced Micro Devices, Inc. [AMD/ATI]\n"
-           "\t150e  Strix [Radeon 880M / 890M]\n"
-           "\t7590  Navi 44 [Radeon RX 9050 / 9060 XT]\n"
-           "8086  Intel Corporation\n"
-           "\t7d55  Arrow Lake-P [Intel Graphics]\n"
-           "10de  NVIDIA Corporation\n"
-           "\t2786  AD104 [GeForce RTX 4070]\n")
+PCI_IDS = (
+    "1002  Advanced Micro Devices, Inc. [AMD/ATI]\n"
+    "\t150e  Strix [Radeon 880M / 890M]\n"
+    "\t7590  Navi 44 [Radeon RX 9050 / 9060 XT]\n"
+    "8086  Intel Corporation\n"
+    "\t7d55  Arrow Lake-P [Intel Graphics]\n"
+    "10de  NVIDIA Corporation\n"
+    "\t2786  AD104 [GeForce RTX 4070]\n"
+)
 
 
 def build_fixture(base, name):
@@ -86,8 +97,13 @@ def build_fixture(base, name):
         clock["tick"] += 1
         tree.uptime(clock["seconds"])
         tree.cpu(clock["tick"])
-    env = {"FOAMY_VITALS_PROC": str(tree.proc), "FOAMY_VITALS_SYS": str(tree.sys),
-           "FOAMY_VITALS_PCI_IDS": str(base / "pci.ids"), "PATH": f"{tree.bin}:{os.environ['PATH']}"}
+
+    env = {
+        "FOAMY_VITALS_PROC": str(tree.proc),
+        "FOAMY_VITALS_SYS": str(tree.sys),
+        "FOAMY_VITALS_PCI_IDS": str(base / "pci.ids"),
+        "PATH": f"{tree.bin}:{os.environ['PATH']}",
+    }
     return env, advance
 
 
@@ -106,7 +122,10 @@ def main():
     runtime = Path(tempfile.mkdtemp(prefix="foamy-vitals-bench-"))
     os.chmod(runtime, 0o700)
     env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime))
-    advance = lambda: time.sleep(2.1)
+
+    def advance():
+        time.sleep(2.1)
+
     if args.fixture:
         fixture_env, advance = build_fixture(runtime / "tree", args.fixture)
         env.update(fixture_env)
@@ -114,6 +133,7 @@ def main():
         helper = [str(Path(args.script).resolve())]
     elif os.environ.get("FOAMY_HELPER"):
         from fakesys import HELPER
+
         helper = HELPER
     else:
         helper = NATIVE
@@ -135,9 +155,22 @@ def main():
                 advance()
                 # PID 1 is the namespace shell; the sample's processes follow it,
                 # and the probe's own PID tells how many came before it.
-                probe = subprocess.run(["unshare", "-Upf", "--map-current-user", "bash", "-c",
-                                        '"$@" >/dev/null; bash -c \'echo $$\'; :', "bench"] + command,
-                                       env=env, capture_output=True, text=True, check=True).stdout
+                probe = subprocess.run(
+                    [
+                        "unshare",
+                        "-Upf",
+                        "--map-current-user",
+                        "bash",
+                        "-c",
+                        "\"$@\" >/dev/null; bash -c 'echo $$'; :",
+                        "bench",
+                    ]
+                    + command,
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                ).stdout
                 processes.append(int(probe.strip()) - 2)
     finally:
         shutil.rmtree(runtime, ignore_errors=True)
@@ -147,7 +180,9 @@ def main():
     print(f"  cpu   mean {1000 * statistics.mean(cpu):6.1f} ms  median {1000 * statistics.median(cpu):6.1f} ms")
     print(f"  wall  mean {1000 * statistics.mean(wall):6.1f} ms  median {1000 * statistics.median(wall):6.1f} ms")
     if processes:
-        print(f"  processes created per sample: median {statistics.median(processes):.0f} (min {min(processes)}, max {max(processes)})")
+        print(
+            f"  processes created per sample: median {statistics.median(processes):.0f} (min {min(processes)}, max {max(processes)})"
+        )
 
 
 if __name__ == "__main__":

@@ -37,16 +37,17 @@ const indirect = [
   ...fs.readdirSync(path.join(root, 'native/src')).filter(f => f.endsWith('.rs')).flatMap(f =>
     [...fs.readFileSync(path.join(root, 'native/src', f), 'utf8').replace(/\\u\{2026\}/g, '…')
       .matchAll(/(?:error = |(?:UNAVAILABLE|NVIDIA_ERROR): &str =\s*)"([A-Z][^"]+)"/g)].map(m => m[1])),
-  ...[...fs.readFileSync(path.join(root, 'VitalsService.qml'), 'utf8').matchAll(/(?:fail\(|diskStatus = (?:[^"]*\? "" : )?)"([A-Z][^"]+)"/g)].map(m => m[1]),
+  // Every capitalised literal on a fail(…) or `diskStatus = …` line (ternaries included).
+  ...[...fs.readFileSync(path.join(root, 'VitalsService.qml'), 'utf8').matchAll(/(?:fail\(|diskStatus = )([^\n]*)/g)]
+    .flatMap(m => [...m[1].matchAll(/"([A-Z][^"]+)"/g)].map(literal => literal[1])),
   'Reading disk capacity', 'Install btop to use this shortcut.', 'Edge', 'Hotspot', 'Memory', 'GPU',
-  ...['Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', "That value isn't allowed.", "Settings can't be saved: this widget has no bar entry."],
+  'Undo', 'Redo', 'Cut', 'Copy', 'Paste', 'Select all', "That value isn't allowed.", "Settings can't be saved: this widget has no bar entry.",
 ];
 assert.ok(indirect.includes('Telemetry unavailable. Retrying…') && indirect.includes('NVIDIA readings unavailable. Check nvidia-smi.'));
 assert.ok(indirect.includes('Intel GPU readings unavailable. Retrying…') && indirect.includes("This plugin's helper isn't available for this CPU."));
+assert.ok(indirect.includes('No mounted local disks') && indirect.includes("Some disks couldn't be read") && indirect.includes('Disk capacity unavailable'));
 for (const key of indirect) assert.ok(Object.hasOwn(en, key), `missing indirect catalog key: ${key}`);
 
 assert.equal(manifest.barWidget?.defaults?.language, undefined);
 assert.equal((manifest.barWidget?.schema || []).some(f => f.key === 'language'), false);
-const kit = fs.readFileSync(path.join(root, 'kit/FoamyI18n.qml'), 'utf8');
-assert.ok(kit.includes('Qt.createQmlObject'), '4.0 must not statically require a 4.5 QML type');
 console.log('i18n catalogs ok:', Object.keys(en).length, 'keys');

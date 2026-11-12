@@ -7,6 +7,7 @@ argv prefix as a JSON list; the default is this machine's
 bin/<arch>/foamy-vitals-helper stats. The aarch64 build runs through qemu
 binfmt: FOAMY_HELPER='["bin/aarch64/foamy-vitals-helper", "stats"]'.
 """
+
 import json
 import os
 from pathlib import Path
@@ -57,14 +58,16 @@ def amd_files(busy, used, total, discrete=False):
 
 
 def intel_fdinfo(ident=1, render=100, video=0, driver="i915", device=INTEL_DEVICE):
-    return (f"drm-driver: {driver}\n"
-            f"drm-pdev: {device}\n"
-            f"drm-client-id: {ident}\n"
-            f"drm-engine-render: {render} ns\n"
-            f"drm-engine-video: {video} ns\n"
-            "drm-engine-capacity-video: 2\n"
-            "drm-total-system0: 64 MiB\n"
-            "drm-shared-system0: 1024 KiB\n")
+    return (
+        f"drm-driver: {driver}\n"
+        f"drm-pdev: {device}\n"
+        f"drm-client-id: {ident}\n"
+        f"drm-engine-render: {render} ns\n"
+        f"drm-engine-video: {video} ns\n"
+        "drm-engine-capacity-video: 2\n"
+        "drm-total-system0: 64 MiB\n"
+        "drm-shared-system0: 1024 KiB\n"
+    )
 
 
 class Tree:
@@ -83,10 +86,11 @@ class Tree:
         (self.proc / "meminfo").write_text("MemTotal:       16000000 kB\nMemFree: 1 kB\nMemAvailable:   12000000 kB\n")
         (self.proc / "net/route").write_text(
             "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\n"
-            "wl\x01an0\t00000000\t0102A8C0\t0003\t0\t0\t600\t00000000\n")
+            "wl\x01an0\t00000000\t0102A8C0\t0003\t0\t0\t600\t00000000\n"
+        )
         (self.proc / "net/dev").write_text(
-            "Inter-|   Receive\n face |bytes\n"
-            "wl\x01an0:12345678901 10 0 0 0 0 0 0 98765 20 0 0 0 0 0 0\n")
+            "Inter-|   Receive\n face |bytes\nwl\x01an0:12345678901 10 0 0 0 0 0 0 98765 20 0 0 0 0 0 0\n"
+        )
         boot = self.proc / "sys/kernel/random/boot_id"
         boot.parent.mkdir(parents=True)
         boot.write_text("boot-1\n")
@@ -109,14 +113,37 @@ class Tree:
         (self.proc / "stat").write_text(
             f"cpu  {busy * 2} 0 0 {idle * 2} 0 0 0 0 0 0\n"
             f"cpu0 {busy} 0 0 {idle} 0 0 0 0 0 0\n"
-            f"cpu1 {busy} 0 0 {idle} 0 0 0 0 0 0\n")
+            f"cpu1 {busy} 0 0 {idle} 0 0 0 0 0 0\n"
+        )
 
     def process(self, pid, name, jiffies, rss_pages, cwd=None, kernel=False):
         directory = self.proc / str(pid)
         directory.mkdir(exist_ok=True)
         flags = 2097152 if kernel else 4194304
-        fields = ["S", "1", str(pid), str(pid), "0", "-1", str(flags), "0", "0", "0", "0",
-                  str(jiffies), "0", "0", "0", "20", "0", "1", "0", "100", "1000", str(rss_pages)]
+        fields = [
+            "S",
+            "1",
+            str(pid),
+            str(pid),
+            "0",
+            "-1",
+            str(flags),
+            "0",
+            "0",
+            "0",
+            "0",
+            str(jiffies),
+            "0",
+            "0",
+            "0",
+            "20",
+            "0",
+            "1",
+            "0",
+            "100",
+            "1000",
+            str(rss_pages),
+        ]
         raw = name if isinstance(name, bytes) else name.encode("utf-8", "surrogateescape")
         (directory / "stat").write_bytes(f"{pid} (".encode() + raw + b") " + " ".join(fields).encode() + b"\n")
         link = directory / "cwd"
@@ -139,8 +166,18 @@ class Tree:
     def device(self, address):
         return self.sys / f"devices/pci{address[:7]}/{address}"
 
-    def gpu(self, address, driver, class_="0x030000", control="on", status="active", files={}, hwmon=[],
-            vendor="0x1002", device="0x150e"):
+    def gpu(
+        self,
+        address,
+        driver,
+        class_="0x030000",
+        control="on",
+        status="active",
+        files=None,
+        hwmon=(),
+        vendor="0x1002",
+        device="0x150e",
+    ):
         """A PCI device, bound to driver (None: unbound) through sys/bus/pci/drivers/<driver>/<address>."""
         path = self.device(address)
         (path / "power").mkdir(parents=True)
@@ -164,7 +201,7 @@ class Tree:
                 contents[f"hwmon/hwmon0/temp{number}_label"] = label + "\n"
             if crit_milli is not None:
                 contents[f"hwmon/hwmon0/temp{number}_crit"] = f"{crit_milli}\n"
-        contents.update(files)
+        contents.update(files or {})
         for name, content in contents.items():
             target = path / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -186,18 +223,22 @@ class Tree:
         xml = self.base / "nvidia-smi.xml"
         failtemp = self.base / "nvidia-smi.failtemp"
         reply.write_text("".join(f"{nv_bus(address)}, 37, 1178, 8192, 51\n" for address in addresses))
-        blocks = "".join(f'<gpu id="{nv_bus(address)}"><temperature><gpu_temp>51 C</gpu_temp>'
-                         '<gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu>'
-                         for address in addresses)
+        blocks = "".join(
+            f'<gpu id="{nv_bus(address)}"><temperature><gpu_temp>51 C</gpu_temp>'
+            "<gpu_temp_max_threshold>98 C</gpu_temp_max_threshold></temperature></gpu>"
+            for address in addresses
+        )
         script = self.bin / "nvidia-smi"
-        script.write_text(textwrap.dedent(f"""\
+        script.write_text(
+            textwrap.dedent(f"""\
             #!/bin/sh
             printf '%s\\n' "$*" >>'{log}'
             case "$*" in
               *--query-gpu*) [ -s '{reply}' ] || exit 6; cat '{reply}' ;;
               *TEMPERATURE*) [ -e '{failtemp}' ] && exit 9; [ -s '{xml}' ] && exec cat '{xml}'; printf '%s\\n' '<?xml version="1.0"?>' '<nvidia_smi_log>{blocks}</nvidia_smi_log>' ;;
             esac
-            """))
+            """)
+        )
         script.chmod(0o755)
         return log, reply
 
@@ -236,8 +277,14 @@ class Tree:
         (self.state / f"intel-{device}.json").write_text(json.dumps(snapshot, separators=(",", ":")))
 
     def env(self):
-        return dict(os.environ, FOAMY_VITALS_PROC=str(self.proc), FOAMY_VITALS_SYS=str(self.sys),
-                    FOAMY_VITALS_PCI_IDS=str(self.base / "pci.ids"), XDG_RUNTIME_DIR=str(self.runtime), PATH=f"{self.bin}:{os.environ['PATH']}")
+        return dict(
+            os.environ,
+            FOAMY_VITALS_PROC=str(self.proc),
+            FOAMY_VITALS_SYS=str(self.sys),
+            FOAMY_VITALS_PCI_IDS=str(self.base / "pci.ids"),
+            XDG_RUNTIME_DIR=str(self.runtime),
+            PATH=f"{self.bin}:{os.environ['PATH']}",
+        )
 
     def run_raw(self, *args, env=None):
         return subprocess.run([*self.helper, *args], env=env or self.env(), capture_output=True, timeout=20)

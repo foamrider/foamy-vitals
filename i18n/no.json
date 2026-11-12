@@ -49,6 +49,7 @@
   "No mounted local disks": "Ingen lokale disker montert",
   "Reading disk capacity": "Leser diskplass",
   "Disk capacity unavailable": "Diskplass utilgjengelig",
+  "Some disks couldn't be read": "Noen disker kunne ikke leses",
   "Telemetry unavailable. Retrying…": "Målinger utilgjengelige. Prøver igjen…",
   "Intel GPU readings unavailable. Retrying…": "Intel GPU-avlesninger er utilgjengelige. Prøver igjen…",
   "This plugin's helper isn't available for this CPU.": "Hjelpeprogrammet til denne utvidelsen er ikke tilgjengelig for denne prosessoren.",

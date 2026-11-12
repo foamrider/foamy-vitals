@@ -1,0 +1,172 @@
+# qmllint findings accepted when the check was adopted. tests/validate.sh fails on any
+# finding not listed here. Regenerate with `tests/validate.sh --update-baseline qmllint`
+# only to drop fixed entries or after reviewing every added one; never to pass a check.
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var g = 0; g < levels.length; g++) {
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var i = 0; i < points.length; i++) {
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var s = 0; s < series.length; s++) {
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var connected = false
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var data = series[s]
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var direction = centered && data.negative ? 1 : -1
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var point = points[i]
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var points = data.points || []
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var previousTime = 0
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var valueY = axis + direction * Math.min(1, point.value / Math.max(1, maximum)) * span
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var x = (point.time - endTime + 120000) / 120000 * width
+HistoryChart.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var y = Math.round(axis - levels[g] * span) + 0.5
+HistoryChart.qml: missing-property: Member "text" not found on type "QObject" | property color gridColor: Qt.alpha(Commons.Color.popups.text, 0.14)
+Panel.qml: id-shadows-member: Id for object FoamyPrefsQueue shadows property "prefs". Rename one or the other. | readonly property string settingsError: prefs.error ? FoamyI18n.t(prefs.error) : ""
+Panel.qml: id-shadows-member: Id for object VitalsReadings shadows property "readings". Rename one or the other. | readonly property color barUrgent: readings.warningColor(barSurface, bar ? bar.urgent : Commons.Color.urgent)
+Panel.qml: id-shadows-member: Note: Id defined here | id: prefs
+Panel.qml: id-shadows-member: Note: Id defined here | id: readings
+Panel.qml: missing-property: Member "background" not found on type "QObject" | readonly property color barSurface: bar ? bar.background : Commons.Color.bar.background
+Panel.qml: missing-property: Member "background" not found on type "QObject" | readonly property color barSurface: bar ? bar.background : Commons.Color.bar.background
+Panel.qml: missing-property: Member "family" not found on type "QObject" | readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
+Panel.qml: missing-property: Member "fontFamily" not found on type "QObject" | readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
+Panel.qml: missing-property: Member "position" not found on type "QObject" | readonly property bool vertical: bar && (bar.position === "left" || bar.position === "right")
+Panel.qml: missing-property: Member "position" not found on type "QObject" | readonly property bool vertical: bar && (bar.position === "left" || bar.position === "right")
+Panel.qml: missing-property: Member "urgent" not found on type "QObject" | readonly property color barUrgent: readings.warningColor(barSurface, bar ? bar.urgent : Commons.Color.urgent)
+Panel.qml: unqualified: Unqualified access | editingSettings: root.editingSettings
+Panel.qml: unqualified: Unqualified access | launchError: root.launchError
+Panel.qml: unqualified: Unqualified access | live: root.opened
+Panel.qml: unqualified: Unqualified access | onBtopRequested: root.openBtop()
+Panel.qml: unqualified: Unqualified access | onCloseRequestedByView: root.editingSettings ? root.closeSettings() : root.close()
+Panel.qml: unqualified: Unqualified access | onCloseRequestedByView: root.editingSettings ? root.closeSettings() : root.close()
+Panel.qml: unqualified: Unqualified access | onCloseRequestedByView: root.editingSettings ? root.closeSettings() : root.close()
+Panel.qml: unqualified: Unqualified access | onRefreshRequested: root.refresh()
+Panel.qml: unqualified: Unqualified access | onRetryRequested: prefs.retry()
+Panel.qml: unqualified: Unqualified access | onSettingsClosed: root.closeSettings()
+Panel.qml: unqualified: Unqualified access | onSettingsRequested: root.openSettings()
+Panel.qml: unqualified: Unqualified access | retryable: prefs.canRetry
+Panel.qml: unqualified: Unqualified access | root.save(key, value)
+Panel.qml: unqualified: Unqualified access | root.switchPanel(direction)
+Panel.qml: unqualified: Unqualified access | saving: root.saving
+Panel.qml: unqualified: Unqualified access | settings: prefs.effectiveSettings
+Panel.qml: unqualified: Unqualified access | settingsError: root.settingsError
+VitalsBarLabel.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: Style.font.body
+VitalsBarLabel.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: Style.font.body
+VitalsBarLabel.qml: missing-property: Member "family" not found on type "QObject" | property string fontFamily: Style.font.family
+VitalsBarLabel.qml: missing-property: Member "iconCanvas" not found on type "QObject" | implicitHeight: Style.bar.iconCanvas
+VitalsReadings.qml: missing-property: Member "background" not found on type "QObject" | readonly property color urgent: warningColor(Commons.Color.popups.background, Commons.Color.urgent)
+VitalsService.qml: import: Type VitalsService not declared as singleton in qmldir but using pragma Singleton
+VitalsService.qml: incompatible-type: Cannot assign binding of type QVariantMap to QVariantHash | environment: ({
+VitalsView.qml: id-shadows-member: Id for object Flickable shadows property "flick". Rename one or the other. | flick.contentY = 0
+VitalsView.qml: id-shadows-member: Id for object FoamyCursor shadows property "cursor". Rename one or the other. | cursor.reset()
+VitalsView.qml: id-shadows-member: Id for object FoamySettingsPage shadows property "settingsPage". Rename one or the other. | implicitHeight: editingSettings ? settingsPage.implicitHeight : page.implicitHeight
+VitalsView.qml: id-shadows-member: Note: Id defined here | id: cursor
+VitalsView.qml: id-shadows-member: Note: Id defined here | id: flick
+VitalsView.qml: id-shadows-member: Note: Id defined here | id: settingsPage
+VitalsView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+VitalsView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+VitalsView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+VitalsView.qml: missing-property: Member "bodySmall" not found on type "QObject" | fontSize: FoamyStyle.font.bodySmall
+VitalsView.qml: missing-property: Member "caption" not found on type "QObject" | font.pixelSize: FoamyStyle.font.caption
+VitalsView.qml: missing-property: Member "caption" not found on type "QObject" | font.pixelSize: FoamyStyle.font.caption
+VitalsView.qml: missing-property: Member "caption" not found on type "QObject" | font.pixelSize: FoamyStyle.font.caption
+VitalsView.qml: missing-property: Member "caption" not found on type "QObject" | font.pixelSize: FoamyStyle.font.caption
+VitalsView.qml: missing-property: Member "display" not found on type "QObject" | Layout.preferredHeight: FoamyStyle.font.display
+VitalsView.qml: missing-property: Member "display" not found on type "QObject" | Layout.preferredWidth: FoamyStyle.font.display
+VitalsView.qml: missing-property: Member "display" not found on type "QObject" | font.pixelSize: FoamyStyle.font.display
+VitalsView.qml: missing-property: Member "display" not found on type "QObject" | font.pixelSize: FoamyStyle.font.display
+VitalsView.qml: missing-property: Member "heading" not found on type "QObject" | font.pixelSize: FoamyStyle.font.heading
+VitalsView.qml: missing-property: Member "heading" not found on type "QObject" | font.pixelSize: FoamyStyle.font.heading
+VitalsView.qml: missing-property: Member "subtitle" not found on type "QObject" | font.pixelSize: FoamyStyle.font.subtitle
+VitalsView.qml: missing-property: Member "title" not found on type "QObject" | font.pixelSize: FoamyStyle.font.title
+VitalsView.qml: unqualified: Unqualified access | color: Qt.alpha(view.foreground, 0.12)
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: legend.dotColor
+VitalsView.qml: unqualified: Unqualified access | color: parent.subdued ? view.dim : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: parent.subdued ? view.dim : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.busyWarning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.busyWarning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.busyWarning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.hot ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.hot ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.hot ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.vramWarning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.vramWarning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.vramWarning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: view.coreLoad(modelData) >= r.preference("cpuWarning") ? r.urgent : view.cpuColor
+VitalsView.qml: unqualified: Unqualified access | color: view.coreLoad(modelData) >= r.preference("cpuWarning") ? r.urgent : view.cpuColor
+VitalsView.qml: unqualified: Unqualified access | color: view.coreLoad(modelData) >= r.preference("cpuWarning") ? r.urgent : view.cpuColor
+VitalsView.qml: unqualified: Unqualified access | color: view.coreLoad(modelData) >= r.preference("cpuWarning") ? r.urgent : view.cpuColor
+VitalsView.qml: unqualified: Unqualified access | color: view.dim
+VitalsView.qml: unqualified: Unqualified access | color: view.dim
+VitalsView.qml: unqualified: Unqualified access | color: view.foreground
+VitalsView.qml: unqualified: Unqualified access | detail: FoamyI18n.tn("%1 GPUs", r.gpus.length)
+VitalsView.qml: unqualified: Unqualified access | dotColor: view.gpuSlotColor(Gpus.colorSlot(r.gpus, view.history.gpus, modelData))
+VitalsView.qml: unqualified: Unqualified access | dotColor: view.gpuSlotColor(Gpus.colorSlot(r.gpus, view.history.gpus, modelData))
+VitalsView.qml: unqualified: Unqualified access | dotColor: view.gpuSlotColor(Gpus.colorSlot(r.gpus, view.history.gpus, modelData))
+VitalsView.qml: unqualified: Unqualified access | endTime: view.live ? VitalsService.sampledAt : 0
+VitalsView.qml: unqualified: Unqualified access | fillColor: card.warning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | fillColor: card.warning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | fillColor: row.modelData.busyWarning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | fillColor: row.modelData.busyWarning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | first: view.cpuStart
+VitalsView.qml: unqualified: Unqualified access | first: view.memoryStart
+VitalsView.qml: unqualified: Unqualified access | gridColor: Qt.alpha(view.foreground, 0.14)
+VitalsView.qml: unqualified: Unqualified access | hasCursor: cursor.at(stop)
+VitalsView.qml: unqualified: Unqualified access | hasCursor: cursor.at(stop)
+VitalsView.qml: unqualified: Unqualified access | height: coreRow.height
+VitalsView.qml: unqualified: Unqualified access | onClicked: view.btopRequested()
+VitalsView.qml: unqualified: Unqualified access | onClicked: view.togglePin(modelData.id)
+VitalsView.qml: unqualified: Unqualified access | onHovered: cursor.hover(stop)
+VitalsView.qml: unqualified: Unqualified access | onHovered: cursor.hover(stop)
+VitalsView.qml: unqualified: Unqualified access | opacity: modelData === null ? 0.08 : view.hoveredCore === index ? 1 : 0.15 + 0.75 * view.coreLoad(modelData) / 100
+VitalsView.qml: unqualified: Unqualified access | opacity: modelData === null ? 0.08 : view.hoveredCore === index ? 1 : 0.15 + 0.75 * view.coreLoad(modelData) / 100
+VitalsView.qml: unqualified: Unqualified access | property color dotColor: view.cpuColor
+VitalsView.qml: unqualified: Unqualified access | property color fillColor: view.foreground
+VitalsView.qml: unqualified: Unqualified access | readonly property bool onBar: !!r.barGpu && r.barGpu.id === modelData.id
+VitalsView.qml: unqualified: Unqualified access | readonly property bool onBar: !!r.barGpu && r.barGpu.id === modelData.id
+VitalsView.qml: unqualified: Unqualified access | readonly property bool pinned: r.pinnedGpu === modelData.id
+VitalsView.qml: unqualified: Unqualified access | readonly property int stop: view.graphicsStart + index
+VitalsView.qml: unqualified: Unqualified access | readonly property string name: Gpus.displayName(modelData, r.gpuRows, false)
+VitalsView.qml: unqualified: Unqualified access | section: cpuSection
+VitalsView.qml: unqualified: Unqualified access | section: graphics
+VitalsView.qml: unqualified: Unqualified access | section: memorySection
+VitalsView.qml: unqualified: Unqualified access | text: [row.name, row.modelData.id, view.temperatureDetail(row.modelData.thermal), isNaN(row.value("frequencyMHz")) ? "" : FoamyI18n.number(Math.round(row.value(
+VitalsView.qml: unqualified: Unqualified access | text: row.asleep ? FoamyI18n.t("Sleeping") : row.intel ? view.memoryAmount(row.value("memoryPrivate") / 1024) : view.pair(row.value("vramUsed") / 1073741824, ro
+VitalsView.qml: unqualified: Unqualified access | text: row.asleep ? FoamyI18n.t("Sleeping") : row.intel ? view.memoryAmount(row.value("memoryPrivate") / 1024) : view.pair(row.value("vramUsed") / 1073741824, ro
+VitalsView.qml: unqualified: Unqualified access | text: row.asleep ? FoamyI18n.t("Sleeping") : view.degrees(row.modelData.thermal.temperature)
+VitalsView.qml: unqualified: Unqualified access | text: row.asleep ? FoamyI18n.t("Sleeping") : view.percent(row.value("busy"))
+VitalsView.qml: unqualified: Unqualified access | text: row.section && row.section.memoryMode ? view.memoryAmount(row.modelData.rssKb) : view.processShare(row.modelData.pct)
+VitalsView.qml: unqualified: Unqualified access | text: row.section && row.section.memoryMode ? view.memoryAmount(row.modelData.rssKb) : view.processShare(row.modelData.pct)
+VitalsView.qml: unqualified: Unqualified access | text: view.gpuLegend(modelData)
+VitalsView.qml: unqualified: Unqualified access | text: view.processLabel(row.modelData)
+VitalsView.qml: unqualified: Unqualified access | text: view.processLabel(row.modelData) + (row.section && row.section.memoryMode ? "" : " · " + FoamyI18n.t("100% = 1 thread"))
+VitalsView.qml: unqualified: Unqualified access | value: Prefs.value(Schema.fields, view.settings, key)
+VitalsView.qml: unqualified: Unqualified access | value: view.diskCapacity(parent.modelData.usedKb, parent.modelData.totalKb)
+VitalsView.qml: unqualified: Unqualified access | view.saveRequested(key, v)
+VitalsView.qml: unqualified: Unqualified access | visible: r.multiGpu
+VitalsView.qml: unqualified: Unqualified access | width: Style.space(legend.dashed ? 4 : 16)
+VitalsView.qml: unqualified: Unqualified access | width: content.inner
+VitalsView.qml: unqualified: Unqualified access | width: details.columnWidth
+VitalsView.qml: unqualified: Unqualified access | width: view.cellWidth
+VitalsView.qml: unqualified: Unqualified access | width: view.cores.length ? Math.max(0, (coreRow.width - coreRow.spacing * (view.cores.length - 1)) / view.cores.length) : 0
+VitalsView.qml: unqualified: Unqualified access | width: view.cores.length ? Math.max(0, (coreRow.width - coreRow.spacing * (view.cores.length - 1)) / view.cores.length) : 0
+VitalsView.qml: unqualified: Unqualified access | width: view.cores.length ? Math.max(0, (coreRow.width - coreRow.spacing * (view.cores.length - 1)) / view.cores.length) : 0
+VitalsView.qml: unqualified: Unqualified access | width: view.cores.length ? Math.max(0, (coreRow.width - coreRow.spacing * (view.cores.length - 1)) / view.cores.length) : 0
+VitalsView.qml: unqualified: Unqualified access | width: view.cores.length ? Math.max(0, (coreRow.width - coreRow.spacing * (view.cores.length - 1)) / view.cores.length) : 0
+VitalsView.qml: unqualified: Unqualified access | zeroColor: Qt.alpha(view.foreground, 0.40)
+preview/BarPreview.qml: missing-property: Member "background" not found on type "QObject" | color: Commons.Color.bar.background
+preview/BarPreview.qml: missing-property: Member "background" not found on type "QObject" | warningColor: readings.warningColor(Commons.Color.bar.background, Commons.Color.urgent)
+preview/BarPreview.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: FoamyStyle.font.body
+preview/BarPreview.qml: missing-property: Member "text" not found on type "QObject" | foreground: Commons.Color.bar.text
+preview/BarPreview.qml: unqualified: Unqualified access | model: preview.rows
+preview/BarPreview.qml: unqualified: Unqualified access | text: modelData.label
+preview/BarPreview.qml: unqualified: Unqualified access | text: modelData.text
+preview/BarPreview.qml: unqualified: Unqualified access | useThemeWarningColors: modelData.theme
+preview/BarPreview.qml: unqualified: Unqualified access | warning: modelData.warning
+preview/Preview.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var i = 0; i < gpus.length; i++)
+preview/Preview.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var i = 0; i <= 60; i++)
+preview/Preview.qml: unqualified: Unqualified access | editingSettings: preview.previewState.indexOf("settings") === 0
+preview/Preview.qml: unqualified: Unqualified access | retryable: preview.previewState === "settings-error"
+preview/Preview.qml: unqualified: Unqualified access | settings: preview.previewState === "warning" ? ({
+preview/Preview.qml: unqualified: Unqualified access | settingsError: preview.previewState === "settings-error" ? "Couldn't save the setting." : ""
+preview/Preview.qml: unqualified: Unqualified access | }) : preview.previewState === "graphics" ? ({
