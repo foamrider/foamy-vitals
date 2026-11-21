@@ -537,9 +537,18 @@ class FakeTreeTest(TreeCase):
         base = Path(tempfile.mkdtemp(prefix="foamy-vitals-stats-ns-", dir="/var/tmp"))
         self.addCleanup(shutil.rmtree, base, True)
         self.assertFalse(str(base).startswith("/tmp/"))
+        # The helper can live under /tmp too (FOAMY_HELPER, or a checkout
+        # there), and the private /tmp would hide it: run copies of the files
+        # its argv names, kept next to the fake trees.
+        staged = base / "helper"
+        staged.mkdir()
+        helper = [
+            str(shutil.copy2(part, staged / f"{index}-{Path(part).name}")) if os.path.isfile(part) else part
+            for index, part in enumerate(HELPER)
+        ]
         for planted in (False, True):
             with self.subTest("the /tmp fallback is a symlink too" if planted else "the runtime one is a symlink"):
-                tree = Tree(base / ("both" if planted else "runtime"))
+                tree = Tree(base / ("both" if planted else "runtime"), helper)
                 os.chmod(tree.runtime, 0o755)
                 targets = [tree.base / "runtime-target", tree.base / "fallback-target"]
                 for target in targets:
