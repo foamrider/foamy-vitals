@@ -142,7 +142,7 @@ class FakeTreeTest(TreeCase):
 
     def test_process_names_and_directories_as_the_kernel_writes_them(self):
         # A name ends at the last ")" of the stat line ("(sd-pam)" runs in every session), and
-        # "where" names only a project directory, never /, $HOME or a kernel directory.
+        # "where" names only a project directory, never $HOME or a kernel directory.
         tree = self.tree
         home = str(self.base / "home")
         for pid, name, rss, cwd in (
@@ -238,7 +238,7 @@ class FakeTreeTest(TreeCase):
         tree = self.tree
         self.assertEqual(tree.helper[-1], "stats")
         program = tree.helper[:-1]
-        for args in ([], ["stats", "--probe"], ["stats", "--bar", "x"], ["--bar"]):
+        for args in ([], ["--probe"], ["stats", "--probe"], ["stats", "--bar", "x"], ["--bar"]):
             with self.subTest(args=args):
                 result = subprocess.run([*program, *args], env=tree.env(), capture_output=True, timeout=20)
                 self.assertEqual(result.returncode, 2, result.stderr)
@@ -526,9 +526,12 @@ class FakeTreeTest(TreeCase):
             "a planted state file is never written through",
         )
 
-    def test_unsafe_state_directories_are_skipped(self):
+    def test_unsafe_state_directories_are_not_used(self):
         unshare = ["unshare", "--user", "--map-current-user", "--keep-caps", "--mount"]
-        if not shutil.which("unshare") or subprocess.run([*unshare, "true"], capture_output=True).returncode:
+        probe = shutil.which("unshare") and subprocess.run(
+            [*unshare, "true"], env=isolated_environ(), capture_output=True, timeout=20
+        )
+        if not probe or probe.returncode:
             self.skipTest("needs an unprivileged user and mount namespace (unshare)")
         # The helper gets an empty /tmp of its own, so its fake tree must be elsewhere.
         base = Path(tempfile.mkdtemp(prefix="foamy-vitals-stats-ns-", dir="/var/tmp"))
@@ -1056,6 +1059,7 @@ class GpuTest(TreeCase):
         # The holder says when it has the lock, so the helper surely waits.
         holder = subprocess.Popen(
             ["flock", str(self.tree.state / "lock"), "sh", "-c", "echo locked; exec sleep 3.7"],
+            env=isolated_environ(),
             stdout=subprocess.PIPE,
             text=True,
         )
@@ -1071,8 +1075,9 @@ class GpuTest(TreeCase):
             timeout=20,
         )
         elapsed = time.monotonic() - started
+        stderr = result.stderr.decode(errors="replace")
+        self.assertEqual(result.returncode, 0, f"exit {result.returncode} after {elapsed:.1f} s: {stderr}")
         self.assertGreaterEqual(elapsed, 3.0, "the helper waited for the lock")
-        self.assertEqual(result.returncode, 0, f"killed by the wrapper after {elapsed:.1f} s")
         sample = strict(result.stdout.decode())
         self.assertEqual(only(sample)["error"], NVIDIA_ERROR, "the query that didn't fit is an NVIDIA error")
         self.assertLess(elapsed, 5)
@@ -1117,6 +1122,7 @@ class RealSystemTest(unittest.TestCase):
             sys.stdin.read()
             """),
             ],
+            env=isolated_environ(),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,

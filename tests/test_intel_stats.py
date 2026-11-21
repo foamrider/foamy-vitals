@@ -23,7 +23,7 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fakesys import FIFO, INTEL_DEVICE, Tree, intel_fdinfo as fdinfo  # noqa: E402
+from fakesys import FIFO, INTEL_DEVICE, Tree, intel_fdinfo as fdinfo, isolated_environ  # noqa: E402
 
 UNAVAILABLE = "Intel GPU readings unavailable. Retrying…"
 SECOND = 1_000_000_000
@@ -391,6 +391,7 @@ class IntelTest(unittest.TestCase):
         # The holder says when it has the lock, so the helper surely waits.
         holder = subprocess.Popen(
             ["flock", str(self.tree.state / "lock"), "sh", "-c", "echo locked; exec sleep 3.7"],
+            env=isolated_environ(),
             stdout=subprocess.PIPE,
             text=True,
         )
@@ -406,8 +407,9 @@ class IntelTest(unittest.TestCase):
             timeout=20,
         )
         elapsed = time.monotonic() - started
+        stderr = result.stderr.decode(errors="replace")
+        self.assertEqual(result.returncode, 0, f"exit {result.returncode} after {elapsed:.1f} s: {stderr}")
         self.assertGreaterEqual(elapsed, 3.0, "the helper waited for the lock")
-        self.assertEqual(result.returncode, 0, "killed by the wrapper")
         sample = json.loads(result.stdout)
         self.assertEqual(sample["gpus"][0]["error"], UNAVAILABLE)
 
