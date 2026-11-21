@@ -40,6 +40,12 @@ test('strings that reach FoamyI18n as values have entries', () => {
   // Each string is read from where production writes it, so a changed
   // string is checked in its new form. Every route must still find some.
   const kitPrefs = loader.load('FoamyPrefs');
+  const kitTexts = {
+    NOT_ALLOWED: kitPrefs.NOT_ALLOWED,
+    NO_ENTRY: kitPrefs.NO_ENTRY,
+    UNAVAILABLE_TEXT: loader.load('FoamyNative').UNAVAILABLE_TEXT,
+  };
+  for (const [name, text] of Object.entries(kitTexts)) assert.equal(typeof text, 'string', `the kit still has ${name}`);
   const derived = {
     // Every capitalised literal on a fail(…) or `diskStatus = …` line (ternaries included) and the initial diskStatus.
     service: [...read('VitalsService.qml').matchAll(/(?:fail\(|diskStatus(?::| =) )([^\n]*)/g)]
@@ -55,10 +61,10 @@ test('strings that reach FoamyI18n as values have entries', () => {
     menu: fs.readdirSync(path.join(root, 'kit')).filter(f => f.endsWith('.qml'))
       .flatMap(f => literals(read('kit/' + f), /translate\("((?:[^"\\]|\\.)*)"\)/g)),
     // Messages of the kit's settings engine and native helper loader, and of its save queue.
-    kit: [kitPrefs.NOT_ALLOWED, kitPrefs.NO_ENTRY, loader.load('FoamyNative').UNAVAILABLE_TEXT],
+    kit: Object.values(kitTexts),
     queue: literals(read('kit/FoamyPrefsQueue.qml'), /error = "([^"]+)"/g),
   };
-  for (const [route, least] of Object.entries({service: 1, helper: 1, panel: 1, sensors: 3, menu: 6, kit: 3, queue: 1})) {
+  for (const [route, least] of Object.entries({service: 1, helper: 1, panel: 1, sensors: 3, menu: 6, queue: 1})) {
     assert.ok(derived[route].length >= least, `the ${route} strings are still found (${derived[route].length})`);
   }
   const indirect = [
