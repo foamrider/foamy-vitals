@@ -336,17 +336,22 @@ class FakeTreeTest(TreeCase):
         def limit_probes():
             return sum("TEMPERATURE" in call for call in log.read_text().splitlines())
 
+        # Bar samples: control=on is never spaced, and they skip the process baseline wait.
+        self.tree.run("--bar")
+        self.assertEqual(limit_probes(), 1)
         seconds, tick = 0, 0
-        for expected_gap in (30, 60, 120):
-            self.tree.run()
+        # Each failure doubles the wait, up to 32 min.
+        for gap in (30, 60, 120, 240, 480, 960, 1920, 1920):
             probes = limit_probes()
             tick += 1
-            self.advance(tick, seconds + expected_gap - 3)  # 3 s: past the sample cache
-            self.tree.run()
-            self.assertEqual(limit_probes(), probes, f"no retry before {expected_gap} s")
-            seconds += expected_gap
+            self.advance(tick, seconds + gap - 3)  # 3 s: past the sample cache
+            self.tree.run("--bar")
+            self.assertEqual(limit_probes(), probes, f"no retry before {gap} s")
+            seconds += gap
             tick += 1
             self.advance(tick, seconds)
+            self.tree.run("--bar")
+            self.assertEqual(limit_probes(), probes + 1, f"retried {gap} s after the last failure")
 
     def test_gpu_without_a_limit_is_an_answer(self):
         log, _ = self.tree.nvidia(status="active", control="on")
