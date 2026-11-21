@@ -49,6 +49,24 @@ GIB = 1073741824
 SECOND = 1_000_000_000
 
 
+# Runs the helper ("$@" after two arguments) with an empty /tmp of its own,
+# so the /tmp fallback is never the real one. $1 "planted" first makes that
+# fallback a symlink to $2. Prints the sample, then whether the fallback held
+# the state.
+PRIVATE_TMP = """\
+mount -t tmpfs tmpfs /tmp || exit 77
+fallback=/tmp/foamy-vitals-$(id -u)
+if [ "$1" = planted ]; then ln -s "$2" "$fallback" || exit 78; fi
+shift 2
+"$@" || exit
+if [ -d "$fallback" ] && [ ! -L "$fallback" ] && [ -s "$fallback/current" ]; then
+  echo "fallback: used"
+else
+  echo "fallback: unused"
+fi
+"""
+
+
 def by_id(sample):
     return {gpu["id"]: gpu for gpu in sample["gpus"]}
 
@@ -412,14 +430,67 @@ class FakeTreeTest(TreeCase):
         self.assertEqual(sample["gpus"], [])
         self.assertFalse(list(tree.state.glob("intel-*")), "no Intel GPU, no Intel scan")
 
-    def test_state_directory_rejects_unsafe_fallbacks(self):
-        os.chmod(self.tree.runtime, 0o755)
-        target = self.base / "elsewhere"
-        target.mkdir()
-        (self.tree.runtime / f"foamy-vitals-{os.geteuid()}").symlink_to(target)
-        sample, _ = self.tree.run()
-        self.assertEqual(sample["mode"], "full")
-        self.assertEqual(list(target.iterdir()), [], "never writes through a planted symlink")
+    def test_state_files_are_never_written_through_a_symlink(self):
+        tree = self.tree
+        tree.gpu("0000:05:00.0", "amdgpu", files=amd_files(10, 1, 2, discrete=True))
+        tree.process(300, "busy", 0, 50)
+        tree.state.mkdir(mode=0o700)
+        outside = self.base / "outside"
+        outside.mkdir()
+        names = ["current", "lock", "gpu-names"] + [
+            f"{kind}.{n}" for kind in ("cache", "cpu", "procs", "gpus") for n in (0, 1)
+        ]
+        for name in names:
+            (outside / name).write_text("keep\n")
+            (tree.state / name).symlink_to(outside / name)
+        tree.run()
+        self.advance(1, 3)
+        tree.process(300, "busy", 40, 50)
+        sample, _ = tree.run()
+        self.assertEqual((sample["mode"], only(sample)["busy"]), ("full", 10))
+        self.assertEqual(
+            {name: (outside / name).read_text() for name in names},
+            dict.fromkeys(names, "keep\n"),
+            "a planted state file is never written through",
+        )
+
+    def test_unsafe_state_directories_are_skipped(self):
+        unshare = ["unshare", "--user", "--map-current-user", "--keep-caps", "--mount"]
+        if not shutil.which("unshare") or subprocess.run([*unshare, "true"], capture_output=True).returncode:
+            self.skipTest("needs an unprivileged user and mount namespace (unshare)")
+        # The helper gets an empty /tmp of its own, so its fake tree must be elsewhere.
+        base = Path(tempfile.mkdtemp(prefix="foamy-vitals-stats-ns-", dir="/var/tmp"))
+        self.addCleanup(shutil.rmtree, base, True)
+        self.assertFalse(str(base).startswith("/tmp/"))
+        for planted in (False, True):
+            with self.subTest("the /tmp fallback is a symlink too" if planted else "the runtime one is a symlink"):
+                tree = Tree(base / ("both" if planted else "runtime"))
+                os.chmod(tree.runtime, 0o755)
+                targets = [tree.base / "runtime-target", tree.base / "fallback-target"]
+                for target in targets:
+                    target.mkdir()
+                (tree.runtime / f"foamy-vitals-{os.geteuid()}").symlink_to(targets[0])
+                mode = "planted" if planted else "-"
+                result = subprocess.run(
+                    [*unshare, "sh", "-c", PRIVATE_TMP, "sh", mode, str(targets[1]), *tree.helper],
+                    env=tree.env(),
+                    capture_output=True,
+                    timeout=20,
+                )
+                if result.returncode == 77:
+                    self.skipTest("cannot mount a private /tmp")
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+                line, fallback = result.stdout.decode().splitlines()
+                sample = strict(line)
+                for target in targets:
+                    self.assertEqual(
+                        list(target.iterdir()), [], f"never writes through a planted symlink: {target.name}"
+                    )
+                if planted:
+                    self.assertEqual(fallback, "fallback: unused")
+                    self.assertIsNone(sample["cpu"], "no safe directory: the sample works from memory")
+                else:
+                    self.assertEqual(fallback, "fallback: used", "a symlinked runtime directory falls back to /tmp")
 
 
 PCI_IDS = (
