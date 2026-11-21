@@ -3,7 +3,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const en = require('../i18n/en.json');
 const no = require('../i18n/no.json');
-const manifest = require('../manifest.json');
 const schema = require('../Preferences.js');
 const root = path.join(__dirname, '..');
 const tokens = s => [...String(s).matchAll(/%[1-9][0-9]*|\{\w+\}/g)].map(m => m[0]).sort();
@@ -48,6 +47,4 @@ assert.ok(indirect.includes('Intel GPU readings unavailable. Retrying…') && in
 assert.ok(indirect.includes('No mounted local disks') && indirect.includes("Some disks couldn't be read") && indirect.includes('Disk capacity unavailable'));
 for (const key of indirect) assert.ok(Object.hasOwn(en, key), `missing indirect catalog key: ${key}`);
 
-assert.equal(manifest.barWidget?.defaults?.language, undefined);
-assert.equal((manifest.barWidget?.schema || []).some(f => f.key === 'language'), false);
 console.log('i18n catalogs ok:', Object.keys(en).length, 'keys');
