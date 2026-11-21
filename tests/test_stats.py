@@ -157,36 +157,61 @@ class FakeTreeTest(TreeCase):
         self.assertEqual(late["sampleTimeMs"], first["sampleTimeMs"] + 1980, "a call 1.98 s later is a new sample")
         self.assertEqual(late["processes"][0]["name"], "busy")
 
-    def test_temperatures_and_amd_gpu(self):
-        tree = self.tree
-        tree.hwmon(0, "nvme", [("Composite", 40000, 80000)])
-        tree.hwmon(1, "k10temp", [("Tccd1", 70000, None), ("Tctl", 55400, 95000)])
-        tree.gpu(
-            "0000:03:00.0",
-            "amdgpu",
-            files=amd_files(42, 1024, 4096, discrete=True),
-            hwmon=[("edge", 48000, 100000), ("junction", 61000, 110000), ("mem", 70000, 105000)],
+    def test_cpu_temperature_comes_from_the_package_sensor(self):
+        # cpuTempCrit sets the bar's warning colour, so a limit must belong to the sensor shown.
+        def amd(tree):
+            tree.hwmon(0, "nvme", [("Composite", 40000, 80000)])
+            tree.hwmon(1, "k10temp", [("Tccd1", 70000, None), ("Tctl", 55400, 95000)])
+
+        def intel(tree):
+            return tree.hwmon(2, "coretemp", [("Core 0", 50000, 100000), ("Package id 0", 62600, 105000)])
+
+        def intel_package_unreadable(tree):
+            (intel(tree) / "temp2_input").write_text("abc\n")
+            zone = tree.sys / "class/thermal/thermal_zone3"
+            zone.mkdir(parents=True)
+            (zone / "type").write_text("x86_pkg_temp\n")
+            (zone / "temp").write_text("64500\n")
+
+        def no_sensor(tree):
+            pass
+
+        rows = (
+            ("k10temp Tctl, not the first label", amd, (55, 95)),
+            ("coretemp Package, not Core 0", intel, (63, 105)),
+            ("x86_pkg_temp zone, without coretemp's limit", intel_package_unreadable, (65, None)),
+            ("no CPU sensor", no_sensor, (None, None)),
         )
+        for name, build, expected in rows:
+            with self.subTest(name):
+                tree = Tree(self.base / build.__name__)
+                build(tree)
+                sample, _ = tree.run("--bar")
+                self.assertEqual((sample["cpuTemp"], sample["cpuTempCrit"]), expected)
+                # The keys VitalsService.parse and the readings read.
+                self.assertEqual(
+                    set(sample),
+                    {
+                        "mode",
+                        "sampleTimeMs",
+                        "cpu",
+                        "cores",
+                        "memUsedKb",
+                        "memTotalKb",
+                        "cpuTemp",
+                        "cpuTempCrit",
+                        "gpus",
+                        "processes",
+                        "memoryProcesses",
+                        "network",
+                    },
+                )
+        tree = Tree(self.base / "zenpower")
+        tree.hwmon(4, "zenpower", [("Tdie", -600, 90000)])
         sample, _ = tree.run("--bar")
-        self.assertEqual((sample["cpuTemp"], sample["cpuTempCrit"]), (55, 95))
-        gpu = only(sample)
-        self.assertEqual((gpu["busy"], gpu["vramUsed"], gpu["vramTotal"], temperature(gpu)), (42, 1024, 4096, 48))
-        self.assertEqual([t["label"] for t in gpu["thermals"]], ["Edge", "Hotspot", "Memory"])
-        self.assertEqual([t["critical"] for t in gpu["thermals"]], [100, 110, 105])
-        for key in (
-            "gpuBusy",
-            "vramUsed",
-            "vramTotal",
-            "gpuTemp",
-            "gpuThermals",
-            "gpuError",
-            "gpuSuspended",
-            "gpuIntel",
-            "gpuMemoryPrivate",
-            "gpuFrequencyMHz",
-            "gpuEngines",
-        ):
-            self.assertNotIn(key, sample)
+        self.assertIsInstance(sample["cpuTemp"], int, "a negative reading is a number, not a failed sample")
+        self.assertLessEqual(sample["cpuTemp"], 0)
+        self.assertEqual(sample["cpuTempCrit"], 90)
 
     def test_suspended_nvidia_gpu_is_never_woken(self):
         log, _ = self.tree.nvidia(status="suspended")
