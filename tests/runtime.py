@@ -2,7 +2,7 @@
 """Offscreen runtime checks of the real Panel on Omarchy 4.5 (the installed shell).
 
 Two bar instances share one VitalsService: only the leader samples and owns
-IPC, closed popups take bar-only samples, an open popup takes full ones,
+the foamy.vitals IPC target (called with `qs ipc`), closed popups take bar-only samples, an open popup takes full ones,
 the popup body is built on first open and its lists and charts stop
 following samples while hidden, the single keyboard cursor walks the
 dashboard, `s`/Esc enter and leave Settings, saves go inline, and Arabic
@@ -18,6 +18,7 @@ The shell is /usr/share/omarchy/shell, or the tree in FOAMY_HOST_45.
 """
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -324,6 +325,15 @@ ShellRoot {
     check(header && body.LayoutMirroring.enabled, "RTL: the popup body is mirrored")
     var at = header.settingsButton.mapToItem(body, 0, 0)
     check(at.x < body.width / 2, "RTL: Settings sits at the leading (left) edge (" + Math.round(at.x) + ")")
+    // main() now calls `qs ipc call foamy.vitals settings`.
+    a.close()
+    console.log("FOAMY IPC READY")
+    wait.waitFor(function() { return a.opened || b.opened }, 15000, step7, "the IPC call opens a popup")
+  }
+  function step7() {
+    var leader = a.member.isLeader ? a : b
+    var other = leader === a ? b : a
+    check(leader.opened && leader.editingSettings && !other.opened, "foamy.vitals settings opens Settings on the leader only")
     console.log("FOAMY DONE")
     Qt.quit()
   }
@@ -331,19 +341,71 @@ ShellRoot {
 """
 
 
+IPC_FUNCTIONS = {"open", "close", "toggle", "settings", "refresh"}
+
+
+def ipc(run):
+    """Once the scene is ready: one foamy.vitals target with its five
+    functions, then call `settings`. Returns the failures."""
+    if not run.wait_for_log("FOAMY IPC READY", 120):
+        return ["no FOAMY IPC READY before the IPC call"]
+    by_id = Path(run.env["XDG_RUNTIME_DIR"]) / "quickshell/by-id"
+    ids = [p.name for p in by_id.iterdir()] if by_id.is_dir() else []
+    if len(ids) != 1:
+        return [f"expected one quickshell instance, found {ids}"]
+
+    def qs(*args):
+        return subprocess.run(
+            ["qs", "ipc", "-i", ids[0], *args], env=run.env, capture_output=True, text=True, timeout=10
+        )
+
+    try:
+        shown = qs("show")
+        called = qs("call", "foamy.vitals", "settings") if shown.returncode == 0 else None
+    except subprocess.TimeoutExpired as error:
+        return [f"qs ipc did not answer: {error}"]
+    if shown.returncode != 0:
+        return ["qs ipc show failed: " + shown.stderr.strip()[-300:]]
+    # `show` prints each target, then its functions indented below it.
+    targets, functions, current = [], set(), None
+    for line in shown.stdout.splitlines():
+        words = line.split()
+        if words[:1] == ["target"]:
+            current = words[1] if len(words) > 1 else ""
+            targets.append(current)
+        elif words[:1] == ["function"] and current == "foamy.vitals":
+            functions.add(words[1].split("(")[0])
+    failures = []
+    if targets.count("foamy.vitals") != 1:
+        failures.append(f"two Panels register one foamy.vitals target, not {targets.count('foamy.vitals')}")
+    if functions != IPC_FUNCTIONS:
+        failures.append(f"foamy.vitals has open, close, toggle, settings and refresh, not {sorted(functions)}")
+    if called.returncode != 0:
+        failures.append("qs ipc call foamy.vitals settings failed: " + called.stderr.strip()[-300:])
+    return failures
+
+
 def main():
     run = harness.Run("4.5", SHELL, plugin=PLUGIN, language="ar", prefix="foamy-vitals-runtime-")
-    run.run(timeout=120)
+    run.start()
+    try:
+        failures = ipc(run)
+        run.wait(60)
+    finally:
+        run.stop()
     oks = run.log.count("FOAMY OK")
     # The real helper, df and hostnamectl run; no Omarchy command may.
-    for line in run.host_commands():
-        run.ok = False
-        print(f"host command reached: {line}")
-    if run.ok:
+    failures += [f"host command reached: {line}" for line in run.host_commands()]
+    failures += run.failures()
+    # Quickshell keeps the first handler of a target and warns about each
+    # later one: a non-leader that registers too shows up only here.
+    if "another handler is registered for target foamy.vitals" in run.log:
+        failures.append("FOAMY FAIL only the leader registers foamy.vitals")
+    if "FOAMY DONE" in run.log and not failures:
         print(f"4.5: {oks} checks passed")
         run.cleanup()
         return 0
-    print(f"4.5: FAILED ({oks} ok)\n" + "\n".join(run.failures() or run.log.splitlines()[-40:]))
+    print(f"4.5: FAILED ({oks} ok)\n" + "\n".join(failures or run.log.splitlines()[-40:]))
     print(f"log kept at {run.base}")
     return 1
 
