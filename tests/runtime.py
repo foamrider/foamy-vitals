@@ -232,9 +232,6 @@ ShellRoot {
     check(hidden.processes.length === 0 && hidden.cores.length === 0, "hidden lists read constants")
     check(!b.member.demanded, "demand drops when the popup closes")
     s.detail = { processes: [{ name: "stale", where: "", pct: 50 }], memoryProcesses: [] }
-    s.fail("Telemetry unavailable. Retrying…")
-    check(s.detail.processes.length === 0 && s.detail.memoryProcesses.length === 0, "a failed sample clears the rankings")
-    s.detail = { processes: [{ name: "stale", where: "", pct: 50 }], memoryProcesses: [] }
     shell.detailChanges = 0
     shell.barSamples = 0
     // Bar samples come every 5 s while every popup is closed; two of them

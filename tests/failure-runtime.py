@@ -4,7 +4,8 @@
 Fake commands stand in for the boundaries: `timeout` passes through to the
 real one except for the stats helper, whose outcome a mode file picks (a
 nonzero exit, output that is not a sample, exit 127 as on a CPU without a
-helper, or a slow sample); `df` fails for every mount or for one; `omarchy-cmd-present` and `omarchy-launch-or-focus-tui`
+helper, or a slow sample); `df` fails for every mount or for one, or lists no
+local disk; `omarchy-cmd-present` and `omarchy-launch-or-focus-tui`
 answer from and write to the run's out directory, so btop is never started.
 
   python3 tests/failure-runtime.py      (FOAMY_KIT, FOAMY_HOST_45 as in runtime.py)
@@ -38,9 +39,14 @@ esac
 exec {TIMEOUT} "$@"
 """,
     # df's outcome comes from a mode file too: nothing (every mount failed),
-    # "partial" (rows, then exit 1 for one dead mount, as GNU df does) or "ok".
+    # "partial" (rows, then exit 1 for one dead mount, as GNU df does), "ok",
+    # or "empty" (only the header: no local disk).
     "df": """#!/bin/sh
 mode=$(cat "$FOAMY_OUT/df-mode" 2>/dev/null)
+if [ "$mode" = empty ]; then
+  echo 'Filesystem Type 1024-blocks Used Available Capacity Mounted on'
+  exit 0
+fi
 if [ "$mode" = partial ] || [ "$mode" = ok ]; then
   echo 'Filesystem Type 1024-blocks Used Available Capacity Mounted on'
   echo '/dev/nvme0n1p2 btrfs 2000 1000 1000 50% /'
@@ -104,6 +110,14 @@ ShellRoot {
   }
   FoamyWait { id: wait }
   readonly property var s: Vitals.VitalsService
+  // The host WidgetButton of a Panel: what a click on the bar reaches.
+  function button(item) {
+    if (!item) return null
+    if (typeof item.triggerPress === "function" && item.activeColor !== undefined) return item
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) { var found = button(kids[i]); if (found) return found }
+    return null
+  }
   // The sample started by sampleIn() has finished.
   function sampled() { return !s.statsProcess.running && shell.exits > shell.seen }
   // Steps wait on events, not sleeps: a timeout fails the run with its label.
@@ -122,13 +136,19 @@ ShellRoot {
     var last = calls[calls.length - 1]
     check(calls[calls.length - 2].indexOf("--bar") >= 0 && last.indexOf("stats") >= 0 && last.indexOf("--bar") < 0,
           "a refresh during a bar sample runs a full sample after it (" + calls.slice(-2).join(" | ") + ")")
-    check(s.stats.mode === "full" && s.detail.processes !== undefined, "and its readings land (" + s.stats.mode + ")")
+    // The real helper ranks resident memory on every full sample.
+    check(s.stats.mode === "full" && s.detail.memoryProcesses.length > 0,
+          "and its readings land (" + s.stats.mode + ", " + s.detail.memoryProcesses.length + " memory rankings)")
     shell.sampleIn("fail")
     wait.waitFor(sampled, 15000, step1, "the failing sample ends")
   }
   function step1() {
     check(s.telemetryError === "Telemetry unavailable. Retrying…" && s.stats.mode === undefined,
           "a failed sample is an error, not the last reading (" + s.telemetryError + ")")
+    // The full sample above filled the rankings; the helper's exit 1 must clear them.
+    check(s.detail.processes.length === 0 && s.detail.memoryProcesses.length === 0, "a failed sample clears the rankings")
+    var cpu = s.history.cpu
+    check(cpu.length > 0 && cpu[cpu.length - 1].value === null, "a failed sample breaks the history")
     check(!s.helperUnavailable, "and sampling goes on")
     shell.sampleIn("garbage")
     wait.waitFor(sampled, 15000, step2, "the garbage sample ends")
@@ -136,6 +156,14 @@ ShellRoot {
   function step2() {
     check(s.telemetryError === "Telemetry unavailable. Retrying…" && s.stats.mode === undefined,
           "output that is not a sample is an error")
+    // The fake passes this one to the real helper.
+    shell.sampleIn("")
+    wait.waitFor(sampled, 15000, recovered, "the good sample ends")
+  }
+  function recovered() {
+    // The reply may be the helper's cached full line, so the mode is not checked.
+    check(s.telemetryError === "" && typeof s.stats.sampleTimeMs === "number" && Array.isArray(s.stats.cores),
+          "the next good sample clears the error (" + s.telemetryError + ")")
     shell.sampleIn("missing")
     wait.waitFor(sampled, 15000, step3, "the missing-helper sample ends")
   }
@@ -146,7 +174,8 @@ ShellRoot {
     s.sample(false)
     check(!s.statsProcess.running && shell.text(callsFile).split("\n").length === shell.calls,
           "an unavailable helper is not run again")
-    a.openBtop()
+    // A right-click on the bar is the btop shortcut.
+    shell.button(a).triggerPress(Qt.RightButton)
     wait.waitFor(function() { return a.launchError !== "" }, 15000, step4, "the btop check ends")
   }
   function step4() {
@@ -154,7 +183,12 @@ ShellRoot {
           "btop missing: a hint, nothing launched (" + a.launchError + ")")
     btopFile.setText("yes\n")
     a.open()
-    a.openBtop()
+    wait.waitFor(function() { return a.popup.bodyItem !== null }, 15000, pressB, "the popup body is built")
+  }
+  function pressB() {
+    // `b` on the open dashboard launches btop.
+    var view = a.popup.bodyItem
+    view.cursor.emitTextKey(view, "b")
     wait.waitFor(function() { return shell.text(launchedFile) !== "" && !s.diskProcess.running }, 15000, step5, "btop is launched")
   }
   function step5() {
@@ -172,6 +206,10 @@ ShellRoot {
   }
   function step7() {
     check(s.disks.length === 2 && s.diskStatus === "", "a good df clears the caption (" + s.diskStatus + ")")
+    shell.disksIn("empty", step8, "df without local disks ends")
+  }
+  function step8() {
+    check(s.disks.length === 0 && s.diskStatus === "No mounted local disks", "a df without local disks says so (" + s.diskStatus + ")")
     console.log("FOAMY DONE")
     Qt.quit()
   }
