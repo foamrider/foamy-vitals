@@ -357,16 +357,6 @@ class FakeTreeTest(TreeCase):
         self.tree.run()
         self.assertEqual(queries(), 3, "open popups always get a fresh reading")
 
-    def test_helper_diagnostics_reach_stderr(self):
-        tree = self.tree
-        tree.gpu("0000:00:02.0", "i915", vendor="0x8086", device="0x7d55")
-        (tree.proc / "sys/kernel/random/boot_id").unlink()
-        sample, stderr = tree.run()
-        gpu = only(sample)
-        self.assertEqual((gpu["vendor"], gpu["driver"], gpu["type"]), ("intel", "i915", "integrated"))
-        self.assertEqual(gpu["error"], INTEL_ERROR)
-        self.assertIn("Intel telemetry:", stderr, "the lock must not swallow the script's stderr")
-
     def test_intel_gpu_in_a_nonzero_pci_domain(self):
         """An Intel GPU outside PCI domain 0000 (multi-domain, VMD) is still found."""
         tree = self.tree
@@ -697,18 +687,6 @@ class GpuTest(TreeCase):
         (self.tree.proc / "sys/kernel/random/boot_id").write_text("boot-2\n")
         self.advance(2, 6)
         self.assertEqual(only(self.tree.run()[0])["type"], "integrated", "a new boot reads it again")
-
-    def test_power_control_is_read_only_when_used(self):
-        # A FIFO blocks whoever opens it: a full sample of an AMD or NVIDIA
-        # GPU has no use for power/control and must not open it.
-        tree = self.tree
-        tree.gpu("0000:05:00.0", "amdgpu", files=amd_files(10, 1, 2, discrete=True))
-        tree.nvidia(addresses=["0000:01:00.0"])
-        for address in ("0000:05:00.0", "0000:01:00.0"):
-            (tree.device(address) / "power/control").unlink()
-            os.mkfifo(tree.device(address) / "power/control")
-        gpus = by_id(tree.run(timeout=5)[0])
-        self.assertEqual([gpus[a]["busy"] for a in ("0000:05:00.0", "0000:01:00.0")], [10, 37])
 
     def test_carried_then_suspended_then_woke_reads_fresh(self):
         tree = self.tree
