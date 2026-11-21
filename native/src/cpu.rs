@@ -298,8 +298,16 @@ mod tests {
             .0,
             Some(&baseline),
         );
-        assert_eq!(second.reading.cpu, b"50");
-        assert_eq!(second.reading.cores, b"50,50");
+        assert_eq!(
+            std::str::from_utf8(&second.reading.cpu),
+            Ok("50"),
+            "the baseline kept every digit"
+        );
+        assert_eq!(
+            std::str::from_utf8(&second.reading.cores),
+            Ok("50,50"),
+            "the baseline kept every digit"
+        );
         assert_eq!(second.reading.mem_total_kb, b"100");
         assert_eq!(second.reading.mem_used_kb, 60);
         assert_eq!(
@@ -310,13 +318,19 @@ mod tests {
 
     #[test]
     fn a_missing_table_still_answers_and_keeps_the_baseline() {
-        let dir = tree("cpu  1 0 0 1\n");
+        let dir = tree("cpu  100 0 0 100\n");
         fs::remove_file(dir.0.join("net/route")).unwrap();
         let result = sample(&dir.0, None);
-        assert!(
-            result.baseline.is_some(),
-            "lines before the failure were written"
-        );
         assert_eq!(result.reading.network, b"null");
+        let baseline = result
+            .baseline
+            .expect("lines before the failure were written");
+        // The next sample is a delta against that baseline.
+        let next = sample(&tree("cpu  150 0 0 150\n").0, Some(&baseline));
+        assert_eq!(
+            std::str::from_utf8(&next.reading.cpu),
+            Ok("50"),
+            "the next sample has a delta"
+        );
     }
 }

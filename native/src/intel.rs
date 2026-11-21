@@ -930,13 +930,23 @@ mod tests {
 
     #[test]
     fn the_scan_has_a_budget() {
-        // The crate directory stands in for /proc: it scans fine in time (no entry is a
-        // process), and past its deadline the scan fails at the first entry.
-        let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        // A stand-in for /proc with one process entry. The scan is for uid
+        // 0, so the entry is another user's process: in time the scan
+        // skips it, and past its deadline the scan fails before it is done.
+        struct Proc(PathBuf);
+        impl Drop for Proc {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let proc = Proc(
+            std::env::temp_dir().join(format!("foamy-vitals-intel-budget-{}", std::process::id())),
+        );
+        fs::create_dir_all(proc.0.join("1")).unwrap();
         let soon = Instant::now() + Duration::from_secs(60);
-        assert!(read_clients(&devices(), dir, dir, 0, soon).is_ok());
+        assert!(read_clients(&devices(), &proc.0, &proc.0, 0, soon).is_ok());
         let late = Instant::now() - Duration::from_secs(1);
-        assert!(read_clients(&devices(), dir, dir, 0, late).is_err());
+        assert!(read_clients(&devices(), &proc.0, &proc.0, 0, late).is_err());
     }
 
     #[test]
