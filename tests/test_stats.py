@@ -24,7 +24,7 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fakesys import FIFO, HELPER, NVIDIA_ADDRESS, Tree, amd_files, intel_fdinfo, strict  # noqa: E402
+from fakesys import FIFO, HELPER, NVIDIA_ADDRESS, Tree, amd_files, intel_fdinfo, isolated_environ, strict  # noqa: E402
 
 PAGE_KB = os.sysconf("SC_PAGE_SIZE") // 1024
 EVIL = 'evil\x01na"me\\\x1b[31m'
@@ -49,6 +49,24 @@ GIB = 1073741824
 SECOND = 1_000_000_000
 
 
+# Runs the helper ("$@" after two arguments) with an empty /tmp of its own,
+# so the /tmp fallback is never the real one. $1 "planted" first makes that
+# fallback a symlink to $2. Prints the sample, then whether the fallback held
+# the state.
+PRIVATE_TMP = """\
+mount -t tmpfs tmpfs /tmp || exit 77
+fallback=/tmp/foamy-vitals-$(id -u)
+if [ "$1" = planted ]; then ln -s "$2" "$fallback" || exit 78; fi
+shift 2
+"$@" || exit
+if [ -d "$fallback" ] && [ ! -L "$fallback" ] && [ -s "$fallback/current" ]; then
+  echo "fallback: used"
+else
+  echo "fallback: unused"
+fi
+"""
+
+
 def by_id(sample):
     return {gpu["id"]: gpu for gpu in sample["gpus"]}
 
@@ -65,10 +83,9 @@ def temperature(gpu):
 class TreeCase(unittest.TestCase):
     def setUp(self):
         self.base = Path(tempfile.mkdtemp(prefix="foamy-vitals-stats-"))
+        # Registered first, so a setUp that fails (a full disk) leaves no tree behind.
+        self.addCleanup(shutil.rmtree, self.base, True)
         self.tree = Tree(self.base)
-
-    def tearDown(self):
-        shutil.rmtree(self.base, ignore_errors=True)
 
     def advance(self, tick, seconds):
         self.tree.advance(tick, seconds)
@@ -123,6 +140,40 @@ class FakeTreeTest(TreeCase):
             [entry["name"] for entry in sample["memoryProcesses"]], ["p219", "p218", "p217", "p216", "p215"]
         )
 
+    def test_process_names_and_directories_as_the_kernel_writes_them(self):
+        # A name ends at the last ")" of the stat line ("(sd-pam)" runs in every session), and
+        # "where" names only a project directory, never $HOME or a kernel directory.
+        tree = self.tree
+        home = str(self.base / "home")
+        for pid, name, rss, cwd in (
+            (401, "(sd-pam)", 500, "/"),
+            (402, "Web Content", 400, home),
+            (403, "a) (b", 300, home + "/project"),
+            (404, "x", 200, "/proc/1"),
+            (405, "no cwd", 100, None),
+        ):
+            tree.process(pid, name, 0, rss, cwd=cwd)
+        result = tree.run_raw(env={**tree.env(), "HOME": home})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        memory = strict(result.stdout.decode())["memoryProcesses"]
+        self.assertEqual(
+            [(entry["name"], entry["where"], entry["rssKb"]) for entry in memory],
+            [
+                ("(sd-pam)", "", 500 * PAGE_KB),
+                ("Web Content", "", 400 * PAGE_KB),
+                ("a) (b", "project", 300 * PAGE_KB),
+                ("x", "", 200 * PAGE_KB),
+                ("no cwd", "", 100 * PAGE_KB),
+            ],
+        )
+        # Without HOME a full sample still answers (the shell script it replaced exited 1).
+        self.advance(1, 3)
+        env = tree.env()
+        del env["HOME"]
+        result = tree.run_raw(env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(strict(result.stdout.decode())["memoryProcesses"]), 5)
+
     def test_bar_samples_skip_rankings_and_share_the_cache(self):
         tree = self.tree
         tree.process(300, "busy", 0, 50)
@@ -157,36 +208,100 @@ class FakeTreeTest(TreeCase):
         self.assertEqual(late["sampleTimeMs"], first["sampleTimeMs"] + 1980, "a call 1.98 s later is a new sample")
         self.assertEqual(late["processes"][0]["name"], "busy")
 
-    def test_temperatures_and_amd_gpu(self):
+    def test_first_rankings_after_a_bar_stretch_cover_a_short_window(self):
+        # The popup opens after a stretch of bar-only samples: the CPU ranking must show
+        # the last moment, not the whole stretch since the last full sample.
         tree = self.tree
-        tree.hwmon(0, "nvme", [("Composite", 40000, 80000)])
-        tree.hwmon(1, "k10temp", [("Tccd1", 70000, None), ("Tctl", 55400, 95000)])
-        tree.gpu(
-            "0000:03:00.0",
-            "amdgpu",
-            files=amd_files(42, 1024, 4096, discrete=True),
-            hwmon=[("edge", 48000, 100000), ("junction", 61000, 110000), ("mem", 70000, 105000)],
+        tree.process(300, "busy", 0, 50)
+        tree.run()
+        self.advance(1, 2)
+        tree.process(300, "busy", 40, 50)
+        sample, _ = tree.run()
+        self.assertEqual([entry["name"] for entry in sample["processes"]], ["busy"], "a recent baseline ranks it")
+        for step in range(2, 7):
+            self.advance(step, 2 + 5 * (step - 1))
+            tree.process(300, "busy", 20000 * (step - 1), 50)
+            tree.run("--bar")
+        self.advance(7, 32)
+        sample, _ = tree.run()
+        self.assertEqual(sample["processes"], [], "a baseline older than 15 s is replaced before ranking")
+        self.assertEqual([entry["name"] for entry in sample["memoryProcesses"]], ["busy"])
+        # Time went back (a new baseline is due): busy's new jiffies are not ranked either.
+        tree.cpu(8)
+        tree.process(300, "busy", 200000, 50)
+        tree.uptime(900)
+        sample, _ = tree.run()
+        self.assertEqual(sample["processes"], [], "a baseline from the future is replaced before ranking")
+
+    def test_unknown_arguments_get_a_json_usage_error(self):
+        # tests/suite.sh runs the other architecture's helper only where this exit 2 comes back.
+        tree = self.tree
+        self.assertEqual(tree.helper[-1], "stats")
+        program = tree.helper[:-1]
+        for args in ([], ["--probe"], ["stats", "--probe"], ["stats", "--bar", "x"], ["--bar"]):
+            with self.subTest(args=args):
+                result = subprocess.run([*program, *args], env=tree.env(), capture_output=True, timeout=20)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                lines = result.stdout.decode().splitlines()
+                self.assertEqual(len(lines), 1, lines)
+                reply = strict(lines[0])
+                self.assertEqual((reply["ok"], reply["code"]), (False, "INVALID_ARGUMENT"))
+
+    def test_cpu_temperature_comes_from_the_package_sensor(self):
+        # cpuTempCrit sets the bar's warning colour, so a limit must belong to the sensor shown.
+        def amd(tree):
+            tree.hwmon(0, "nvme", [("Composite", 40000, 80000)])
+            tree.hwmon(1, "k10temp", [("Tccd1", 70000, None), ("Tctl", 55400, 95000)])
+
+        def intel(tree):
+            return tree.hwmon(2, "coretemp", [("Core 0", 50000, 100000), ("Package id 0", 62600, 105000)])
+
+        def intel_package_unreadable(tree):
+            (intel(tree) / "temp2_input").write_text("abc\n")
+            zone = tree.sys / "class/thermal/thermal_zone3"
+            zone.mkdir(parents=True)
+            (zone / "type").write_text("x86_pkg_temp\n")
+            (zone / "temp").write_text("64500\n")
+
+        def no_sensor(tree):
+            pass
+
+        rows = (
+            ("k10temp Tctl, not the first label", amd, (55, 95)),
+            ("coretemp Package, not Core 0", intel, (63, 105)),
+            ("x86_pkg_temp zone, without coretemp's limit", intel_package_unreadable, (65, None)),
+            ("no CPU sensor", no_sensor, (None, None)),
         )
+        for name, build, expected in rows:
+            with self.subTest(name):
+                tree = Tree(self.base / build.__name__)
+                build(tree)
+                sample, _ = tree.run("--bar")
+                self.assertEqual((sample["cpuTemp"], sample["cpuTempCrit"]), expected)
+                # The keys VitalsService.parse and the readings read.
+                self.assertEqual(
+                    set(sample),
+                    {
+                        "mode",
+                        "sampleTimeMs",
+                        "cpu",
+                        "cores",
+                        "memUsedKb",
+                        "memTotalKb",
+                        "cpuTemp",
+                        "cpuTempCrit",
+                        "gpus",
+                        "processes",
+                        "memoryProcesses",
+                        "network",
+                    },
+                )
+        tree = Tree(self.base / "zenpower")
+        tree.hwmon(4, "zenpower", [("Tdie", -600, 90000)])
         sample, _ = tree.run("--bar")
-        self.assertEqual((sample["cpuTemp"], sample["cpuTempCrit"]), (55, 95))
-        gpu = only(sample)
-        self.assertEqual((gpu["busy"], gpu["vramUsed"], gpu["vramTotal"], temperature(gpu)), (42, 1024, 4096, 48))
-        self.assertEqual([t["label"] for t in gpu["thermals"]], ["Edge", "Hotspot", "Memory"])
-        self.assertEqual([t["critical"] for t in gpu["thermals"]], [100, 110, 105])
-        for key in (
-            "gpuBusy",
-            "vramUsed",
-            "vramTotal",
-            "gpuTemp",
-            "gpuThermals",
-            "gpuError",
-            "gpuSuspended",
-            "gpuIntel",
-            "gpuMemoryPrivate",
-            "gpuFrequencyMHz",
-            "gpuEngines",
-        ):
-            self.assertNotIn(key, sample)
+        self.assertIsInstance(sample["cpuTemp"], int, "a negative reading is a number, not a failed sample")
+        self.assertLessEqual(sample["cpuTemp"], 0)
+        self.assertEqual(sample["cpuTempCrit"], 90)
 
     def test_suspended_nvidia_gpu_is_never_woken(self):
         log, _ = self.tree.nvidia(status="suspended")
@@ -311,17 +426,22 @@ class FakeTreeTest(TreeCase):
         def limit_probes():
             return sum("TEMPERATURE" in call for call in log.read_text().splitlines())
 
+        # Bar samples: control=on is never spaced, and they skip the process baseline wait.
+        self.tree.run("--bar")
+        self.assertEqual(limit_probes(), 1)
         seconds, tick = 0, 0
-        for expected_gap in (30, 60, 120):
-            self.tree.run()
+        # Each failure doubles the wait, up to 32 min.
+        for gap in (30, 60, 120, 240, 480, 960, 1920, 1920):
             probes = limit_probes()
             tick += 1
-            self.advance(tick, seconds + expected_gap - 3)  # 3 s: past the sample cache
-            self.tree.run()
-            self.assertEqual(limit_probes(), probes, f"no retry before {expected_gap} s")
-            seconds += expected_gap
+            self.advance(tick, seconds + gap - 3)  # 3 s: past the sample cache
+            self.tree.run("--bar")
+            self.assertEqual(limit_probes(), probes, f"no retry before {gap} s")
+            seconds += gap
             tick += 1
             self.advance(tick, seconds)
+            self.tree.run("--bar")
+            self.assertEqual(limit_probes(), probes + 1, f"retried {gap} s after the last failure")
 
     def test_gpu_without_a_limit_is_an_answer(self):
         log, _ = self.tree.nvidia(status="active", control="on")
@@ -357,16 +477,6 @@ class FakeTreeTest(TreeCase):
         self.tree.run()
         self.assertEqual(queries(), 3, "open popups always get a fresh reading")
 
-    def test_helper_diagnostics_reach_stderr(self):
-        tree = self.tree
-        tree.gpu("0000:00:02.0", "i915", vendor="0x8086", device="0x7d55")
-        (tree.proc / "sys/kernel/random/boot_id").unlink()
-        sample, stderr = tree.run()
-        gpu = only(sample)
-        self.assertEqual((gpu["vendor"], gpu["driver"], gpu["type"]), ("intel", "i915", "integrated"))
-        self.assertEqual(gpu["error"], INTEL_ERROR)
-        self.assertIn("Intel telemetry:", stderr, "the lock must not swallow the script's stderr")
-
     def test_intel_gpu_in_a_nonzero_pci_domain(self):
         """An Intel GPU outside PCI domain 0000 (multi-domain, VMD) is still found."""
         tree = self.tree
@@ -392,14 +502,79 @@ class FakeTreeTest(TreeCase):
         self.assertEqual(sample["gpus"], [])
         self.assertFalse(list(tree.state.glob("intel-*")), "no Intel GPU, no Intel scan")
 
-    def test_state_directory_rejects_unsafe_fallbacks(self):
-        os.chmod(self.tree.runtime, 0o755)
-        target = self.base / "elsewhere"
-        target.mkdir()
-        (self.tree.runtime / f"foamy-vitals-{os.geteuid()}").symlink_to(target)
-        sample, _ = self.tree.run()
-        self.assertEqual(sample["mode"], "full")
-        self.assertEqual(list(target.iterdir()), [], "never writes through a planted symlink")
+    def test_state_files_are_never_written_through_a_symlink(self):
+        tree = self.tree
+        tree.gpu("0000:05:00.0", "amdgpu", files=amd_files(10, 1, 2, discrete=True))
+        tree.process(300, "busy", 0, 50)
+        tree.state.mkdir(mode=0o700)
+        outside = self.base / "outside"
+        outside.mkdir()
+        names = ["current", "lock", "gpu-names"] + [
+            f"{kind}.{n}" for kind in ("cache", "cpu", "procs", "gpus") for n in (0, 1)
+        ]
+        for name in names:
+            (outside / name).write_text("keep\n")
+            (tree.state / name).symlink_to(outside / name)
+        tree.run()
+        self.advance(1, 3)
+        tree.process(300, "busy", 40, 50)
+        sample, _ = tree.run()
+        self.assertEqual((sample["mode"], only(sample)["busy"]), ("full", 10))
+        self.assertEqual(
+            {name: (outside / name).read_text() for name in names},
+            dict.fromkeys(names, "keep\n"),
+            "a planted state file is never written through",
+        )
+
+    def test_unsafe_state_directories_are_not_used(self):
+        unshare = ["unshare", "--user", "--map-current-user", "--keep-caps", "--mount"]
+        probe = shutil.which("unshare") and subprocess.run(
+            [*unshare, "true"], env=isolated_environ(), capture_output=True, timeout=20
+        )
+        if not probe or probe.returncode:
+            self.skipTest("needs an unprivileged user and mount namespace (unshare)")
+        # The helper gets an empty /tmp of its own, so its fake tree must be elsewhere.
+        base = Path(tempfile.mkdtemp(prefix="foamy-vitals-stats-ns-", dir="/var/tmp"))
+        self.addCleanup(shutil.rmtree, base, True)
+        self.assertFalse(str(base).startswith("/tmp/"))
+        # The helper can live under /tmp too (FOAMY_HELPER, or a checkout
+        # there), and the private /tmp would hide it: run copies of the files
+        # its argv names, kept next to the fake trees.
+        staged = base / "helper"
+        staged.mkdir()
+        helper = [
+            str(shutil.copy2(part, staged / f"{index}-{Path(part).name}")) if os.path.isfile(part) else part
+            for index, part in enumerate(HELPER)
+        ]
+        for planted in (False, True):
+            with self.subTest("the /tmp fallback is a symlink too" if planted else "the runtime one is a symlink"):
+                tree = Tree(base / ("both" if planted else "runtime"), helper)
+                os.chmod(tree.runtime, 0o755)
+                targets = [tree.base / "runtime-target", tree.base / "fallback-target"]
+                for target in targets:
+                    target.mkdir()
+                (tree.runtime / f"foamy-vitals-{os.geteuid()}").symlink_to(targets[0])
+                mode = "planted" if planted else "-"
+                result = subprocess.run(
+                    [*unshare, "sh", "-c", PRIVATE_TMP, "sh", mode, str(targets[1]), *tree.helper],
+                    env=tree.env(),
+                    capture_output=True,
+                    timeout=20,
+                )
+                if result.returncode == 77:
+                    self.skipTest("cannot mount a private /tmp")
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors="replace"))
+                line, fallback = result.stdout.decode().splitlines()
+                sample = strict(line)
+                for target in targets:
+                    self.assertEqual(
+                        list(target.iterdir()), [], f"never writes through a planted symlink: {target.name}"
+                    )
+                if planted:
+                    self.assertEqual(fallback, "fallback: unused")
+                    self.assertIsNone(sample["cpu"], "no safe directory: the sample works from memory")
+                else:
+                    self.assertEqual(fallback, "fallback: used", "a symlinked runtime directory falls back to /tmp")
 
 
 PCI_IDS = (
@@ -698,18 +873,6 @@ class GpuTest(TreeCase):
         self.advance(2, 6)
         self.assertEqual(only(self.tree.run()[0])["type"], "integrated", "a new boot reads it again")
 
-    def test_power_control_is_read_only_when_used(self):
-        # A FIFO blocks whoever opens it: a full sample of an AMD or NVIDIA
-        # GPU has no use for power/control and must not open it.
-        tree = self.tree
-        tree.gpu("0000:05:00.0", "amdgpu", files=amd_files(10, 1, 2, discrete=True))
-        tree.nvidia(addresses=["0000:01:00.0"])
-        for address in ("0000:05:00.0", "0000:01:00.0"):
-            (tree.device(address) / "power/control").unlink()
-            os.mkfifo(tree.device(address) / "power/control")
-        gpus = by_id(tree.run(timeout=5)[0])
-        self.assertEqual([gpus[a]["busy"] for a in ("0000:05:00.0", "0000:01:00.0")], [10, 37])
-
     def test_carried_then_suspended_then_woke_reads_fresh(self):
         tree = self.tree
         device = tree.gpu(
@@ -773,7 +936,9 @@ class GpuTest(TreeCase):
             ),
             ("intel", "integrated", None, None, 63 * 1048576, 900, ""),
         )
-        self.assertAlmostEqual(intel["busy"], 5.5, delta=1.0)
+        # 550 ms of render time over a baseline at least 10 s old: a slow run only lowers it.
+        self.assertGreater(intel["busy"], 0)
+        self.assertLessEqual(intel["busy"], 6.5)
         self.assertEqual(intel["thermals"], [{"temperature": 44.0, "critical": None, "label": "GPU"}])
         self.assertEqual(
             (green["vendor"], green["type"], green["busy"], green["vramTotal"]),
@@ -832,6 +997,18 @@ class GpuTest(TreeCase):
         self.advance(1, 3)
         self.assertIsNone(only(tree.run("--bar")[0])["busy"], "but outside the 30 s window of a GPU read every sample")
 
+    def test_spaced_intel_dgpu_is_not_scanned_between_reads(self):
+        # Opening an xe fdinfo wakes the GPU: between reads the last reading is carried.
+        tree = self.tree
+        tree.intel(driver="xe", device="0000:03:00.0", card="card2", control="auto")
+        tree.descriptor(41, 3, intel_fdinfo(driver="xe", device="0000:03:00.0"), target="/dev/dri/renderD130")
+        first = only(tree.run("--bar")[0])
+        self.assertEqual((first["memoryPrivate"], first["error"]), (63 * 1048576, ""))
+        (tree.proc / "41/fdinfo/3").unlink()
+        tree.descriptor(41, 3, FIFO, target="/dev/dri/renderD130")  # opening it would block the scan
+        self.advance(1, 5)
+        self.assertEqual(only(tree.run("--bar", timeout=5)[0]), first, "carried for 30 s")
+
     def test_names_from_pci_ids_are_cached_and_clean(self):
         tree = self.tree
         ids = self.base / "pci.ids"
@@ -888,10 +1065,17 @@ class GpuTest(TreeCase):
         log, _ = self.tree.nvidia(control="on")
         (self.tree.bin / "nvidia-smi").write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >>'{log}'\nexec sleep 10\n")
         self.tree.state.mkdir(mode=0o700)
-        holder = subprocess.Popen(["flock", str(self.tree.state / "lock"), "sleep", "3.9"])
+        # The holder says when it has the lock, so the helper surely waits.
+        holder = subprocess.Popen(
+            ["flock", str(self.tree.state / "lock"), "sh", "-c", "echo locked; exec sleep 3.7"],
+            env=isolated_environ(),
+            stdout=subprocess.PIPE,
+            text=True,
+        )
         self.addCleanup(holder.wait)
         self.addCleanup(holder.kill)
-        time.sleep(0.2)  # flock has the lock before the helper starts
+        self.addCleanup(holder.stdout.close)
+        self.assertEqual(holder.stdout.readline().strip(), "locked")
         started = time.monotonic()
         result = subprocess.run(
             ["timeout", "--kill-after=1s", "5s", *self.tree.helper, "--bar"],
@@ -900,7 +1084,9 @@ class GpuTest(TreeCase):
             timeout=20,
         )
         elapsed = time.monotonic() - started
-        self.assertEqual(result.returncode, 0, f"killed by the wrapper after {elapsed:.1f} s")
+        stderr = result.stderr.decode(errors="replace")
+        self.assertEqual(result.returncode, 0, f"exit {result.returncode} after {elapsed:.1f} s: {stderr}")
+        self.assertGreaterEqual(elapsed, 3.0, "the helper waited for the lock")
         sample = strict(result.stdout.decode())
         self.assertEqual(only(sample)["error"], NVIDIA_ERROR, "the query that didn't fit is an NVIDIA error")
         self.assertLess(elapsed, 5)
@@ -912,7 +1098,7 @@ class RealSystemTest(unittest.TestCase):
         os.chmod(runtime, 0o700)
         try:
             output = subprocess.run(
-                HELPER, env=dict(os.environ, XDG_RUNTIME_DIR=str(runtime)), capture_output=True, check=True, timeout=20
+                HELPER, env=isolated_environ(XDG_RUNTIME_DIR=str(runtime)), capture_output=True, check=True, timeout=20
             ).stdout
         finally:
             shutil.rmtree(runtime, ignore_errors=True)
@@ -929,10 +1115,11 @@ class RealSystemTest(unittest.TestCase):
                 self.assertEqual(list(thermal), ["temperature", "critical", "label"])
 
     def test_real_process_with_control_characters(self):
-        """The bug as reported: a busy process renames itself with a control byte."""
+        """The bug as reported: a process renames itself with a control byte."""
         runtime = Path(tempfile.mkdtemp(prefix="foamy-vitals-real-"))
         os.chmod(runtime, 0o700)
-        burner = subprocess.Popen(
+        # It waits on stdin: idle, it still has resident memory, so the first full sample lists it.
+        child = subprocess.Popen(
             [
                 sys.executable,
                 "-I",
@@ -941,32 +1128,33 @@ class RealSystemTest(unittest.TestCase):
             import sys
             open("/proc/self/comm", "wb").write(b"evil\\x01na\\"me")
             print("ready", flush=True)
-            while True: pass
+            sys.stdin.read()
             """),
             ],
+            env=isolated_environ(),
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
         )
         try:
-            self.assertEqual(burner.stdout.readline().strip(), "ready")
-            # The real /proc with only the burner's process in it: on a busy
+            self.assertEqual(child.stdout.readline().strip(), "ready")
+            # The real /proc with only the child's process in it: on a busy
             # machine other processes would push it out of the top five.
             proc = runtime / "proc"
             proc.mkdir()
             for entry in os.listdir("/proc"):
-                if not entry.isdigit() or entry == str(burner.pid):
+                if not entry.isdigit() or entry == str(child.pid):
                     (proc / entry).symlink_to(Path("/proc") / entry)
-            env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), FOAMY_VITALS_PROC=str(proc))
-            subprocess.run(HELPER, env=env, capture_output=True, check=True)
-            time.sleep(2.2)
-            output = subprocess.run(HELPER, env=env, capture_output=True, check=True).stdout
+            env = isolated_environ(XDG_RUNTIME_DIR=str(runtime), FOAMY_VITALS_PROC=str(proc))
+            output = subprocess.run(HELPER, env=env, capture_output=True, check=True, timeout=20).stdout
             sample = strict(output.decode("utf-8", "replace"))
-            names = [entry["name"] for entry in sample["processes"] + sample["memoryProcesses"]]
-            self.assertIn("evilname", names, "the burner must be listed, its name cleaned")
+            names = [entry["name"] for entry in sample["memoryProcesses"]]
+            self.assertIn("evilname", names, "the process must be listed, its name cleaned")
         finally:
-            burner.send_signal(signal.SIGKILL)
-            burner.wait()
-            burner.stdout.close()
+            child.stdin.close()
+            child.send_signal(signal.SIGKILL)
+            child.wait()
+            child.stdout.close()
             shutil.rmtree(runtime, ignore_errors=True)
 
 

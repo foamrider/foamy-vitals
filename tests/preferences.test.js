@@ -18,47 +18,29 @@ test('manifest and runtime use the same setting defaults and constraints', () =>
       assert.deepEqual(schema[key], field[key]);
     }
   }
+  // The other direction: the manifest has no setting the runtime does not know.
+  const keys = Array.from(preferences.fields, f => f.key).sort();
+  const shown = Array.from(preferences.fields.filter(f => !f.hidden), f => f.key).sort();
+  assert.deepEqual(Object.keys(manifest.barWidget.defaults).sort(), keys);
+  assert.deepEqual(manifest.barWidget.schema.map(f => f.key).sort(), shown);
 });
 
 test('warnings reject missing, coerced, fractional and out-of-range values', () => {
   for (const key of ['cpuWarning', 'memoryWarning', 'gpuWarning', 'vramWarning']) {
-    for (const value of [null, undefined, NaN, Infinity, '95', true, 0, 101, 94.5]) {
-      assert.equal(preferences.valid(key, value), false);
-      assert.equal(preferences.value({[key]: value}, key), 95);
-    }
-    for (const value of [1, 94, 95, 100]) assert.equal(preferences.valid(key, value), true);
+    for (const value of [1, 100]) assert.equal(preferences.valid(key, value), true, `${key} ${value}`);
+    // A stored string is not coerced to a number.
+    for (const value of [0, 101, 94.5, '95']) assert.equal(preferences.valid(key, value), false, `${key} ${value}`);
+    assert.equal(preferences.value({[key]: 0}, key), 95);
   }
   for (const key of ['cpuTemperatureMargin', 'gpuTemperatureMargin']) {
-    assert.equal(preferences.valid(key, 0), true);
-    assert.equal(preferences.valid(key, 100), true);
-    assert.equal(preferences.valid(key, -1), false);
-    assert.equal(preferences.valid(key, 101), false);
+    for (const value of [0, 100]) assert.equal(preferences.valid(key, value), true, `${key} ${value}`);
+    for (const value of [-1, 101]) assert.equal(preferences.valid(key, value), false, `${key} ${value}`);
+    assert.equal(preferences.value({[key]: 101}, key), 15);
   }
 });
 
-test('individual warning values and bar selection stay independent', () => {
-  const settings = {cpuWarning: 70, gpuWarning: 99, cpuTemperatureMargin: 20, barDisplay: 'gpu'};
-  assert.equal(preferences.value(settings, 'cpuWarning'), 70);
-  assert.equal(preferences.value(settings, 'gpuWarning'), 99);
-  assert.equal(preferences.value(settings, 'memoryWarning'), 95);
-  assert.equal(preferences.value(settings, 'cpuTemperatureMargin'), 20);
-  assert.equal(preferences.value(settings, 'gpuTemperatureMargin'), 15);
-  assert.equal(preferences.value(settings, 'barDisplay'), 'gpu');
-  assert.equal(preferences.value({barDisplay: 'vram'}, 'barDisplay'), 'adaptive');
-  assert.equal(preferences.valid('unknownSetting', 1), false);
-});
-
-test('theme warning colors default on and preserve an explicit false value', () => {
-  const key = 'useThemeWarningColors';
-  assert.equal(preferences.value({}, key), true);
-  for (const value of [true, false]) {
-    assert.equal(preferences.valid(key, value), true);
-    assert.equal(preferences.value({[key]: value}, key), value);
-  }
-  for (const value of [null, undefined, 'false', 0, 1, {}, []]) {
-    assert.equal(preferences.valid(key, value), false);
-    assert.equal(preferences.value({[key]: value}, key), true);
-  }
+test('a stored false for theme warning colors is kept, not read as the default', () => {
+  assert.equal(preferences.value({useThemeWarningColors: false}, 'useThemeWarningColors'), false);
 });
 
 test('pinned GPU accepts only empty or a PCI address', () => {

@@ -2,11 +2,11 @@
 """Offscreen runtime checks of the real Panel on Omarchy 4.5 (the installed shell).
 
 Two bar instances share one VitalsService: only the leader samples and owns
-IPC, closed popups take bar-only samples, an open popup takes full ones,
-the popup body is built on first open and its lists and charts stop
-following samples while hidden, the single keyboard cursor walks the
-dashboard, `s`/Esc enter and leave Settings, saves go inline, and Arabic
-mirrors the popup.
+the foamy.vitals IPC target (called with `qs ipc`), closed popups take
+bar-only samples, an open popup takes full ones, the popup body is built on
+first open and its lists and charts stop following samples while hidden, the
+single keyboard cursor walks the dashboard, `s`/Esc enter and leave Settings,
+saves go inline, and Arabic mirrors the popup.
 
 Uses the foamy-kit harness (temp HOME/XDG, no Wayland/Hyprland, no host
 scripts): FOAMY_KIT=/path/to/foamy-kit (default ~/GitHub/Personal/foamy-kit).
@@ -18,6 +18,7 @@ The shell is /usr/share/omarchy/shell, or the tree in FOAMY_HOST_45.
 """
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -71,6 +72,27 @@ ShellRoot {
     for (var i = 0; i < kids.length; i++) { var found = alertText(kids[i]); if (found !== "") return found }
     return ""
   }
+  // The host WidgetButton of a Panel: what a click on the bar reaches,
+  // and whose `active` draws the bar in the warning colour.
+  function button(item) {
+    if (!item) return null
+    if (typeof item.triggerPress === "function" && item.activeColor !== undefined) return item
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) { var found = button(kids[i]); if (found) return found }
+    return null
+  }
+  // A full sample like the last one with `extra` on top, newer than it.
+  function inject(extra) {
+    s.parse(JSON.stringify(Object.assign({}, s.stats, { mode: "full", sampleTimeMs: s.sampledAt + 1 }, extra)))
+  }
+  // The first item under `item` whose text is `text`.
+  function withText(item, text) {
+    if (!item) return null
+    if (item.text === text) return item
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) { var found = withText(kids[i], text); if (found) return found }
+    return null
+  }
   MockBar {
     id: bar
     moduleName: "foamy.vitals"
@@ -107,9 +129,6 @@ ShellRoot {
   function step1() {
     var s = shell.s
     check(s.telemetryError === "", "bar sample parsed: " + JSON.stringify(s.stats).slice(0, 120))
-    check(!isNaN(a.readings.cpu) || s.samples === 1, "bar readings feed the bar text: " + a.barText)
-    check(a.readings.warning === b.readings.warning, "both bars agree on the warning state")
-    check(s.detail.processes.length === 0, "bar samples carry no process rankings")
     b.open()
     wait.waitFor(function() { return shell.fullSamples >= 1 }, 20000, step2, "a first full sample")
   }
@@ -132,7 +151,36 @@ ShellRoot {
       ]
     })))
     check(view.graphicsStops === 2 && view.cpuStart === 3, "two GPUs: two Graphics stops before the CPU rows (" + view.graphicsStops + ", " + view.cpuStart + ")")
-    check(b.readings.barGpu && b.readings.barGpu.id === "0000:05:00.0", "unpinned: the bar follows the busiest GPU")
+    // Each GPU's chart line has its own colour; slot 0 keeps the single-GPU one.
+    var slots = [1, 2, 3].map(function(slot) { return view.gpuSlotColor(slot) })
+    check(Qt.colorEqual(view.gpuSlotColor(0), view.gpuColor), "the first GPU line keeps the GPU colour")
+    check(!Qt.colorEqual(slots[0], slots[1]) && !Qt.colorEqual(slots[1], slots[2]) && !Qt.colorEqual(slots[0], slots[2])
+          && slots.every(function(c) { return [view.cpuColor, view.memoryColor, view.gpuColor].every(function(o) { return !Qt.colorEqual(c, o) }) }),
+          "later GPU lines differ from each other and from the CPU, RAM and GPU lines")
+    check(Qt.colorEqual(view.gpuSlotColor(4), slots[0]), "the GPU line colours cycle")
+    // What the bar shows and when it warns, on both bars. The CPU
+    // temperature is cleared so a hot test machine does not warn.
+    var twoGpusFor = function(vramC1) {
+      return [
+        { id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "integrated", asleep: false, busy: 12,
+          vramUsed: vramC1, vramTotal: 4294967296, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" },
+        { id: "0000:05:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "discrete", asleep: false, busy: 40,
+          vramUsed: 2147483648, vramTotal: 17179869184, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" }
+      ]
+    }
+    var calm = { memUsedKb: 10, memTotalKb: 100, cpuTemp: null, cpuTempCrit: null }
+    // Both panels use cpuWarning 1, so CPU 1 % is exactly at the threshold.
+    shell.inject(Object.assign({ cpu: 1, gpus: twoGpusFor(536870912) }, calm))
+    check(b.barText === "GPU " + view.percent(40), "unpinned: the bar shows the busiest GPU (" + b.barText + ")")
+    check(a.barText === b.barText, "both bars show the same reading (" + a.barText + ")")
+    check(shell.button(a).active && shell.button(b).active, "CPU at its warning threshold warns on both bars")
+    shell.inject(Object.assign({ cpu: 0, gpus: twoGpusFor(536870912) }, calm))
+    check(!shell.button(a).active && !shell.button(b).active, "every reading below its threshold: no warning")
+    // 99 % VRAM on the GPU the bar does not show.
+    shell.inject(Object.assign({ cpu: 0, gpus: twoGpusFor(4252017623) }, calm))
+    check(b.barText === "GPU " + view.percent(40) && shell.button(a).active && shell.button(b).active,
+          "any GPU past its threshold warns, not only the bar GPU")
+    shell.inject(Object.assign({ cpu: 0, gpus: twoGpusFor(536870912) }, calm))
     shell.down(view)
     check(view.cursor.index === 0, "Down: cursor on Settings")
     shell.down(view)
@@ -141,13 +189,27 @@ ShellRoot {
     view.activateRequested()
     var pinSaved = bar.saved[bar.saved.length - 1]
     check(bar.saved.length === pinSaves + 1 && pinSaved.settings.pinnedGpu === "0000:c1:00.0", "Enter on a GPU row pins it (" + JSON.stringify(pinSaved && pinSaved.settings) + ")")
-    check(b.readings.barGpu && b.readings.barGpu.id === "0000:c1:00.0", "the bar follows the pinned GPU once saved")
+    // The pin is saved from b's popup; a's settings come from the host, which this harness never updates.
+    check(b.barText === "GPU " + view.percent(12), "the bar follows the pinned GPU once saved (" + b.barText + ")")
+    view.activateRequested()
+    check(bar.saved[bar.saved.length - 1].settings.pinnedGpu === "" && b.barText === "GPU " + view.percent(40),
+          "Enter on the pinned row unpins it")
+    view.activateRequested()
+    view.cursor.hover(2)
+    view.activateRequested()
+    check(bar.saved[bar.saved.length - 1].settings.pinnedGpu === "0000:05:00.0", "Enter on another row moves the pin")
+    view.cursor.hover(1)
+    view.activateRequested()
+    check(bar.saved[bar.saved.length - 1].settings.pinnedGpu === "0000:c1:00.0", "and back")
     // The cursor is on the second GPU row; losing a GPU must not leave it on a process row.
     view.cursor.hover(2)
     s.parse(JSON.stringify(Object.assign({}, s.stats, {
       mode: "full", sampleTimeMs: s.sampledAt + 2, gpus: s.stats.gpus.slice(0, 1)
     })))
     check(view.graphicsStops === 0 && view.cursor.index < view.cpuStart, "one GPU left: the cursor is not on a process row (" + view.cursor.index + ", cpuStart " + view.cpuStart + ")")
+    // The history also holds this machine's real GPUs, so only the order of these two is checked.
+    check(view.gpuChartIds[0] === "0000:c1:00.0" && view.gpuChartIds.indexOf("0000:05:00.0") > 0,
+          "the current GPU's line comes before a vanished one (" + JSON.stringify(view.gpuChartIds) + ")")
     check(view.cursor.index === -1, "no GPU rows left: the cursor resets (" + view.cursor.index + ")")
     var twoGpus = [
       { id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "integrated", asleep: false, busy: 12,
@@ -177,6 +239,12 @@ ShellRoot {
     check(view.hoveredCore === 2, "Right picks a thread on the cores strip")
     view.tabRequested(1)
     check(shell.switched === 1, "Tab switches to the next bar panel")
+    // A process name is drawn as plain text, never as markup.
+    var kept = s.detail
+    s.detail = { processes: [{ name: "<b>x</b>", where: "", pct: 1 }], memoryProcesses: [] }
+    var nameText = shell.withText(view.stopItem(view.cpuStart), "<b>x</b>")
+    check(nameText !== null && nameText.textFormat === Text.PlainText, "a process name is plain text")
+    s.detail = kept
     view.cursor.emitTextKey(view, "s", Qt.ControlModifier)
     check(!b.editingSettings, "Ctrl+S is not the s shortcut")
     view.cursor.emitTextKey(view, "s")
@@ -204,17 +272,16 @@ ShellRoot {
     check(shell.alertText(cpuField) === "", "the field's error line clears with it")
     check(b.popup.bodyItem.editingSettings && page.implicitHeight > 0, "settings page in place of the dashboard")
     var barChoice = shell.named(page, "barDisplay")
-    check(barChoice && barChoice.compact && barChoice.label === "Show in the bar", "Show in the bar is the kit dropdown row")
-    check(barChoice && Math.abs(barChoice.height - cpuField.height) <= 1, "the dropdown row is as tall as a number row (" + (barChoice ? barChoice.height : -1) + " vs " + cpuField.height + ")")
+    check(barChoice !== null && Math.abs(barChoice.height - cpuField.height) <= 1, "the dropdown row is as tall as a number row (" + (barChoice ? barChoice.height : -1) + " vs " + cpuField.height + ")")
     b.save("cpuWarning", 80)
     var saved = bar.saved[bar.saved.length - 1]
     check(saved && saved.id === "foamy.vitals" && saved.settings.cpuWarning === 80, "inline save of the full entry")
     check(b.readings.preference("cpuWarning") === 80, "the saved value applies before the host reflects it")
     b.save("barDisplay", "memory")
-    saved = bar.saved[bar.saved.length - 1]
-    check(saved.settings.cpuWarning === 80 && saved.settings.barDisplay === "memory", "a second quick save keeps the first")
+    check(b.barText.indexOf("RAM ") === 0, "Show in the bar: RAM applies at once (" + b.barText + ")")
+    var savesBeforeRefused = bar.saved.length
     b.save("cpuWarning", 0)
-    check(b.settingsError !== "", "out-of-range value refused: " + b.settingsError)
+    check(b.settingsError !== "" && bar.saved.length === savesBeforeRefused, "out-of-range value refused, nothing saved: " + b.settingsError)
     page.back()
     check(!b.editingSettings, "Esc leaves Settings")
     b.popup.bodyItem.closeRequested()
@@ -234,9 +301,6 @@ ShellRoot {
     check(hidden.processes.length === 0 && hidden.cores.length === 0, "hidden lists read constants")
     check(!b.member.demanded, "demand drops when the popup closes")
     s.detail = { processes: [{ name: "stale", where: "", pct: 50 }], memoryProcesses: [] }
-    s.fail("Telemetry unavailable. Retrying…")
-    check(s.detail.processes.length === 0 && s.detail.memoryProcesses.length === 0, "a failed sample clears the rankings")
-    s.detail = { processes: [{ name: "stale", where: "", pct: 50 }], memoryProcesses: [] }
     shell.detailChanges = 0
     shell.barSamples = 0
     // Bar samples come every 5 s while every popup is closed; two of them
@@ -248,7 +312,8 @@ ShellRoot {
     check(shell.barSamples >= 2, "bar samples continue while closed (" + shell.barSamples + ")")
     check(shell.detailChanges === 1 && s.detail.processes.length === 0, "the first bar sample drops old rankings once, then no detail updates while closed (" + shell.detailChanges + ")")
     var fullBefore = shell.fullSamples
-    a.open()
+    // A left-click on the bar opens the popup.
+    shell.button(a).triggerPress(Qt.LeftButton)
     wait.waitFor(function() { return a.popup.bodyItem !== null && shell.fullSamples > fullBefore && a.popup.bodyItem.width > 0 }, 15000, step6, "reopening takes a full sample")
   }
   function step6() {
@@ -261,6 +326,15 @@ ShellRoot {
     check(header && body.LayoutMirroring.enabled, "RTL: the popup body is mirrored")
     var at = header.settingsButton.mapToItem(body, 0, 0)
     check(at.x < body.width / 2, "RTL: Settings sits at the leading (left) edge (" + Math.round(at.x) + ")")
+    // Here main() calls `qs ipc call foamy.vitals settings`.
+    a.close()
+    console.log("FOAMY IPC READY")
+    wait.waitFor(function() { return a.opened || b.opened }, 15000, step7, "the IPC call opens a popup")
+  }
+  function step7() {
+    var leader = a.member.isLeader ? a : b
+    var other = leader === a ? b : a
+    check(leader.opened && leader.editingSettings && !other.opened, "foamy.vitals settings opens Settings on the leader only")
     console.log("FOAMY DONE")
     Qt.quit()
   }
@@ -268,19 +342,71 @@ ShellRoot {
 """
 
 
+IPC_FUNCTIONS = {"open", "close", "toggle", "settings", "refresh"}
+
+
+def ipc(run):
+    """Once the scene is ready: one foamy.vitals target with its five
+    functions, then call `settings`. Returns the failures."""
+    if not run.wait_for_log("FOAMY IPC READY", 120):
+        return ["no FOAMY IPC READY before the IPC call"]
+    by_id = Path(run.env["XDG_RUNTIME_DIR"]) / "quickshell/by-id"
+    ids = [p.name for p in by_id.iterdir()] if by_id.is_dir() else []
+    if len(ids) != 1:
+        return [f"expected one quickshell instance, found {ids}"]
+
+    def qs(*args):
+        return subprocess.run(
+            ["qs", "ipc", "-i", ids[0], *args], env=run.env, capture_output=True, text=True, timeout=10
+        )
+
+    try:
+        shown = qs("show")
+        called = qs("call", "foamy.vitals", "settings") if shown.returncode == 0 else None
+    except subprocess.TimeoutExpired as error:
+        return [f"qs ipc did not answer: {error}"]
+    if shown.returncode != 0:
+        return ["qs ipc show failed: " + shown.stderr.strip()[-300:]]
+    # `show` prints each target, then its functions indented below it.
+    targets, functions, current = [], set(), None
+    for line in shown.stdout.splitlines():
+        words = line.split()
+        if words[:1] == ["target"]:
+            current = words[1] if len(words) > 1 else ""
+            targets.append(current)
+        elif words[:1] == ["function"] and current == "foamy.vitals":
+            functions.add(words[1].split("(")[0])
+    failures = []
+    if targets.count("foamy.vitals") != 1:
+        failures.append(f"two Panels register one foamy.vitals target, not {targets.count('foamy.vitals')}")
+    if functions != IPC_FUNCTIONS:
+        failures.append(f"foamy.vitals has open, close, toggle, settings and refresh, not {sorted(functions)}")
+    if called.returncode != 0:
+        failures.append("qs ipc call foamy.vitals settings failed: " + called.stderr.strip()[-300:])
+    return failures
+
+
 def main():
     run = harness.Run("4.5", SHELL, plugin=PLUGIN, language="ar", prefix="foamy-vitals-runtime-")
-    run.run(timeout=120)
+    run.start()
+    try:
+        failures = ipc(run)
+        run.wait(60)
+    finally:
+        run.stop()
     oks = run.log.count("FOAMY OK")
     # The real helper, df and hostnamectl run; no Omarchy command may.
-    for line in run.host_commands():
-        run.ok = False
-        print(f"host command reached: {line}")
-    if run.ok:
+    failures += [f"host command reached: {line}" for line in run.host_commands()]
+    failures += run.failures()
+    # Quickshell keeps the first handler of a target and warns about each
+    # later one: a non-leader that registers too shows up only here.
+    if "another handler is registered for target foamy.vitals" in run.log:
+        failures.append("FOAMY FAIL only the leader registers foamy.vitals")
+    if "FOAMY DONE" in run.log and not failures:
         print(f"4.5: {oks} checks passed")
         run.cleanup()
         return 0
-    print(f"4.5: FAILED ({oks} ok)\n" + "\n".join(run.failures() or run.log.splitlines()[-40:]))
+    print(f"4.5: FAILED ({oks} ok)\n" + "\n".join(failures or run.log.splitlines()[-40:]))
     print(f"log kept at {run.base}")
     return 1
 

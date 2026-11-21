@@ -27,16 +27,19 @@ test('network rates use elapsed sample time and preserve idle zero readings', ()
 
 test('route changes, counter reset, missing readings and suspend gaps do not spike', () => {
   const previous = {interface: 'br0', rxBytes: 100, txBytes: 200, time: 1000};
-  for (const [current, time] of [
-    [{interface: 'wlan0', rxBytes: 900000, txBytes: 900000}, 4000],
-    [{interface: 'br0', rxBytes: 0, txBytes: 0}, 4000],
-    [null, 4000],
-    [{interface: 'br0', rxBytes: null, txBytes: null}, 4000],
-    [{interface: 'br0', rxBytes: 900000, txBytes: 900000}, 90000],
-    [{interface: 'br0', rxBytes: 200, txBytes: 400}, 1000]
+  // `changed` restarts the traffic history: only a new route or a missing reading does that.
+  for (const [current, time, changed] of [
+    [{interface: 'wlan0', rxBytes: 900000, txBytes: 900000}, 4000, true],
+    [{interface: 'br0', rxBytes: 0, txBytes: 0}, 4000, false],
+    [null, 4000, true],
+    [{interface: 'br0', rxBytes: null, txBytes: null}, 4000, true],
+    [{interface: 'br0', rxBytes: 900000, txBytes: 900000}, 90000, false],
+    [{interface: 'br0', rxBytes: 200, txBytes: 400}, 1000, false]
   ]) {
     const result = model.networkRate(previous, current, time);
-    assert.ok(Number.isNaN(result.up));
-    assert.ok(Number.isNaN(result.down));
+    const row = JSON.stringify([current, time]);
+    assert.ok(Number.isNaN(result.up), row);
+    assert.ok(Number.isNaN(result.down), row);
+    assert.equal(result.changed, changed, row);
   }
 });

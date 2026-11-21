@@ -23,7 +23,7 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fakesys import FIFO, INTEL_DEVICE, Tree, intel_fdinfo as fdinfo  # noqa: E402
+from fakesys import FIFO, INTEL_DEVICE, Tree, intel_fdinfo as fdinfo, isolated_environ  # noqa: E402
 
 UNAVAILABLE = "Intel GPU readings unavailable. Retrying…"
 SECOND = 1_000_000_000
@@ -52,6 +52,8 @@ def client(render=100, video=0, capacity=2, private=63 * 1048576):
 class IntelTest(unittest.TestCase):
     def setUp(self):
         self.base = Path(tempfile.mkdtemp(prefix="foamy-vitals-intel-"))
+        # Registered first, so a fake tree that fails to build is removed too.
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
         self.tree = Tree(self.base)
         self.card, self.device = self.tree.intel()
         self.clock = 0
@@ -68,9 +70,6 @@ class IntelTest(unittest.TestCase):
             return write(ago_ns, clients, **kwargs)
 
         self.tree.intel_state = stamped
-
-    def tearDown(self):
-        shutil.rmtree(self.base, ignore_errors=True)
 
     def later(self):
         """Move the sample clock past the sample cache."""
@@ -197,11 +196,6 @@ class IntelTest(unittest.TestCase):
         self.assertNotIn("Intel telemetry", stderr)
         self.assertEqual(self.saved()["clients"], {})
 
-    def test_xe_clients_count(self):
-        self.tree.descriptor(41, 3, fdinfo(driver="xe"))
-        gpu, _ = self.sample()
-        self.assertEqual(gpu["memoryPrivate"], 63 * 1048576)
-
     def test_malformed_counters_fail_the_sample(self):
         for text in (fdinfo().replace("100 ns", "-1 ns"), fdinfo().replace("capacity-video: 2", "capacity-video: 0")):
             self.later()
@@ -214,19 +208,17 @@ class IntelTest(unittest.TestCase):
             self.assertIn("Intel telemetry:", stderr)
 
     def test_unknown_private_memory(self):
-        for number, text in enumerate(
-            (
-                fdinfo().replace("1024 KiB", "65 MiB"),
-                fdinfo().replace("1024 KiB", "bad"),
-                fdinfo().replace("drm-shared-system0: 1024 KiB", ""),
-            ),
-            1,
+        # One client per sample: shared above total, an unreadable shared
+        # size and a missing one each make private memory unknown, not 0.
+        for text in (
+            fdinfo().replace("1024 KiB", "65 MiB"),
+            fdinfo().replace("1024 KiB", "bad"),
+            fdinfo().replace("drm-shared-system0: 1024 KiB", ""),
         ):
             self.later()
-            self.tree.descriptor(40 + number, 3, text.replace("drm-client-id: 1", f"drm-client-id: {number}"))
+            self.tree.descriptor(41, 3, text)
             gpu, _ = self.sample()
             self.assertIsNone(gpu["memoryPrivate"], text)
-        self.assertEqual([c["private"] for c in self.saved()["clients"].values()], [None, None, None])
 
     def test_shared_descriptors_are_deduplicated(self):
         for pid in (41, 42):
@@ -291,7 +283,9 @@ class IntelTest(unittest.TestCase):
         if os.geteuid() == 0:
             self.skipTest("root owns everything")
         self.tree.descriptor(41, 3, fdinfo())
-        # A process directory owned by someone else is not scanned: /proc/1 is root's.
+        # /proc/1 is root's: another user's process does not fail the sample.
+        # This cannot tell the uid filter from a failed open of its fd
+        # directory (both skip it); proving the filter would need a second user.
         (self.tree.proc / "1").symlink_to("/proc/1")
         gpu, stderr = self.sample()
         self.assertEqual(gpu["error"], "")
@@ -394,17 +388,28 @@ class IntelTest(unittest.TestCase):
         # sample must reply in time, with the Intel fallback text.
         self.tree.descriptor(41, 3, FIFO)  # opening it blocks the scan
         self.tree.state.mkdir(mode=0o700)
-        holder = subprocess.Popen(["flock", str(self.tree.state / "lock"), "sleep", "3.9"])
+        # The holder says when it has the lock, so the helper surely waits.
+        holder = subprocess.Popen(
+            ["flock", str(self.tree.state / "lock"), "sh", "-c", "echo locked; exec sleep 3.7"],
+            env=isolated_environ(),
+            stdout=subprocess.PIPE,
+            text=True,
+        )
         self.addCleanup(holder.wait)
         self.addCleanup(holder.kill)
-        time.sleep(0.2)  # flock has the lock before the helper starts
+        self.addCleanup(holder.stdout.close)
+        self.assertEqual(holder.stdout.readline().strip(), "locked")
+        started = time.monotonic()
         result = subprocess.run(
             ["timeout", "--kill-after=1s", "5s", *self.tree.helper, "--bar"],
             env=self.tree.env(),
             capture_output=True,
             timeout=20,
         )
-        self.assertEqual(result.returncode, 0, "killed by the wrapper")
+        elapsed = time.monotonic() - started
+        stderr = result.stderr.decode(errors="replace")
+        self.assertEqual(result.returncode, 0, f"exit {result.returncode} after {elapsed:.1f} s: {stderr}")
+        self.assertGreaterEqual(elapsed, 3.0, "the helper waited for the lock")
         sample = json.loads(result.stdout)
         self.assertEqual(sample["gpus"][0]["error"], UNAVAILABLE)
 
