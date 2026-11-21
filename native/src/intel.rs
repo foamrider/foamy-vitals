@@ -939,10 +939,13 @@ mod tests {
                 let _ = fs::remove_dir_all(&self.0);
             }
         }
-        let proc = Proc(
-            std::env::temp_dir().join(format!("foamy-vitals-intel-budget-{}", std::process::id())),
-        );
-        fs::create_dir_all(proc.0.join("1")).unwrap();
+        // Claimed with an exclusive mkdir before the guard owns it, so a
+        // directory that is already there (and its content) is never removed.
+        let path =
+            std::env::temp_dir().join(format!("foamy-vitals-intel-budget-{}", std::process::id()));
+        fs::create_dir(&path).expect("a new directory for the stand-in /proc");
+        let proc = Proc(path);
+        fs::create_dir(proc.0.join("1")).unwrap();
         let soon = Instant::now() + Duration::from_secs(60);
         assert!(read_clients(&devices(), &proc.0, &proc.0, 0, soon).is_ok());
         let late = Instant::now() - Duration::from_secs(1);
