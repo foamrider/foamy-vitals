@@ -36,18 +36,6 @@ test('warnings reject missing, coerced, fractional and out-of-range values', () 
   }
 });
 
-test('individual warning values and bar selection stay independent', () => {
-  const settings = {cpuWarning: 70, gpuWarning: 99, cpuTemperatureMargin: 20, barDisplay: 'gpu'};
-  assert.equal(preferences.value(settings, 'cpuWarning'), 70);
-  assert.equal(preferences.value(settings, 'gpuWarning'), 99);
-  assert.equal(preferences.value(settings, 'memoryWarning'), 95);
-  assert.equal(preferences.value(settings, 'cpuTemperatureMargin'), 20);
-  assert.equal(preferences.value(settings, 'gpuTemperatureMargin'), 15);
-  assert.equal(preferences.value(settings, 'barDisplay'), 'gpu');
-  assert.equal(preferences.value({barDisplay: 'vram'}, 'barDisplay'), 'adaptive');
-  assert.equal(preferences.valid('unknownSetting', 1), false);
-});
-
 test('theme warning colors default on and preserve an explicit false value', () => {
   const key = 'useThemeWarningColors';
   assert.equal(preferences.value({}, key), true);

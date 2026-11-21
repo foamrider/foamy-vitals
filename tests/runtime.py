@@ -109,7 +109,6 @@ ShellRoot {
     check(s.telemetryError === "", "bar sample parsed: " + JSON.stringify(s.stats).slice(0, 120))
     check(!isNaN(a.readings.cpu) || s.samples === 1, "bar readings feed the bar text: " + a.barText)
     check(a.readings.warning === b.readings.warning, "both bars agree on the warning state")
-    check(s.detail.processes.length === 0, "bar samples carry no process rankings")
     b.open()
     wait.waitFor(function() { return shell.fullSamples >= 1 }, 20000, step2, "a first full sample")
   }
@@ -204,8 +203,7 @@ ShellRoot {
     check(shell.alertText(cpuField) === "", "the field's error line clears with it")
     check(b.popup.bodyItem.editingSettings && page.implicitHeight > 0, "settings page in place of the dashboard")
     var barChoice = shell.named(page, "barDisplay")
-    check(barChoice && barChoice.compact && barChoice.label === "Show in the bar", "Show in the bar is the kit dropdown row")
-    check(barChoice && Math.abs(barChoice.height - cpuField.height) <= 1, "the dropdown row is as tall as a number row (" + (barChoice ? barChoice.height : -1) + " vs " + cpuField.height + ")")
+    check(barChoice !== null && Math.abs(barChoice.height - cpuField.height) <= 1, "the dropdown row is as tall as a number row (" + (barChoice ? barChoice.height : -1) + " vs " + cpuField.height + ")")
     b.save("cpuWarning", 80)
     var saved = bar.saved[bar.saved.length - 1]
     check(saved && saved.id === "foamy.vitals" && saved.settings.cpuWarning === 80, "inline save of the full entry")

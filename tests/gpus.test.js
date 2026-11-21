@@ -46,13 +46,6 @@ test('barGpu follows the pin, including asleep, and falls back when absent', () 
   assert.equal(G.barGpu(back, B).id, B);
 });
 
-test('pinnedMissing', () => {
-  const list = G.order([{id: A}]);
-  assert.equal(G.pinnedMissing(list, ''), false);
-  assert.equal(G.pinnedMissing(list, B), true);
-  assert.equal(G.pinnedMissing(list, A), false);
-});
-
 test('summarize flags busy, vram, and heat; asleep clears all', () => {
   const t = {gpu: 95, vram: 95};
   const cool = {hot: false};

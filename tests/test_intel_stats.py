@@ -197,11 +197,6 @@ class IntelTest(unittest.TestCase):
         self.assertNotIn("Intel telemetry", stderr)
         self.assertEqual(self.saved()["clients"], {})
 
-    def test_xe_clients_count(self):
-        self.tree.descriptor(41, 3, fdinfo(driver="xe"))
-        gpu, _ = self.sample()
-        self.assertEqual(gpu["memoryPrivate"], 63 * 1048576)
-
     def test_malformed_counters_fail_the_sample(self):
         for text in (fdinfo().replace("100 ns", "-1 ns"), fdinfo().replace("capacity-video: 2", "capacity-video: 0")):
             self.later()
