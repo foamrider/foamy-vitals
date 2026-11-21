@@ -52,6 +52,8 @@ def client(render=100, video=0, capacity=2, private=63 * 1048576):
 class IntelTest(unittest.TestCase):
     def setUp(self):
         self.base = Path(tempfile.mkdtemp(prefix="foamy-vitals-intel-"))
+        # Registered first, so a fake tree that fails to build is removed too.
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
         self.tree = Tree(self.base)
         self.card, self.device = self.tree.intel()
         self.clock = 0
@@ -68,9 +70,6 @@ class IntelTest(unittest.TestCase):
             return write(ago_ns, clients, **kwargs)
 
         self.tree.intel_state = stamped
-
-    def tearDown(self):
-        shutil.rmtree(self.base, ignore_errors=True)
 
     def later(self):
         """Move the sample clock past the sample cache."""
