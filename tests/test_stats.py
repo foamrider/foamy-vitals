@@ -946,10 +946,11 @@ class RealSystemTest(unittest.TestCase):
                 self.assertEqual(list(thermal), ["temperature", "critical", "label"])
 
     def test_real_process_with_control_characters(self):
-        """The bug as reported: a busy process renames itself with a control byte."""
+        """The bug as reported: a process renames itself with a control byte."""
         runtime = Path(tempfile.mkdtemp(prefix="foamy-vitals-real-"))
         os.chmod(runtime, 0o700)
-        burner = subprocess.Popen(
+        # It waits on stdin: idle, it still has resident memory, so the first full sample lists it.
+        child = subprocess.Popen(
             [
                 sys.executable,
                 "-I",
@@ -958,32 +959,32 @@ class RealSystemTest(unittest.TestCase):
             import sys
             open("/proc/self/comm", "wb").write(b"evil\\x01na\\"me")
             print("ready", flush=True)
-            while True: pass
+            sys.stdin.read()
             """),
             ],
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
         )
         try:
-            self.assertEqual(burner.stdout.readline().strip(), "ready")
-            # The real /proc with only the burner's process in it: on a busy
+            self.assertEqual(child.stdout.readline().strip(), "ready")
+            # The real /proc with only the child's process in it: on a busy
             # machine other processes would push it out of the top five.
             proc = runtime / "proc"
             proc.mkdir()
             for entry in os.listdir("/proc"):
-                if not entry.isdigit() or entry == str(burner.pid):
+                if not entry.isdigit() or entry == str(child.pid):
                     (proc / entry).symlink_to(Path("/proc") / entry)
             env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), FOAMY_VITALS_PROC=str(proc))
-            subprocess.run(HELPER, env=env, capture_output=True, check=True)
-            time.sleep(2.2)
-            output = subprocess.run(HELPER, env=env, capture_output=True, check=True).stdout
+            output = subprocess.run(HELPER, env=env, capture_output=True, check=True, timeout=20).stdout
             sample = strict(output.decode("utf-8", "replace"))
-            names = [entry["name"] for entry in sample["processes"] + sample["memoryProcesses"]]
-            self.assertIn("evilname", names, "the burner must be listed, its name cleaned")
+            names = [entry["name"] for entry in sample["memoryProcesses"]]
+            self.assertIn("evilname", names, "the process must be listed, its name cleaned")
         finally:
-            burner.send_signal(signal.SIGKILL)
-            burner.wait()
-            burner.stdout.close()
+            child.stdin.close()
+            child.send_signal(signal.SIGKILL)
+            child.wait()
+            child.stdout.close()
             shutil.rmtree(runtime, ignore_errors=True)
 
 
