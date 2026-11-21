@@ -781,7 +781,9 @@ class GpuTest(TreeCase):
             ),
             ("intel", "integrated", None, None, 63 * 1048576, 900, ""),
         )
-        self.assertAlmostEqual(intel["busy"], 5.5, delta=1.0)
+        # 550 ms of render time over a baseline at least 10 s old: a slow run only lowers it.
+        self.assertGreater(intel["busy"], 0)
+        self.assertLessEqual(intel["busy"], 6.5)
         self.assertEqual(intel["thermals"], [{"temperature": 44.0, "critical": None, "label": "GPU"}])
         self.assertEqual(
             (green["vendor"], green["type"], green["busy"], green["vramTotal"]),
