@@ -71,6 +71,27 @@ ShellRoot {
     for (var i = 0; i < kids.length; i++) { var found = alertText(kids[i]); if (found !== "") return found }
     return ""
   }
+  // The host WidgetButton of a Panel: what a click on the bar reaches,
+  // and whose `active` draws the bar in the warning colour.
+  function button(item) {
+    if (!item) return null
+    if (typeof item.triggerPress === "function" && item.activeColor !== undefined) return item
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) { var found = button(kids[i]); if (found) return found }
+    return null
+  }
+  // A full sample like the last one with `extra` on top, newer than it.
+  function inject(extra) {
+    s.parse(JSON.stringify(Object.assign({}, s.stats, { mode: "full", sampleTimeMs: s.sampledAt + 1 }, extra)))
+  }
+  // The first item under `item` whose text is `text`.
+  function withText(item, text) {
+    if (!item) return null
+    if (item.text === text) return item
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) { var found = withText(kids[i], text); if (found) return found }
+    return null
+  }
   MockBar {
     id: bar
     moduleName: "foamy.vitals"
@@ -107,8 +128,6 @@ ShellRoot {
   function step1() {
     var s = shell.s
     check(s.telemetryError === "", "bar sample parsed: " + JSON.stringify(s.stats).slice(0, 120))
-    check(!isNaN(a.readings.cpu) || s.samples === 1, "bar readings feed the bar text: " + a.barText)
-    check(a.readings.warning === b.readings.warning, "both bars agree on the warning state")
     b.open()
     wait.waitFor(function() { return shell.fullSamples >= 1 }, 20000, step2, "a first full sample")
   }
@@ -131,7 +150,35 @@ ShellRoot {
       ]
     })))
     check(view.graphicsStops === 2 && view.cpuStart === 3, "two GPUs: two Graphics stops before the CPU rows (" + view.graphicsStops + ", " + view.cpuStart + ")")
-    check(b.readings.barGpu && b.readings.barGpu.id === "0000:05:00.0", "unpinned: the bar follows the busiest GPU")
+    // Each GPU's chart line has its own colour; slot 0 keeps the single-GPU one.
+    var slots = [1, 2, 3].map(function(slot) { return view.gpuSlotColor(slot) })
+    check(Qt.colorEqual(view.gpuSlotColor(0), view.gpuColor), "the first GPU line keeps the GPU colour")
+    check(!Qt.colorEqual(slots[0], slots[1]) && !Qt.colorEqual(slots[1], slots[2]) && !Qt.colorEqual(slots[0], slots[2])
+          && slots.every(function(c) { return [view.cpuColor, view.memoryColor, view.gpuColor].every(function(o) { return !Qt.colorEqual(c, o) }) }),
+          "later GPU lines differ from each other and from the CPU, RAM and GPU lines")
+    check(Qt.colorEqual(view.gpuSlotColor(4), slots[0]), "the GPU line colours cycle")
+    // What the bar shows and when it warns, on both bars. The CPU
+    // temperature is cleared so a hot test machine does not warn.
+    var twoGpusFor = function(vramC1) {
+      return [
+        { id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "integrated", asleep: false, busy: 12,
+          vramUsed: vramC1, vramTotal: 4294967296, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" },
+        { id: "0000:05:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "discrete", asleep: false, busy: 40,
+          vramUsed: 2147483648, vramTotal: 17179869184, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" }
+      ]
+    }
+    var calm = { memUsedKb: 10, memTotalKb: 100, cpuTemp: null, cpuTempCrit: null }
+    shell.inject(Object.assign({ cpu: 5, gpus: twoGpusFor(536870912) }, calm))
+    check(b.barText === "GPU " + view.percent(40), "unpinned: the bar shows the busiest GPU (" + b.barText + ")")
+    check(a.barText === b.barText, "both bars show the same reading (" + a.barText + ")")
+    check(shell.button(a).active && shell.button(b).active, "CPU at its warning threshold warns on both bars")
+    shell.inject(Object.assign({ cpu: 0, gpus: twoGpusFor(536870912) }, calm))
+    check(!shell.button(a).active && !shell.button(b).active, "every reading below its threshold: no warning")
+    // 99 % VRAM on the GPU the bar does not show.
+    shell.inject(Object.assign({ cpu: 0, gpus: twoGpusFor(4252017623) }, calm))
+    check(b.barText === "GPU " + view.percent(40) && shell.button(a).active && shell.button(b).active,
+          "any GPU past its threshold warns, not only the bar GPU")
+    shell.inject(Object.assign({ cpu: 0, gpus: twoGpusFor(536870912) }, calm))
     shell.down(view)
     check(view.cursor.index === 0, "Down: cursor on Settings")
     shell.down(view)
@@ -140,13 +187,27 @@ ShellRoot {
     view.activateRequested()
     var pinSaved = bar.saved[bar.saved.length - 1]
     check(bar.saved.length === pinSaves + 1 && pinSaved.settings.pinnedGpu === "0000:c1:00.0", "Enter on a GPU row pins it (" + JSON.stringify(pinSaved && pinSaved.settings) + ")")
-    check(b.readings.barGpu && b.readings.barGpu.id === "0000:c1:00.0", "the bar follows the pinned GPU once saved")
+    // The pin is saved from b's popup; a's settings come from the host, which this harness never updates.
+    check(b.barText === "GPU " + view.percent(12), "the bar follows the pinned GPU once saved (" + b.barText + ")")
+    view.activateRequested()
+    check(bar.saved[bar.saved.length - 1].settings.pinnedGpu === "" && b.barText === "GPU " + view.percent(40),
+          "Enter on the pinned row unpins it")
+    view.activateRequested()
+    view.cursor.hover(2)
+    view.activateRequested()
+    check(bar.saved[bar.saved.length - 1].settings.pinnedGpu === "0000:05:00.0", "Enter on another row moves the pin")
+    view.cursor.hover(1)
+    view.activateRequested()
+    check(bar.saved[bar.saved.length - 1].settings.pinnedGpu === "0000:c1:00.0", "and back")
     // The cursor is on the second GPU row; losing a GPU must not leave it on a process row.
     view.cursor.hover(2)
     s.parse(JSON.stringify(Object.assign({}, s.stats, {
       mode: "full", sampleTimeMs: s.sampledAt + 2, gpus: s.stats.gpus.slice(0, 1)
     })))
     check(view.graphicsStops === 0 && view.cursor.index < view.cpuStart, "one GPU left: the cursor is not on a process row (" + view.cursor.index + ", cpuStart " + view.cpuStart + ")")
+    // The history also holds this machine's real GPUs, so only the order of these two is checked.
+    check(view.gpuChartIds[0] === "0000:c1:00.0" && view.gpuChartIds.indexOf("0000:05:00.0") > 0,
+          "the current GPU's line comes before a vanished one (" + JSON.stringify(view.gpuChartIds) + ")")
     check(view.cursor.index === -1, "no GPU rows left: the cursor resets (" + view.cursor.index + ")")
     var twoGpus = [
       { id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "integrated", asleep: false, busy: 12,
@@ -176,6 +237,12 @@ ShellRoot {
     check(view.hoveredCore === 2, "Right picks a thread on the cores strip")
     view.tabRequested(1)
     check(shell.switched === 1, "Tab switches to the next bar panel")
+    // A process name is drawn as plain text, never as markup.
+    var kept = s.detail
+    s.detail = { processes: [{ name: "<b>x</b>", where: "", pct: 1 }], memoryProcesses: [] }
+    var nameText = shell.withText(view.stopItem(view.cpuStart), "<b>x</b>")
+    check(nameText !== null && nameText.textFormat === Text.PlainText, "a process name is plain text")
+    s.detail = kept
     view.cursor.emitTextKey(view, "s", Qt.ControlModifier)
     check(!b.editingSettings, "Ctrl+S is not the s shortcut")
     view.cursor.emitTextKey(view, "s")
@@ -209,10 +276,10 @@ ShellRoot {
     check(saved && saved.id === "foamy.vitals" && saved.settings.cpuWarning === 80, "inline save of the full entry")
     check(b.readings.preference("cpuWarning") === 80, "the saved value applies before the host reflects it")
     b.save("barDisplay", "memory")
-    saved = bar.saved[bar.saved.length - 1]
-    check(saved.settings.cpuWarning === 80 && saved.settings.barDisplay === "memory", "a second quick save keeps the first")
+    check(b.barText.indexOf("RAM ") === 0, "Show in the bar: RAM applies at once (" + b.barText + ")")
+    var savesBeforeRefused = bar.saved.length
     b.save("cpuWarning", 0)
-    check(b.settingsError !== "", "out-of-range value refused: " + b.settingsError)
+    check(b.settingsError !== "" && bar.saved.length === savesBeforeRefused, "out-of-range value refused, nothing saved: " + b.settingsError)
     page.back()
     check(!b.editingSettings, "Esc leaves Settings")
     b.popup.bodyItem.closeRequested()
@@ -243,7 +310,8 @@ ShellRoot {
     check(shell.barSamples >= 2, "bar samples continue while closed (" + shell.barSamples + ")")
     check(shell.detailChanges === 1 && s.detail.processes.length === 0, "the first bar sample drops old rankings once, then no detail updates while closed (" + shell.detailChanges + ")")
     var fullBefore = shell.fullSamples
-    a.open()
+    // A left-click on the bar opens the popup.
+    shell.button(a).triggerPress(Qt.LeftButton)
     wait.waitFor(function() { return a.popup.bodyItem !== null && shell.fullSamples > fullBefore && a.popup.bodyItem.width > 0 }, 15000, step6, "reopening takes a full sample")
   }
   function step6() {
