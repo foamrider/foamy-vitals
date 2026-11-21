@@ -24,7 +24,7 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fakesys import FIFO, HELPER, NVIDIA_ADDRESS, Tree, amd_files, intel_fdinfo, strict  # noqa: E402
+from fakesys import FIFO, HELPER, NVIDIA_ADDRESS, Tree, amd_files, intel_fdinfo, isolated_environ, strict  # noqa: E402
 
 PAGE_KB = os.sysconf("SC_PAGE_SIZE") // 1024
 EVIL = 'evil\x01na"me\\\x1b[31m'
@@ -83,10 +83,9 @@ def temperature(gpu):
 class TreeCase(unittest.TestCase):
     def setUp(self):
         self.base = Path(tempfile.mkdtemp(prefix="foamy-vitals-stats-"))
+        # Registered first, so a setUp that fails (a full disk) leaves no tree behind.
+        self.addCleanup(shutil.rmtree, self.base, True)
         self.tree = Tree(self.base)
-
-    def tearDown(self):
-        shutil.rmtree(self.base, ignore_errors=True)
 
     def advance(self, tick, seconds):
         self.tree.advance(tick, seconds)
@@ -1085,7 +1084,7 @@ class RealSystemTest(unittest.TestCase):
         os.chmod(runtime, 0o700)
         try:
             output = subprocess.run(
-                HELPER, env=dict(os.environ, XDG_RUNTIME_DIR=str(runtime)), capture_output=True, check=True, timeout=20
+                HELPER, env=isolated_environ(XDG_RUNTIME_DIR=str(runtime)), capture_output=True, check=True, timeout=20
             ).stdout
         finally:
             shutil.rmtree(runtime, ignore_errors=True)
@@ -1131,7 +1130,7 @@ class RealSystemTest(unittest.TestCase):
             for entry in os.listdir("/proc"):
                 if not entry.isdigit() or entry == str(child.pid):
                     (proc / entry).symlink_to(Path("/proc") / entry)
-            env = dict(os.environ, XDG_RUNTIME_DIR=str(runtime), FOAMY_VITALS_PROC=str(proc))
+            env = isolated_environ(XDG_RUNTIME_DIR=str(runtime), FOAMY_VITALS_PROC=str(proc))
             output = subprocess.run(HELPER, env=env, capture_output=True, check=True, timeout=20).stdout
             sample = strict(output.decode("utf-8", "replace"))
             names = [entry["name"] for entry in sample["memoryProcesses"]]

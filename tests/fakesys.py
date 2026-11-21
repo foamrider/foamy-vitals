@@ -40,6 +40,17 @@ def helper_prefix(variable="FOAMY_HELPER", default=None):
 HELPER = helper_prefix()
 
 
+# The desktop session stays out of every process a test starts.
+SESSION = ("WAYLAND_DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE", "DISPLAY")
+
+
+def isolated_environ(**extra):
+    """os.environ without the desktop session's variables, plus extra."""
+    env = {key: value for key, value in os.environ.items() if key not in SESSION}
+    env.update(extra)
+    return env
+
+
 def strict(text):
     """json.loads with strict=True rejects raw control characters, as JSON.parse does."""
     return json.loads(text, strict=True)
@@ -277,8 +288,7 @@ class Tree:
         (self.state / f"intel-{device}.json").write_text(json.dumps(snapshot, separators=(",", ":")))
 
     def env(self):
-        return dict(
-            os.environ,
+        return isolated_environ(
             FOAMY_VITALS_PROC=str(self.proc),
             FOAMY_VITALS_SYS=str(self.sys),
             FOAMY_VITALS_PCI_IDS=str(self.base / "pci.ids"),
