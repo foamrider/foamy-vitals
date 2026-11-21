@@ -7,15 +7,17 @@ const model = vm.createContext({});
 vm.runInContext(fs.readFileSync(path.join(__dirname, '../Filesystems.js'), 'utf8'), model);
 test('local disk capacities deduplicate subvolumes and prefer root', () => {
   const data = model.parse(`Filesystem Type 1024-blocks Used Available Capacity Mounted on
-/dev/nvme0n1p2 btrfs 2000 1000 1000 50% /home
+/dev/nvme0n1p2[/@home] btrfs 2000 1000 1000 50% /home
 /dev/nvme0n1p2 btrfs 2000 1000 1000 50% /
 /dev/nvme0n1p1 vfat 500 100 400 20% /boot
 tmpfs tmpfs 1000 1 999 1% /run
 /dev/sdb1 ext4 1000 200 800 20% /media/My Disk`);
-  assert.equal(data.length, 3);
-  assert.equal(data[0].mount, '/');
-  assert.equal(data[2].mount, '/media/My Disk');
-  assert.equal(data[2].usedKb, 200);
+  // Root first, then by mount; the btrfs subvolume and tmpfs are gone, the space in a mount point stays.
+  assert.deepEqual(Array.from(data, d => ({...d})), [
+    {device: '/dev/nvme0n1p2', mount: '/', totalKb: 2000, usedKb: 1000},
+    {device: '/dev/nvme0n1p1', mount: '/boot', totalKb: 500, usedKb: 100},
+    {device: '/dev/sdb1', mount: '/media/My Disk', totalKb: 1000, usedKb: 200},
+  ]);
 });
 test('empty, malformed and zero-capacity results are unavailable', () => {
   assert.equal(model.parse('').length, 0);
