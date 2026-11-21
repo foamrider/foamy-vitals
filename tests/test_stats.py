@@ -141,6 +141,40 @@ class FakeTreeTest(TreeCase):
             [entry["name"] for entry in sample["memoryProcesses"]], ["p219", "p218", "p217", "p216", "p215"]
         )
 
+    def test_process_names_and_directories_as_the_kernel_writes_them(self):
+        # A name ends at the last ")" of the stat line ("(sd-pam)" runs in every session), and
+        # "where" names only a project directory, never /, $HOME or a kernel directory.
+        tree = self.tree
+        home = str(self.base / "home")
+        for pid, name, rss, cwd in (
+            (401, "(sd-pam)", 500, "/"),
+            (402, "Web Content", 400, home),
+            (403, "a) (b", 300, home + "/project"),
+            (404, "x", 200, "/proc/1"),
+            (405, "no cwd", 100, None),
+        ):
+            tree.process(pid, name, 0, rss, cwd=cwd)
+        result = tree.run_raw(env={**tree.env(), "HOME": home})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        memory = strict(result.stdout.decode())["memoryProcesses"]
+        self.assertEqual(
+            [(entry["name"], entry["where"], entry["rssKb"]) for entry in memory],
+            [
+                ("(sd-pam)", "", 500 * PAGE_KB),
+                ("Web Content", "", 400 * PAGE_KB),
+                ("a) (b", "project", 300 * PAGE_KB),
+                ("x", "", 200 * PAGE_KB),
+                ("no cwd", "", 100 * PAGE_KB),
+            ],
+        )
+        # Without HOME a full sample still answers (the shell script it replaced exited 1).
+        self.advance(1, 3)
+        env = tree.env()
+        del env["HOME"]
+        result = tree.run_raw(env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(strict(result.stdout.decode())["memoryProcesses"]), 5)
+
     def test_bar_samples_skip_rankings_and_share_the_cache(self):
         tree = self.tree
         tree.process(300, "busy", 0, 50)
@@ -174,6 +208,45 @@ class FakeTreeTest(TreeCase):
         late, _ = tree.run()
         self.assertEqual(late["sampleTimeMs"], first["sampleTimeMs"] + 1980, "a call 1.98 s later is a new sample")
         self.assertEqual(late["processes"][0]["name"], "busy")
+
+    def test_first_rankings_after_a_bar_stretch_cover_a_short_window(self):
+        # The popup opens after a stretch of bar-only samples: the CPU ranking must show
+        # the last moment, not the whole stretch since the last full sample.
+        tree = self.tree
+        tree.process(300, "busy", 0, 50)
+        tree.run()
+        self.advance(1, 2)
+        tree.process(300, "busy", 40, 50)
+        sample, _ = tree.run()
+        self.assertEqual([entry["name"] for entry in sample["processes"]], ["busy"], "a recent baseline ranks it")
+        for step in range(2, 7):
+            self.advance(step, 2 + 5 * (step - 1))
+            tree.process(300, "busy", 20000 * (step - 1), 50)
+            tree.run("--bar")
+        self.advance(7, 32)
+        sample, _ = tree.run()
+        self.assertEqual(sample["processes"], [], "a baseline older than 15 s is replaced before ranking")
+        self.assertEqual([entry["name"] for entry in sample["memoryProcesses"]], ["busy"])
+        # Time went back (a new baseline is due): busy's new jiffies are not ranked either.
+        tree.cpu(8)
+        tree.process(300, "busy", 200000, 50)
+        tree.uptime(900)
+        sample, _ = tree.run()
+        self.assertEqual(sample["processes"], [], "a baseline from the future is replaced before ranking")
+
+    def test_unknown_arguments_get_a_json_usage_error(self):
+        # tests/suite.sh runs the other architecture's helper only where this exit 2 comes back.
+        tree = self.tree
+        self.assertEqual(tree.helper[-1], "stats")
+        program = tree.helper[:-1]
+        for args in ([], ["stats", "--probe"], ["stats", "--bar", "x"], ["--bar"]):
+            with self.subTest(args=args):
+                result = subprocess.run([*program, *args], env=tree.env(), capture_output=True, timeout=20)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                lines = result.stdout.decode().splitlines()
+                self.assertEqual(len(lines), 1, lines)
+                reply = strict(lines[0])
+                self.assertEqual((reply["ok"], reply["code"]), (False, "INVALID_ARGUMENT"))
 
     def test_cpu_temperature_comes_from_the_package_sensor(self):
         # cpuTempCrit sets the bar's warning colour, so a limit must belong to the sensor shown.
@@ -912,6 +985,18 @@ class GpuTest(TreeCase):
         tree.intel_state(45 * SECOND, baseline, device="0000:03:00.0")
         self.advance(1, 3)
         self.assertIsNone(only(tree.run("--bar")[0])["busy"], "but outside the 30 s window of a GPU read every sample")
+
+    def test_spaced_intel_dgpu_is_not_scanned_between_reads(self):
+        # Opening an xe fdinfo wakes the GPU: between reads the last reading is carried.
+        tree = self.tree
+        tree.intel(driver="xe", device="0000:03:00.0", card="card2", control="auto")
+        tree.descriptor(41, 3, intel_fdinfo(driver="xe", device="0000:03:00.0"), target="/dev/dri/renderD130")
+        first = only(tree.run("--bar")[0])
+        self.assertEqual((first["memoryPrivate"], first["error"]), (63 * 1048576, ""))
+        (tree.proc / "41/fdinfo/3").unlink()
+        tree.descriptor(41, 3, FIFO, target="/dev/dri/renderD130")  # opening it would block the scan
+        self.advance(1, 5)
+        self.assertEqual(only(tree.run("--bar", timeout=5)[0]), first, "carried for 30 s")
 
     def test_names_from_pci_ids_are_cached_and_clean(self):
         tree = self.tree
