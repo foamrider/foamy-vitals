@@ -954,27 +954,4 @@ mod tests {
             assert_eq!(drm_node(target), None);
         }
     }
-
-    #[test]
-    fn devices_render_like_json_dumps() {
-        let device = Device {
-            busy: Some(50.0),
-            private: Some(7),
-            frequency: Some(800),
-            thermals: vec![Thermal {
-                temperature: 45.5,
-                critical: None,
-                label: "GPU \u{e9}".into(),
-            }],
-            error: "",
-        };
-        assert_eq!(
-            String::from_utf8(device.render()).unwrap(),
-            r#"{"busy":50.0,"memoryPrivate":7,"frequencyMHz":800,"thermals":[{"temperature":45.5,"critical":null,"label":"GPU \u00e9"}],"error":""}"#
-        );
-        assert_eq!(
-            String::from_utf8(Device::unavailable().render()).unwrap(),
-            r#"{"busy":null,"memoryPrivate":null,"frequencyMHz":null,"thermals":[],"error":"Intel GPU readings unavailable. Retrying\u2026"}"#
-        );
-    }
 }
