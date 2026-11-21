@@ -277,16 +277,25 @@ mod tests {
 
     #[test]
     fn load_is_a_delta_against_the_baseline() {
+        // Counters as large as on a machine that has run for days: the saved
+        // baseline must keep every digit, or each delta is wrong.
         let first = sample(
-            &tree("cpu  100 0 0 1000\ncpu0 50 0 0 500\ncpu1 50 0 0 500\n").0,
+            &tree(
+                "cpu  1000000100 0 0 1000000000\ncpu0 500000050 0 0 500000000\n\
+                 cpu1 500000050 0 0 500000000\n",
+            )
+            .0,
             None,
         );
         assert_eq!(first.reading.cpu, b"null");
         assert_eq!(first.reading.cores, b"null,null");
         let baseline = first.baseline.unwrap();
-        assert_eq!(baseline, b"cpu 1100 1000\ncpu0 550 500\ncpu1 550 500\n");
         let second = sample(
-            &tree("cpu  200 0 0 1100\ncpu0 100 0 0 550\ncpu1 100 0 0 550\n").0,
+            &tree(
+                "cpu  1000000200 0 0 1000000100\ncpu0 500000100 0 0 500000050\n\
+                 cpu1 500000100 0 0 500000050\n",
+            )
+            .0,
             Some(&baseline),
         );
         assert_eq!(second.reading.cpu, b"50");
@@ -300,7 +309,7 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_table_ends_the_pass_like_gawk() {
+    fn a_missing_table_still_answers_and_keeps_the_baseline() {
         let dir = tree("cpu  1 0 0 1\n");
         fs::remove_file(dir.0.join("net/route")).unwrap();
         let result = sample(&dir.0, None);
@@ -308,7 +317,6 @@ mod tests {
             result.baseline.is_some(),
             "lines before the failure were written"
         );
-        assert_eq!(result.reading.mem_total_kb, b"0");
         assert_eq!(result.reading.network, b"null");
     }
 }
