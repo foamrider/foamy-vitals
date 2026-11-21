@@ -2,11 +2,11 @@
 """Offscreen runtime checks of the real Panel on Omarchy 4.5 (the installed shell).
 
 Two bar instances share one VitalsService: only the leader samples and owns
-the foamy.vitals IPC target (called with `qs ipc`), closed popups take bar-only samples, an open popup takes full ones,
-the popup body is built on first open and its lists and charts stop
-following samples while hidden, the single keyboard cursor walks the
-dashboard, `s`/Esc enter and leave Settings, saves go inline, and Arabic
-mirrors the popup.
+the foamy.vitals IPC target (called with `qs ipc`), closed popups take
+bar-only samples, an open popup takes full ones, the popup body is built on
+first open and its lists and charts stop following samples while hidden, the
+single keyboard cursor walks the dashboard, `s`/Esc enter and leave Settings,
+saves go inline, and Arabic mirrors the popup.
 
 Uses the foamy-kit harness (temp HOME/XDG, no Wayland/Hyprland, no host
 scripts): FOAMY_KIT=/path/to/foamy-kit (default ~/GitHub/Personal/foamy-kit).
@@ -169,7 +169,8 @@ ShellRoot {
       ]
     }
     var calm = { memUsedKb: 10, memTotalKb: 100, cpuTemp: null, cpuTempCrit: null }
-    shell.inject(Object.assign({ cpu: 5, gpus: twoGpusFor(536870912) }, calm))
+    // Both panels use cpuWarning 1, so CPU 1 % is exactly at the threshold.
+    shell.inject(Object.assign({ cpu: 1, gpus: twoGpusFor(536870912) }, calm))
     check(b.barText === "GPU " + view.percent(40), "unpinned: the bar shows the busiest GPU (" + b.barText + ")")
     check(a.barText === b.barText, "both bars show the same reading (" + a.barText + ")")
     check(shell.button(a).active && shell.button(b).active, "CPU at its warning threshold warns on both bars")
@@ -325,7 +326,7 @@ ShellRoot {
     check(header && body.LayoutMirroring.enabled, "RTL: the popup body is mirrored")
     var at = header.settingsButton.mapToItem(body, 0, 0)
     check(at.x < body.width / 2, "RTL: Settings sits at the leading (left) edge (" + Math.round(at.x) + ")")
-    // main() now calls `qs ipc call foamy.vitals settings`.
+    // Here main() calls `qs ipc call foamy.vitals settings`.
     a.close()
     console.log("FOAMY IPC READY")
     wait.waitFor(function() { return a.opened || b.opened }, 15000, step7, "the IPC call opens a popup")
