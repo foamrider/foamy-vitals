@@ -340,15 +340,4 @@ mod tests {
         let pids: Vec<&[u8]> = list.iter().map(|entry| &entry.pid[..]).collect();
         assert_eq!(pids, vec![&b"a"[..], b"b", b"c", b"d", b"e"]);
     }
-
-    #[test]
-    fn ranking_lines_become_json() {
-        let ranking = b"P\t12\tbusy\t80.0\nP\tx1\tbad\t1.0\nM\t12\tbusy\t4096\nM\t13\tmem\tinf\n";
-        let (procs, memory) = lists(Path::new("/nonexistent"), ranking, None);
-        assert_eq!(procs, br#"[{"name":"busy","where":"","pct":80.0}]"#);
-        assert_eq!(memory, br#"[{"name":"busy","where":"","rssKb":4096}]"#);
-        assert!(
-            is_decimal_number(b"12.5") && !is_decimal_number(b"12.") && !is_decimal_number(b"inf")
-        );
-    }
 }

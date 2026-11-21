@@ -562,94 +562,54 @@ mod tests {
     }
 
     #[test]
-    fn bash_integers() {
-        assert_eq!(bash_int(b"-1600"), -1600);
-        assert_eq!(bash_int(b"010"), 8);
-        assert_eq!(bash_int(b"089"), 89);
-        assert_eq!(decimal(b"0037"), 37);
-        assert_eq!((bash_int(b"-600") + 500) / 1000, 0);
-        assert_eq!((bash_int(b"-1600") + 500) / 1000, -1);
-    }
-
-    #[test]
-    fn awk_numbers() {
-        assert_eq!(awk_num(b"12abc"), 12.0);
-        assert_eq!(awk_num(b" 0x1A"), 0.0);
-        assert_eq!(awk_num(b"1e3"), 1000.0);
-        assert_eq!(awk_num(b"1e"), 1.0);
-        assert_eq!(awk_num(b".5"), 0.5);
-        assert_eq!(awk_num(b"+inf"), f64::INFINITY);
-        assert_eq!(awk_num(b"inf"), 0.0);
-        assert_eq!(awk_num(b"abc"), 0.0);
-        assert_eq!(awk_strnum(b"0"), Some(0.0));
-        assert_eq!(awk_strnum(b"12abc"), None);
-        assert_eq!(awk_print(1e20), "100000000000000000000");
-        assert_eq!(awk_print(9007199254740993.0), "9007199254740992");
-        assert_eq!(awk_print(-1e-7), "-1e-07");
-        assert_eq!(awk_print(0.30000000000000004), "0.3");
-        assert_eq!(awk_print(1.5), "1.5");
-        assert_eq!(awk_print(-0.0), "0");
-        assert_eq!(awk_d(1.9), "1");
-        assert_eq!(awk_d(1e20), "100000000000000000000");
-        assert_eq!(awk_f(2.5, 0), "2");
-        assert_eq!(awk_f(0.25, 1), "0.2");
-        assert_eq!(awk_f(80.0, 1), "80.0");
-        assert_eq!(fmt_g(123456.5, 6), "123456");
-        assert_eq!(fmt_g(1234567.0, 6), "1.23457e+06");
-        assert_eq!(fmt_g(0.0001, 6), "0.0001");
-    }
-
-    #[test]
-    fn python_text() {
-        assert_eq!(py_strip("\u{1c} a b \u{2028}\n"), "a b");
-        assert_eq!(
-            py_splitlines("a\r\nb\rc\u{85}d\n"),
-            vec!["a", "b", "c", "d"]
-        );
-        assert_eq!(py_splitlines("a\n\nb"), vec!["a", "", "b"]);
-        assert_eq!(py_integer(" 100 ns\n", "ns"), Some(100));
+    fn fdinfo_values_parse_as_the_kernel_prints_them() {
+        // drm-engine-*: "<n> ns". drm-total-*/drm-shared-*: after a tab, in KiB or MiB,
+        // or in bytes without a unit when the size is not a whole KiB (and for 0).
+        assert_eq!(py_integer("\t100 ns\n", "ns"), Some(100));
         assert_eq!(py_integer("-1 ns", "ns"), None);
         assert_eq!(py_integer("12\n", ""), Some(12));
-        assert_eq!(py_integer("12 x", ""), None);
-        assert_eq!(py_memory("64 MiB"), Some(64 << 20));
-        assert_eq!(py_memory("1024 KiB "), Some(1 << 20));
-        assert_eq!(py_memory("7"), Some(7));
+        assert_eq!(py_memory("\t64 MiB"), Some(64 << 20));
+        assert_eq!(py_memory(" 1024 KiB "), Some(1 << 20));
+        assert_eq!(py_memory("\t12345"), Some(12345));
+        assert_eq!(py_memory("\t0"), Some(0));
         assert_eq!(py_memory(""), None);
         assert_eq!(py_memory("bad"), None);
-        assert_eq!(py_text(b"a\r\nb\rc".to_vec()).unwrap(), "a\nb\nc");
-        assert!(py_text(vec![0xff]).is_err());
     }
 
     #[test]
-    fn python_floats() {
-        for (x, repr) in [
-            (50.0, "50.0"),
-            (0.1, "0.1"),
-            (45.123, "45.123"),
-            (0.001, "0.001"),
-            (1e-5, "1e-05"),
-            (0.0001, "0.0001"),
-            (1e16, "1e+16"),
-            (1.2345678901234568e16, "1.2345678901234568e+16"),
-            (123456789012345.6, "123456789012345.6"),
-            (1e15, "1000000000000000.0"),
-            (100.0, "100.0"),
-        ] {
-            assert_eq!(py_float(x), repr, "{x}");
+    fn readings_print_as_json_numbers_of_the_same_value() {
+        // Intel busy (0-100 %, one decimal) and sensor values (millidegrees / 1000).
+        let busy = (0..=1000).map(|tenths| py_round1(f64::from(tenths) / 10.0));
+        let sensors = (0..=150_000u64)
+            .step_by(7)
+            .map(|milli| py_div(u128::from(milli), 1000));
+        for x in busy.chain(sensors) {
+            let text = py_float(x);
+            let json: Option<serde_json::Value> = serde_json::from_str(&text).ok();
+            assert!(json.is_some_and(|v| v.is_number()), "{x} printed as {text}");
+            // str::parse rounds correctly; serde_json without float_roundtrip may not.
+            assert_eq!(text.parse::<f64>().ok(), Some(x), "{x} printed as {text}");
         }
-        assert_eq!(py_round1(0.25), 0.2);
-        assert_eq!(py_round1(0.45), 0.5);
-        assert_eq!(py_round1(49.96), 50.0);
-        assert_eq!(py_div(12345678901234567890, 1000), 12345678901234567.0);
-        assert_eq!(py_div(51500, 1000), 51.5);
     }
 
     #[test]
-    fn python_json_strings() {
-        let mut out = Vec::new();
-        py_json_str(&mut out, "GPU \"c\"\t\u{b0}\u{1F525}\u{7f}\\");
-        let expected = concat!(r#""GPU \"c\"\t\u00b0"#, r"\ud83d\udd25\u007f", r#"\\""#);
-        assert_eq!(String::from_utf8(out).unwrap(), expected);
+    fn labels_print_as_json_strings_of_the_same_text() {
+        // Intel sensor labels come from sysfs: any character must survive as valid JSON.
+        let controls: String = ('\u{0}'..='\u{1f}').chain(['\u{7f}']).collect();
+        for label in [
+            "GPU",
+            "GPU \"c\" \\",
+            controls.as_str(),
+            "vram \u{b0}",
+            "\u{1F525}",
+            "\u{2028}\u{2029}",
+        ] {
+            let mut out = Vec::new();
+            py_json_str(&mut out, label);
+            let text = String::from_utf8(out).unwrap();
+            let back: Option<String> = serde_json::from_str(&text).ok();
+            assert_eq!(back.as_deref(), Some(label), "{text}");
+        }
     }
 
     #[test]

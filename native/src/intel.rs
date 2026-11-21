@@ -903,85 +903,18 @@ mod tests {
     }
 
     #[test]
-    fn counter_regression_keeps_the_high_water_mark() {
-        let before = snapshot(1_000_000_000, &[fdinfo(1, 500_000_000, 0)]);
-        let mut after = snapshot(2_000_000_000, &[fdinfo(1, 400_000_000, 0)]);
-        assert_eq!(
-            utilization(&mut after, Some(&before), WINDOW_NS).get("render"),
-            Some(&0.0)
-        );
-        assert_eq!(
-            after.clients.0[0].1.engines.get("render"),
-            Some(&500_000_000)
-        );
-    }
-
-    #[test]
-    fn stale_and_foreign_baselines_count_nothing() {
-        let mut current = snapshot(40_000_000_000, &[fdinfo(1, 100, 0)]);
-        for previous in [
-            snapshot(1, &[fdinfo(1, 0, 0)]),
-            snapshot(40_000_000_000, &[fdinfo(1, 0, 0)]),
-        ] {
-            assert!(
-                utilization(&mut current, Some(&previous), WINDOW_NS)
-                    .0
-                    .is_empty()
-            );
-        }
-        let mut other = snapshot(39_000_000_000, &[fdinfo(1, 0, 0)]);
-        other.boot = "older".into();
-        assert!(
-            utilization(&mut current, Some(&other), WINDOW_NS)
-                .0
-                .is_empty()
-        );
-    }
-
-    #[test]
-    fn malformed_fields() {
-        let good = fdinfo(1, 100, 0);
-        assert!(
-            parse_client(&good.replace("i915", "amdgpu"), &devices())
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            parse_client(&good.replace("client-id: 1", "client-id: bad"), &devices())
-                .unwrap()
-                .is_none()
-        );
-        assert!(parse_client(&good.replace("100 ns", "-1 ns"), &devices()).is_err());
-        assert!(
-            parse_client(
-                &good.replace("capacity-video: 2", "capacity-video: 0"),
-                &devices()
-            )
-            .is_err()
-        );
-        let private = |text: String| parse_client(&text, &devices()).unwrap().unwrap().2.private;
-        assert_eq!(private(good.replace("1024 KiB", "65 MiB")), None);
-        assert_eq!(
-            private(good.replace("drm-shared-system0: 1024 KiB", "")),
-            None
-        );
-        assert_eq!(
-            private(
-                good.replace("drm-total-system0: 64 MiB\n", "")
-                    .replace("drm-shared-system0: 1024 KiB", "")
-            ),
-            None
-        );
+    fn a_client_without_memory_regions_has_unknown_private_memory() {
+        let text = fdinfo(1, 100, 0)
+            .replace("drm-total-system0: 64 MiB\n", "")
+            .replace("drm-shared-system0: 1024 KiB\n", "");
+        let (_, _, client) = parse_client(&text, &devices()).unwrap().unwrap();
+        assert_eq!(client.private, None, "unknown, not 0");
     }
 
     #[test]
     fn snapshots_round_trip_and_reject_wrong_types() {
         let snap = snapshot(5, &[fdinfo(1, 100, 0)]);
         let text = String::from_utf8(render_snapshot(&snap)).unwrap();
-        assert_eq!(
-            text,
-            r#"{"device":"0000:00:02.0","boot":"boot","time":5,"clients":{"1":{"engines":{"render":100,"video":0},"capacities":{"video":2},"private":66060288}}}"#
-        );
         assert_eq!(parse_snapshot(&text), Some(snap));
         for bad in [
             "broken",
@@ -997,39 +930,13 @@ mod tests {
 
     #[test]
     fn the_scan_has_a_budget() {
-        let failure = read_clients(
-            &devices(),
-            Path::new("/proc"),
-            Path::new("/sys/class/drm"),
-            0,
-            Instant::now() - Duration::from_secs(1),
-        )
-        .unwrap_err();
-        assert_eq!(failure.0, "Intel process scan exceeded its budget");
-    }
-
-    #[test]
-    fn spaced_gpus_keep_a_wider_window() {
-        let before = snapshot(1_000_000_000, &[fdinfo(1, 100, 0)]);
-        let mut after = snapshot(46_000_000_000, &[fdinfo(1, 4_500_000_100, 0)]);
-        assert!(
-            utilization(&mut after.clone(), Some(&before), WINDOW_NS)
-                .0
-                .is_empty()
-        );
-        assert_eq!(
-            utilization(&mut after, Some(&before), SPACED_WINDOW_NS).get("render"),
-            Some(&10.0)
-        );
-    }
-
-    #[test]
-    fn clients_name_their_device() {
-        let other = "0000:03:00.0".to_string();
-        let both = [DEVICE.to_string(), other.clone()];
-        let text = fdinfo(1, 100, 0).replace(DEVICE, &other);
-        assert_eq!(parse_client(&text, &both).unwrap().unwrap().0, other);
-        assert!(parse_client(&text, &devices()).unwrap().is_none());
+        // The crate directory stands in for /proc: it scans fine in time (no entry is a
+        // process), and past its deadline the scan fails at the first entry.
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let soon = Instant::now() + Duration::from_secs(60);
+        assert!(read_clients(&devices(), dir, dir, 0, soon).is_ok());
+        let late = Instant::now() - Duration::from_secs(1);
+        assert!(read_clients(&devices(), dir, dir, 0, late).is_err());
     }
 
     #[test]

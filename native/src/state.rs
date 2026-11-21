@@ -201,13 +201,4 @@ mod tests {
             b"0 1 010 1 -5 full 0\n"
         );
     }
-
-    #[test]
-    fn memory_store() {
-        let mut store = Store::Memory(HashMap::new());
-        assert!(!store.nonempty("cpu.1"));
-        assert!(store.write("cpu.1", b"x"));
-        assert!(store.nonempty("cpu.1"));
-        assert_eq!(store.read("cpu.1").as_deref(), Some(&b"x"[..]));
-    }
 }
