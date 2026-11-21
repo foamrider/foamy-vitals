@@ -896,10 +896,16 @@ class GpuTest(TreeCase):
         log, _ = self.tree.nvidia(control="on")
         (self.tree.bin / "nvidia-smi").write_text(f"#!/bin/sh\nprintf '%s\\n' \"$*\" >>'{log}'\nexec sleep 10\n")
         self.tree.state.mkdir(mode=0o700)
-        holder = subprocess.Popen(["flock", str(self.tree.state / "lock"), "sleep", "3.9"])
+        # The holder says when it has the lock, so the helper surely waits.
+        holder = subprocess.Popen(
+            ["flock", str(self.tree.state / "lock"), "sh", "-c", "echo locked; exec sleep 3.7"],
+            stdout=subprocess.PIPE,
+            text=True,
+        )
         self.addCleanup(holder.wait)
         self.addCleanup(holder.kill)
-        time.sleep(0.2)  # flock has the lock before the helper starts
+        self.addCleanup(holder.stdout.close)
+        self.assertEqual(holder.stdout.readline().strip(), "locked")
         started = time.monotonic()
         result = subprocess.run(
             ["timeout", "--kill-after=1s", "5s", *self.tree.helper, "--bar"],
@@ -908,6 +914,7 @@ class GpuTest(TreeCase):
             timeout=20,
         )
         elapsed = time.monotonic() - started
+        self.assertGreaterEqual(elapsed, 3.0, "the helper waited for the lock")
         self.assertEqual(result.returncode, 0, f"killed by the wrapper after {elapsed:.1f} s")
         sample = strict(result.stdout.decode())
         self.assertEqual(only(sample)["error"], NVIDIA_ERROR, "the query that didn't fit is an NVIDIA error")
