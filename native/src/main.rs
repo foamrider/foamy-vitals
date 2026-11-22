@@ -156,8 +156,16 @@
 //!   `intel-<ID>.json` are invalid (Python had no limit).
 //! - Files are read up to the sizes above; a core number above 65535 in
 //!   `/proc/stat` ends the `cores` list. Bash's octal reading of numbers with
-//!   a leading zero is kept, except where Bash failed ("value too great for
-//!   base", which aborted the sample), which now reads as decimal.
+//!   a leading zero is kept in the state files and `/proc/uptime`, except
+//!   where Bash failed ("value too great for base", which aborted the
+//!   sample), which now reads as decimal.
+//! - Sensor files are decimal, and their millidegrees round to the nearest
+//!   degree, halves up: Bash read `045000` as octal (19 °C), and its
+//!   integer division cut negative values toward zero (-1600 and -2000 both
+//!   read -1).
+//! - A `stat`, `meminfo`, `net/route` or `net/dev` table that can't be read
+//!   leaves only its own readings unknown: gawk stopped at it, which blanked
+//!   processor, memory and network together.
 //! - A cached sample answers for 1 s instead of 2 s. The open popup asks
 //!   every 2 s, and the age is the gap between two helper starts in
 //!   `/proc/uptime`'s 10 ms steps: one late tick followed by an on-time one

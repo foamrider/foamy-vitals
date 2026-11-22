@@ -287,7 +287,10 @@ PanelKeyCatcher {
   function temperatureDetail(thermal) {
     if (isNaN(thermal.temperature))
       return ""
-    var label = thermal.label ? FoamyI18n.t(thermal.label) : ""
+    // The helper names a GPU sensor without a known label "Sensor <N>" (its
+    // tempN file); N is that file's number, so it stays as written.
+    var numbered = /^Sensor ([0-9]+)$/.exec(thermal.label)
+    var label = numbered ? FoamyI18n.t("Sensor %1", [numbered[1]]) : thermal.label ? FoamyI18n.t(thermal.label) : ""
     return isNaN(thermal.critical) ? (label ? label + " · " : "") + FoamyI18n.t("Limit unknown") : label
   }
 

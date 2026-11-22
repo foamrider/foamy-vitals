@@ -35,14 +35,25 @@ pub fn glob(dir: &Path, prefix: &[u8], suffix: &[u8]) -> Vec<PathBuf> {
         .collect()
 }
 
-/// `degrees`: whole degrees from a millidegree file, or `null`.
+/// `degrees`: whole degrees from a millidegree file, or `null`. The digits
+/// are decimal even with a leading zero, and halves round up, also below zero.
 pub fn degrees(path: &Path) -> Vec<u8> {
     let raw = read_value(path);
-    let digits = raw.strip_prefix(b"-").unwrap_or(&raw);
+    let (negative, digits) = match raw.strip_prefix(b"-") {
+        Some(digits) => (true, digits),
+        None => (false, &raw[..]),
+    };
     if !text::is_digits(digits) {
         return b"null".to_vec();
     }
-    (text::bash_int(&raw).wrapping_add(500) / 1000)
+    let millidegrees = if negative {
+        text::decimal(digits).wrapping_neg()
+    } else {
+        text::decimal(digits)
+    };
+    millidegrees
+        .wrapping_add(500)
+        .div_euclid(1000)
         .to_string()
         .into_bytes()
 }

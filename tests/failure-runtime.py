@@ -7,6 +7,8 @@ nonzero exit, output that is not a sample, exit 127 as on a CPU without a
 helper, or a slow sample); `df` fails for every mount or for one, or lists no
 local disk; `omarchy-cmd-present` and `omarchy-launch-or-focus-tui`
 answer from and write to the run's out directory, so btop is never started.
+The uptime and load files are pointed at the out directory too, to feed
+them text that /proc never has, or a file that is not there.
 
   python3 tests/failure-runtime.py      (FOAMY_KIT, FOAMY_HOST_45 as in runtime.py)
 """
@@ -87,6 +89,52 @@ ShellRoot {
   FileView { id: launchedFile; path: shell.out + "/launched"; blockLoading: true; printErrors: false }
   FileView { id: btopFile; path: shell.out + "/btop-present"; blockWrites: true; atomicWrites: false }
   FileView { id: dfMode; path: shell.out + "/df-mode"; blockWrites: true; atomicWrites: false }
+  FileView { id: uptimeText; path: shell.out + "/uptime"; blockWrites: true; atomicWrites: false }
+  FileView { id: loadText; path: shell.out + "/loadavg"; blockWrites: true; atomicWrites: false }
+  property int uptimeLoads: 0
+  property int uptimeFailures: 0
+  Connections {
+    target: Vitals.VitalsService.uptimeFile
+    function onLoaded() { shell.uptimeLoads++ }
+    function onLoadFailed() { shell.uptimeFailures++ }
+  }
+  property int loadLoads: 0
+  property int loadFailures: 0
+  Connections {
+    target: Vitals.VitalsService.loadFile
+    function onLoaded() { shell.loadLoads++ }
+    function onLoadFailed() { shell.loadFailures++ }
+  }
+  // The service reads `text` as its uptime file, then `then` runs. Its
+  // path is pointed at the run's out directory instead of /proc/uptime.
+  function uptimeIn(text, then, label) {
+    uptimeText.setText(text)
+    var before = uptimeLoads
+    var path = shell.out + "/uptime"
+    if (s.uptimeFile.path !== path)
+      s.uptimeFile.path = path
+    else
+      s.uptimeFile.reload()
+    wait.waitFor(function() { return shell.uptimeLoads > before }, 15000, then, label)
+  }
+  // The same for the load file, in place of /proc/loadavg.
+  function loadIn(text, then, label) {
+    loadText.setText(text)
+    var before = loadLoads
+    var path = shell.out + "/loadavg"
+    if (s.loadFile.path !== path)
+      s.loadFile.path = path
+    else
+      s.loadFile.reload()
+    wait.waitFor(function() { return shell.loadLoads > before }, 15000, then, label)
+  }
+  // `file` (the uptime or load FileView) is pointed at a file that is not
+  // there; `then` runs once its read has failed.
+  function missingIn(file, failures, then, label) {
+    var before = failures()
+    file.path = shell.out + "/missing"
+    wait.waitFor(function() { return failures() > before }, 15000, then, label)
+  }
   property int diskRuns: 0
   Connections {
     target: Vitals.VitalsService.diskProcess
@@ -210,6 +258,56 @@ ShellRoot {
   }
   function step8() {
     check(s.disks.length === 0 && s.diskStatus === "No mounted local disks", "a df without local disks says so (" + s.diskStatus + ")")
+    shell.uptimeIn("7260.50 100.00\n", step9, "a valid uptime is read")
+  }
+  function step9() {
+    check(s.uptimeMinutes === 121, "an uptime of 7260.5 s reads 121 minutes (" + s.uptimeMinutes + ")")
+    shell.uptimeIn("garbage 100.00\n", step10, "an unparsable uptime is read")
+  }
+  function step10() {
+    // -1 shows as "--"; 0 would show as "0h 0m", a reading that isn't there.
+    check(s.uptimeMinutes === -1, "an unparsable uptime is unknown, not 0 minutes (" + s.uptimeMinutes + ")")
+    shell.uptimeIn("7260.50 100.00\n", step11, "a valid uptime is read again")
+  }
+  function step11() {
+    check(s.uptimeMinutes === 121, "and a valid one reads again (" + s.uptimeMinutes + ")")
+    shell.uptimeIn("", step12, "an empty uptime file is read")
+  }
+  function step12() {
+    check(s.uptimeMinutes === -1, "an empty uptime file is unknown, not 0 minutes (" + s.uptimeMinutes + ")")
+    shell.loadIn("0.84 0.66 0.52 1/123 4567\n", step13, "a valid load is read")
+  }
+  function step13() {
+    check(JSON.stringify(s.loadAverages) === "[0.84,0.66,0.52]", "a valid load reads three averages (" + JSON.stringify(s.loadAverages) + ")")
+    shell.loadIn("garbage 0.66 0.52 1/123 4567\n", step14, "an unparsable load is read")
+  }
+  function step14() {
+    // An empty list shows as "--"; NaN would show as "Load NaN".
+    check(s.loadAverages.length === 0, "an unparsable load is unknown, not NaN (" + JSON.stringify(s.loadAverages) + ")")
+    shell.loadIn("0.84 0.66 0.52 1/123 4567\n", step15, "a valid load is read again")
+  }
+  function step15() {
+    check(s.loadAverages.length === 3, "and a valid one reads again (" + JSON.stringify(s.loadAverages) + ")")
+    shell.loadIn("", step16, "an empty load file is read")
+  }
+  function step16() {
+    check(s.loadAverages.length === 0, "an empty load file is unknown, not 0.00 (" + JSON.stringify(s.loadAverages) + ")")
+    shell.uptimeIn("7260.50 100.00\n", step17, "a valid uptime is read before a failed read")
+  }
+  function step17() {
+    check(s.uptimeMinutes === 121, "the uptime reads 121 minutes before the failed read (" + s.uptimeMinutes + ")")
+    shell.missingIn(s.uptimeFile, function() { return shell.uptimeFailures }, step18, "the uptime read fails")
+  }
+  function step18() {
+    check(s.uptimeMinutes === -1, "a failed uptime read is unknown, not the last reading (" + s.uptimeMinutes + ")")
+    shell.loadIn("0.84 0.66 0.52 1/123 4567\n", step19, "a valid load is read before a failed read")
+  }
+  function step19() {
+    check(s.loadAverages.length === 3, "the load reads three averages before the failed read (" + JSON.stringify(s.loadAverages) + ")")
+    shell.missingIn(s.loadFile, function() { return shell.loadFailures }, step20, "the load read fails")
+  }
+  function step20() {
+    check(s.loadAverages.length === 0, "a failed load read is unknown, not the last reading (" + JSON.stringify(s.loadAverages) + ")")
     console.log("FOAMY DONE")
     Qt.quit()
   }

@@ -40,3 +40,19 @@ test('readings are formatted in the Omarchy language', () => {
     assert.equal(scope.percent(NaN), '--');
   }
 });
+
+test('GPU sensor labels are catalog keys, an unnamed sensor with its number', () => {
+  const en = require('../i18n/en.json');
+  const asked = [];
+  const labels = vm.createContext({FoamyI18n: {t(key, values) {
+    asked.push(key);
+    return key.replace(/%(\d)/g, (_, i) => values[i - 1]);
+  }}});
+  vm.runInContext(source.match(/ {2}function temperatureDetail\([^]*?\n {2}}/)[0], labels);
+  assert.equal(labels.temperatureDetail({temperature: 50, critical: 90, label: 'Sensor 3'}), 'Sensor 3');
+  assert.equal(labels.temperatureDetail({temperature: 50, critical: NaN, label: 'Edge'}), 'Edge · Limit unknown');
+  assert.equal(labels.temperatureDetail({temperature: 50, critical: 90, label: ''}), '');
+  assert.equal(labels.temperatureDetail({temperature: NaN, critical: 90, label: 'Sensor 3'}), '');
+  assert.ok(asked.includes('Sensor %1'), asked.join(', '));
+  for (const key of asked) assert.ok(Object.hasOwn(en, key), `catalog key: ${key}`);
+});

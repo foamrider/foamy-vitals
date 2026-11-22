@@ -57,6 +57,8 @@ test('strings that reach FoamyI18n as values have entries', () => {
     panel: literals(read('Panel.qml'), /launchError = "([^"]+)"/g),
     // GPU sensor labels the helper names itself (Edge, Hotspot, Memory).
     sensors: literals(read('native/src/gpus.rs'), /=> b"([A-Z][A-Za-z]+)"\.to_vec\(\)/g),
+    // Its label for any other sensor, "Sensor <N>": the view asks for "Sensor %1".
+    numbered: literals(read('native/src/gpus.rs'), /\[&b"([A-Z][A-Za-z]+ )"\[\.\.\], number\]/g).map(prefix => prefix + '%1'),
     // The context-menu labels of the kit's text field.
     menu: fs.readdirSync(path.join(root, 'kit')).filter(f => f.endsWith('.qml'))
       .flatMap(f => literals(read('kit/' + f), /translate\("((?:[^"\\]|\\.)*)"\)/g)),
@@ -64,7 +66,7 @@ test('strings that reach FoamyI18n as values have entries', () => {
     kit: Object.values(kitTexts),
     queue: literals(read('kit/FoamyPrefsQueue.qml'), /error = "([^"]+)"/g),
   };
-  for (const [route, least] of Object.entries({service: 1, helper: 1, panel: 1, sensors: 3, menu: 6, queue: 1})) {
+  for (const [route, least] of Object.entries({service: 1, helper: 1, panel: 1, sensors: 3, numbered: 1, menu: 6, queue: 1})) {
     assert.ok(derived[route].length >= least, `the ${route} strings are still found (${derived[route].length})`);
   }
   const indirect = [

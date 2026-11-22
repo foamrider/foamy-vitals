@@ -6,11 +6,12 @@
 //! and each GPU keeps its own baseline (`intel-<ID>.json`).
 
 use std::collections::{BTreeMap, HashMap};
-use std::fs;
-use std::io::{self, ErrorKind};
+use std::fs::{self, OpenOptions};
+use std::io::{self, ErrorKind, Write};
 use std::mem::MaybeUninit;
 use std::os::fd::OwnedFd;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -760,7 +761,13 @@ fn baseline(
     if let Some(state) = &baseline.state {
         // Renamed into place so an interrupted sample never leaves half a baseline.
         let temporary = state.with_extension("tmp");
-        fs::write(&temporary, render_snapshot(&current))
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .custom_flags(OFlags::NOFOLLOW.bits() as i32)
+            .open(&temporary)
+            .and_then(|mut file| file.write_all(&render_snapshot(&current)))
             .map_err(|error| os_error(&error, &temporary))?;
         fs::rename(&temporary, state).map_err(|error| os_error(&error, state))?;
     }

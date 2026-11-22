@@ -270,12 +270,15 @@ def s_network(t, run):
 
 
 def s_missing_procfs_files(t, run):
+    # All four tables at once: with only some gone, this helper keeps the
+    # readings of the others, where stats.sh blanked them all.
     t.process(300, "p", 5, 1)
-    for step, name in enumerate(("net/route", "net/dev", "meminfo", "stat", "uptime")):
-        if name != "uptime":
-            t.uptime(1000 + 3 * step)
+    for name in ("net/route", "net/dev", "meminfo", "stat"):
         (t.proc / name).unlink()
-        run()
+    t.uptime(1000)
+    run()
+    (t.proc / "uptime").unlink()
+    run()
 
 
 def s_uptime_formats(t, run):
@@ -313,7 +316,8 @@ def s_cpu_temperatures(t, run):
     run("--bar")
     shutil.rmtree(t.sys / "class/hwmon/hwmon10")
     shutil.rmtree(t.sys / "class/hwmon/hwmon2")
-    d = t.hwmon(3, "k10temp", [("Tccd1", 70000, None), ("Tctl", -1600, 95000)])
+    # Negative values where rounding halves up and stats.sh's cut toward zero agree.
+    d = t.hwmon(3, "k10temp", [("Tccd1", 70000, None), ("Tctl", -1500, 95000)])
     t.uptime(1003)
     run("--bar")
     (d / "temp2_input").write_text("abc\n")
@@ -329,7 +333,7 @@ def s_cpu_temperatures(t, run):
     t.uptime(1009)
     run("--bar")
     shutil.rmtree(t.sys / "class/hwmon/hwmon3")
-    t.hwmon(4, "zenpower", [("Tdie", -600, 90000)])
+    t.hwmon(4, "zenpower", [("Tdie", -500, 90000)])
     (t.sys / "class/hwmon/hwmon5").mkdir()
     (t.sys / "class/hwmon/hwmon5/name").write_text("k10temp")
     t.uptime(1012)
@@ -815,12 +819,14 @@ def s_fractional_rankings(t, run):
 
 
 def s_odd_numbers_in_files(t, run):
-    t.hwmon(0, "coretemp", [("Package id 0", "045000", "0777")])
+    # Sensor values with a leading zero stay below one degree here, where
+    # stats.sh's octal reading and this helper's decimal one round alike.
+    t.hwmon(0, "coretemp", [("Package id 0", "0400", "0777")])
     d = t.gpu(
         "0000:03:00.0",
         "amdgpu",
         files=amd_files("007", "", "4096", discrete=True),
-        hwmon=[("edge", " 047000 ", "0100000"), ("junction", "061000", "-0"), ("mem", "-01", "1e3")],
+        hwmon=[("edge", " 0400 ", "0777"), ("junction", "0777", "-0"), ("mem", "-01", "1e3")],
     )
     (d / "mem_info_vram_total").write_bytes(b"4096")
     (d / "hwmon/hwmon0/temp1_label").write_bytes(b"edge")
