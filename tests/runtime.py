@@ -63,6 +63,14 @@ ShellRoot {
     for (var i = 0; i < kids.length; i++) { var found = numberField(kids[i]); if (found) return found }
     return null
   }
+  // The settings row of the number setting `key`.
+  function numberRow(item, key) {
+    if (!item) return null
+    if (item.key === key && item.committed !== undefined) return item
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) { var found = numberRow(kids[i], key); if (found) return found }
+    return null
+  }
   // The text of the kit field's error line (a Text shown while its `message`
   // is set), or "". The offscreen popup itself isn't visible, so don't ask.
   function alertText(item) {
@@ -270,6 +278,23 @@ ShellRoot {
     check(b.settingsError === "", "and not as a settings save error")
     cpuField.field.pasteError = ""
     check(shell.alertText(cpuField) === "", "the field's error line clears with it")
+    // A number typed into a row and confirmed with Enter is saved under
+    // that row's key; an out-of-range one is not saved.
+    var memoryField = shell.numberRow(page, "memoryWarning")
+    var savesBeforeTyped = bar.saved.length
+    memoryField.field.text = "42"
+    memoryField.field.textEdited()
+    memoryField.field.accepted()
+    var typed = bar.saved.slice(savesBeforeTyped).map(function(entry) { return entry.settings })
+    check(typed.length === 1 && typed[0].memoryWarning === 42 && typed[0].cpuWarning !== 42,
+          "a typed RAM warning is saved under its own key (" + JSON.stringify(typed) + ")")
+    var savesBeforeInvalid = bar.saved.length
+    memoryField.field.text = "0"
+    memoryField.field.textEdited()
+    memoryField.field.accepted()
+    check(bar.saved.length === savesBeforeInvalid && shell.alertText(memoryField) !== "",
+          "a typed RAM warning out of range is not saved and the field says why (" + shell.alertText(memoryField) + ")")
+    memoryField.handleKey(Qt.Key_Escape)
     check(b.popup.bodyItem.editingSettings && page.implicitHeight > 0, "settings page in place of the dashboard")
     var barChoice = shell.named(page, "barDisplay")
     check(barChoice !== null && Math.abs(barChoice.height - cpuField.height) <= 1, "the dropdown row is as tall as a number row (" + (barChoice ? barChoice.height : -1) + " vs " + cpuField.height + ")")
