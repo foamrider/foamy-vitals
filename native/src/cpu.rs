@@ -306,9 +306,7 @@ mod tests {
             (b"100".to_vec(), 60),
             "the other tables are still read"
         );
-        let baseline = result
-            .baseline
-            .expect("lines before the failure were written");
+        let baseline = result.baseline.expect("the /proc/stat lines were written");
         // The next sample is a delta against that baseline.
         let next = sample(&tree("cpu  150 0 0 150\n").0, Some(&baseline));
         assert_eq!(
