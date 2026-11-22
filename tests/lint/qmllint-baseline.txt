@@ -55,22 +55,6 @@ VitalsView.qml: id-shadows-member: Id for object FoamySettingsPage shadows prope
 VitalsView.qml: id-shadows-member: Note: Id defined here | id: cursor
 VitalsView.qml: id-shadows-member: Note: Id defined here | id: flick
 VitalsView.qml: id-shadows-member: Note: Id defined here | id: settingsPage
-VitalsView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
-VitalsView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
-VitalsView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
-VitalsView.qml: missing-property: Member "bodySmall" not found on type "QObject" | fontSize: FoamyStyle.font.bodySmall
-VitalsView.qml: missing-property: Member "caption" not found on type "QObject" | font.pixelSize: FoamyStyle.font.caption
-VitalsView.qml: missing-property: Member "caption" not found on type "QObject" | font.pixelSize: FoamyStyle.font.caption
-VitalsView.qml: missing-property: Member "caption" not found on type "QObject" | font.pixelSize: FoamyStyle.font.caption
-VitalsView.qml: missing-property: Member "caption" not found on type "QObject" | font.pixelSize: FoamyStyle.font.caption
-VitalsView.qml: missing-property: Member "display" not found on type "QObject" | Layout.preferredHeight: FoamyStyle.font.display
-VitalsView.qml: missing-property: Member "display" not found on type "QObject" | Layout.preferredWidth: FoamyStyle.font.display
-VitalsView.qml: missing-property: Member "display" not found on type "QObject" | font.pixelSize: FoamyStyle.font.display
-VitalsView.qml: missing-property: Member "display" not found on type "QObject" | font.pixelSize: FoamyStyle.font.display
-VitalsView.qml: missing-property: Member "heading" not found on type "QObject" | font.pixelSize: FoamyStyle.font.heading
-VitalsView.qml: missing-property: Member "heading" not found on type "QObject" | font.pixelSize: FoamyStyle.font.heading
-VitalsView.qml: missing-property: Member "subtitle" not found on type "QObject" | font.pixelSize: FoamyStyle.font.subtitle
-VitalsView.qml: missing-property: Member "title" not found on type "QObject" | font.pixelSize: FoamyStyle.font.title
 VitalsView.qml: unqualified: Unqualified access | color: Qt.alpha(view.foreground, 0.12)
 VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
 VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
@@ -156,7 +140,6 @@ VitalsView.qml: unqualified: Unqualified access | width: view.cores.length ? Mat
 VitalsView.qml: unqualified: Unqualified access | zeroColor: Qt.alpha(view.foreground, 0.40)
 preview/BarPreview.qml: missing-property: Member "background" not found on type "QObject" | color: Commons.Color.bar.background
 preview/BarPreview.qml: missing-property: Member "background" not found on type "QObject" | warningColor: readings.warningColor(Commons.Color.bar.background, Commons.Color.urgent)
-preview/BarPreview.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: FoamyStyle.font.body
 preview/BarPreview.qml: missing-property: Member "text" not found on type "QObject" | foreground: Commons.Color.bar.text
 preview/BarPreview.qml: unqualified: Unqualified access | model: preview.rows
 preview/BarPreview.qml: unqualified: Unqualified access | text: modelData.label
