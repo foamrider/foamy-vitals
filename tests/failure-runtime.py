@@ -7,6 +7,8 @@ nonzero exit, output that is not a sample, exit 127 as on a CPU without a
 helper, or a slow sample); `df` fails for every mount or for one, or lists no
 local disk; `omarchy-cmd-present` and `omarchy-launch-or-focus-tui`
 answer from and write to the run's out directory, so btop is never started.
+The uptime file is pointed at the out directory too, to feed it text that
+/proc/uptime never has.
 
   python3 tests/failure-runtime.py      (FOAMY_KIT, FOAMY_HOST_45 as in runtime.py)
 """
@@ -87,6 +89,24 @@ ShellRoot {
   FileView { id: launchedFile; path: shell.out + "/launched"; blockLoading: true; printErrors: false }
   FileView { id: btopFile; path: shell.out + "/btop-present"; blockWrites: true; atomicWrites: false }
   FileView { id: dfMode; path: shell.out + "/df-mode"; blockWrites: true; atomicWrites: false }
+  FileView { id: uptimeText; path: shell.out + "/uptime"; blockWrites: true; atomicWrites: false }
+  property int uptimeLoads: 0
+  Connections {
+    target: Vitals.VitalsService.uptimeFile
+    function onLoaded() { shell.uptimeLoads++ }
+  }
+  // The service reads `text` as its uptime file, then `then` runs. Its
+  // path is pointed at the run's out directory instead of /proc/uptime.
+  function uptimeIn(text, then, label) {
+    uptimeText.setText(text)
+    var before = uptimeLoads
+    var path = shell.out + "/uptime"
+    if (s.uptimeFile.path !== path)
+      s.uptimeFile.path = path
+    else
+      s.uptimeFile.reload()
+    wait.waitFor(function() { return shell.uptimeLoads > before }, 15000, then, label)
+  }
   property int diskRuns: 0
   Connections {
     target: Vitals.VitalsService.diskProcess
@@ -210,6 +230,23 @@ ShellRoot {
   }
   function step8() {
     check(s.disks.length === 0 && s.diskStatus === "No mounted local disks", "a df without local disks says so (" + s.diskStatus + ")")
+    shell.uptimeIn("7260.50 100.00\n", step9, "a valid uptime is read")
+  }
+  function step9() {
+    check(s.uptimeMinutes === 121, "an uptime of 7260.5 s reads 121 minutes (" + s.uptimeMinutes + ")")
+    shell.uptimeIn("garbage 100.00\n", step10, "an unparsable uptime is read")
+  }
+  function step10() {
+    // -1 shows as "--"; 0 would show as "0h 0m", a reading that isn't there.
+    check(s.uptimeMinutes === -1, "an unparsable uptime is unknown, not 0 minutes (" + s.uptimeMinutes + ")")
+    shell.uptimeIn("7260.50 100.00\n", step11, "a valid uptime is read again")
+  }
+  function step11() {
+    check(s.uptimeMinutes === 121, "and a valid one reads again (" + s.uptimeMinutes + ")")
+    shell.uptimeIn("", step12, "an empty uptime file is read")
+  }
+  function step12() {
+    check(s.uptimeMinutes === -1, "an empty uptime file is unknown, not 0 minutes (" + s.uptimeMinutes + ")")
     console.log("FOAMY DONE")
     Qt.quit()
   }

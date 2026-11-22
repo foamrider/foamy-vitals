@@ -208,7 +208,12 @@ QtObject {
   }
   property FileView uptimeFile: FileView {
     path: service.started ? "/proc/uptime" : ""
-    onLoaded: service.uptimeMinutes = Math.floor(Number(text().split(" ")[0]) / 60)
+    onLoaded: {
+      var field = text().split(" ")[0]
+      var seconds = field.trim() === "" ? NaN : Number(field)
+      // -1 shows "--": NaN in an int property would become 0 ("0h 0m").
+      service.uptimeMinutes = isFinite(seconds) && seconds >= 0 ? Math.floor(seconds / 60) : -1
+    }
   }
   property FileView loadFile: FileView {
     path: service.started ? "/proc/loadavg" : ""
