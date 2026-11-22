@@ -290,7 +290,19 @@ PanelKeyCatcher {
     // The helper names a GPU sensor without a known label "Sensor <N>" (its
     // tempN file); N is that file's number, so it stays as written.
     var numbered = /^Sensor ([0-9]+)$/.exec(thermal.label)
-    var label = numbered ? FoamyI18n.t("Sensor %1", [numbered[1]]) : thermal.label ? FoamyI18n.t(thermal.label) : ""
+    // An Intel GPU's sensors keep the labels the xe driver writes (pkg, vram,
+    // mctrl, pcie and vram_ch_<N>, where N is the channel number and stays as
+    // written). These are read as catalog keys; any other label is shown as
+    // it is.
+    var channel = /^vram_ch_([0-9]+)$/.exec(thermal.label)
+    var intel = {
+      pkg: "Package",
+      vram: "VRAM",
+      mctrl: "Memory controller",
+      pcie: "PCIe"
+    }
+    var key = Object.prototype.hasOwnProperty.call(intel, thermal.label) ? intel[thermal.label] : thermal.label
+    var label = numbered ? FoamyI18n.t("Sensor %1", [numbered[1]]) : channel ? FoamyI18n.t("VRAM channel %1", [channel[1]]) : key ? FoamyI18n.t(key) : ""
     return isNaN(thermal.critical) ? (label ? label + " · " : "") + FoamyI18n.t("Limit unknown") : label
   }
 
