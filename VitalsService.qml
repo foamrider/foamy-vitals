@@ -214,10 +214,23 @@ QtObject {
       // -1 shows "--": NaN in an int property would become 0 ("0h 0m").
       service.uptimeMinutes = isFinite(seconds) && seconds >= 0 ? Math.floor(seconds / 60) : -1
     }
+    // A failed reload must not leave the last uptime on screen as current.
+    onLoadFailed: service.uptimeMinutes = -1
   }
   property FileView loadFile: FileView {
     path: service.started ? "/proc/loadavg" : ""
-    onLoaded: service.loadAverages = text().trim().split(/\s+/).slice(0, 3).map(Number)
+    onLoaded: {
+      var fields = text().trim().split(/\s+/).slice(0, 3)
+      var values = fields.map(function (field) {
+        return field === "" ? NaN : Number(field)
+      })
+      // An empty list shows "--"; empty or unparsable text would otherwise
+      // show as "0.00" or "NaN".
+      service.loadAverages = values.length === 3 && values.every(function (value) {
+        return isFinite(value) && value >= 0
+      }) ? values : []
+    }
+    onLoadFailed: service.loadAverages = []
   }
 
   // Chassis detection is stable for the session; ask once per shell.
