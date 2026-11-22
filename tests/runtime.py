@@ -313,11 +313,15 @@ ShellRoot {
     check(!b.opened, "Esc closes the popup")
     a.openSettings()
     check(a.opened && a.editingSettings, "openSettings() on a closed popup lands on Settings")
-    a.close()
-    check(!a.editingSettings, "closing resets to the dashboard")
-    // openSettings() above asked for a full sample; under load it is
-    // still running here, and its rankings would land after the reset below.
-    wait.waitFor(function() { return !s.statsProcess.running }, 15000, step4, "the last full sample ends")
+    // The popup closes while the settings page holds the keys; step6 checks
+    // that the dashboard gets them back when it opens again.
+    wait.waitFor(function() { return !a.popup.bodyItem.focus }, 10000, function() {
+      a.close()
+      check(!a.editingSettings, "closing resets to the dashboard")
+      // openSettings() above asked for a full sample; under load it is
+      // still running here, and its rankings would land after the reset below.
+      wait.waitFor(function() { return !s.statsProcess.running }, 15000, step4, "the last full sample ends")
+    }, "Settings takes the keys from the dashboard")
   }
   function step4() {
     var s = shell.s
@@ -351,10 +355,15 @@ ShellRoot {
     check(header && body.LayoutMirroring.enabled, "RTL: the popup body is mirrored")
     var at = header.settingsButton.mapToItem(body, 0, 0)
     check(at.x < body.width / 2, "RTL: Settings sits at the leading (left) edge (" + Math.round(at.x) + ")")
-    // Here main() calls `qs ipc call foamy.vitals settings`.
-    a.close()
-    console.log("FOAMY IPC READY")
-    wait.waitFor(function() { return a.opened || b.opened }, 15000, step7, "the IPC call opens a popup")
+    // This popup closed on Settings in step3. On open the host focuses the
+    // popup body: the dashboard must hold the keys, not the hidden settings
+    // page, or the first Esc goes to that page's Back and does nothing.
+    wait.waitFor(function() { return body.focus }, 10000, function() {
+      // Here main() calls `qs ipc call foamy.vitals settings`.
+      a.close()
+      console.log("FOAMY IPC READY")
+      wait.waitFor(function() { return a.opened || b.opened }, 15000, step7, "the IPC call opens a popup")
+    }, "the dashboard has the keys again after the popup closed on Settings")
   }
   function step7() {
     var leader = a.member.isLeader ? a : b
