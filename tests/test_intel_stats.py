@@ -376,6 +376,20 @@ class IntelTest(unittest.TestCase):
         self.assertEqual(gpu["error"], UNAVAILABLE)
         self.assertIn("Intel telemetry:", stderr)
 
+    def test_baseline_is_never_written_through_a_symlink(self):
+        # The baseline goes to intel-<ID>.tmp first: a symlink planted there
+        # must not carry it elsewhere. The GPU reads as unavailable instead.
+        self.tree.descriptor(41, 3, fdinfo())
+        self.tree.state.mkdir(mode=0o700)
+        outside = self.base / "outside"
+        outside.write_text("keep\n")
+        (self.tree.state / f"intel-{INTEL_DEVICE}.tmp").symlink_to(outside)
+        gpu, stderr = self.sample()
+        self.assertEqual(outside.read_text(), "keep\n", "the planted target is never written")
+        self.assertEqual(gpu["error"], UNAVAILABLE)
+        self.assertIn("Intel telemetry:", stderr)
+        self.assertFalse((self.tree.state / f"intel-{INTEL_DEVICE}.json").exists(), "no baseline was saved")
+
     def test_every_intel_gpu_is_listed_in_address_order(self):
         self.tree.intel(driver="xe", device="0000:00:01.0", card="card0")
         gpus, _ = self.gpus()

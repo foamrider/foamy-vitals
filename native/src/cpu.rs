@@ -3,7 +3,6 @@
 //! and number formatting of the awk program it replaces.
 
 use std::collections::HashMap;
-use std::io::ErrorKind;
 use std::path::Path;
 
 use crate::text::{self, TABLE, awk_fields, awk_num, awk_print, awk_strnum};
@@ -28,20 +27,11 @@ pub struct Sample {
     pub baseline: Option<Vec<u8>>,
 }
 
-enum Input {
-    Lines(Vec<u8>),
-    Skipped,
-    Fatal,
-}
-
-/// gawk with a data file on the command line: an unopenable file is fatal
-/// (no `END`), a directory is skipped with a warning.
-fn input(path: &Path) -> Input {
-    match text::read_file(path, TABLE) {
-        Ok(data) => Input::Lines(data),
-        Err(error) if error.kind() == ErrorKind::IsADirectory => Input::Skipped,
-        Err(_) => Input::Fatal,
-    }
+/// A table, or `None` when it can't be read: only the readings that come
+/// from it stay unknown (gawk stopped at an unopenable file, which blanked
+/// processor, memory and network together).
+fn input(path: &Path) -> Option<Vec<u8>> {
+    text::read_file(path, TABLE).ok()
 }
 
 fn lines(data: &[u8]) -> impl Iterator<Item = &[u8]> {
@@ -91,16 +81,10 @@ pub fn sample(proc: &Path, previous: Option<&[u8]>) -> Sample {
     let (mut rx, mut tx, mut found): (Vec<u8>, Vec<u8>, bool) = (Vec::new(), Vec::new(), false);
 
     let names = ["stat", "meminfo", "net/route", "net/dev"];
-    let files: Vec<Input> = names.iter().map(|name| input(&proc.join(name))).collect();
-    let mut fatal = false;
+    let files: Vec<Option<Vec<u8>>> = names.iter().map(|name| input(&proc.join(name))).collect();
     for (index, file) in files.iter().enumerate() {
-        let data = match file {
-            Input::Lines(data) => data,
-            Input::Skipped => continue,
-            Input::Fatal => {
-                fatal = true;
-                break;
-            }
+        let Some(data) = file else {
+            continue;
         };
         for line in lines(data) {
             let f = awk_fields(line);
@@ -185,46 +169,41 @@ pub fn sample(proc: &Path, previous: Option<&[u8]>) -> Sample {
         mem_used_kb: 0,
         network: b"null".to_vec(),
     };
-    if !fatal {
-        // END, then the shell's checks of what awk printed.
-        if overall >= 0.0 {
-            reading.cpu = text::awk_print(overall).into_bytes();
+    // END, then the shell's checks of what awk printed.
+    if overall >= 0.0 {
+        reading.cpu = text::awk_print(overall).into_bytes();
+    }
+    let mut cores = Vec::new();
+    let mut i = 0u32;
+    // An absurd core number would make awk print millions of nulls.
+    while f64::from(i) < ncore && i < 1 << 16 {
+        if i > 0 {
+            cores.push(b',');
         }
-        let mut cores = Vec::new();
-        let mut i = 0u32;
-        // An absurd core number would make awk print millions of nulls.
-        while f64::from(i) < ncore && i < 1 << 16 {
-            if i > 0 {
-                cores.push(b',');
-            }
-            match core.get(&i.to_string()) {
-                Some(&pct) if pct >= 0.0 => cores.extend_from_slice(awk_print(pct).as_bytes()),
-                _ => cores.extend_from_slice(b"null"),
-            }
-            i += 1;
+        match core.get(&i.to_string()) {
+            Some(&pct) if pct >= 0.0 => cores.extend_from_slice(awk_print(pct).as_bytes()),
+            _ => cores.extend_from_slice(b"null"),
         }
-        reading.cores = cores;
-        let total = text::awk_d(awk_num(memtotal)).into_bytes();
-        let avail = text::awk_d(awk_num(memavail)).into_bytes();
-        if text::is_digits(&total) && text::is_digits(&avail) {
-            let used = text::bash_int(&total).wrapping_sub(text::bash_int(&avail));
-            reading.mem_used_kb = used.max(0);
-            reading.mem_total_kb = total;
-        }
-        if found {
-            let name = text::clean(&iface);
-            let name: Vec<u8> = name.into_iter().filter(|&b| !text::is_c_space(b)).collect();
-            let rx = text::awk_f(awk_num(&rx), 0);
-            let tx = text::awk_f(awk_num(&tx), 0);
-            if !name.is_empty() && text::is_digits(rx.as_bytes()) && text::is_digits(tx.as_bytes())
-            {
-                let mut network = b"{\"interface\":\"".to_vec();
-                network.extend_from_slice(&name);
-                network.extend_from_slice(
-                    format!("\",\"rxBytes\":{rx},\"txBytes\":{tx}}}").as_bytes(),
-                );
-                reading.network = network;
-            }
+        i += 1;
+    }
+    reading.cores = cores;
+    let total = text::awk_d(awk_num(memtotal)).into_bytes();
+    let avail = text::awk_d(awk_num(memavail)).into_bytes();
+    if text::is_digits(&total) && text::is_digits(&avail) {
+        let used = text::bash_int(&total).wrapping_sub(text::bash_int(&avail));
+        reading.mem_used_kb = used.max(0);
+        reading.mem_total_kb = total;
+    }
+    if found {
+        let name = text::clean(&iface);
+        let name: Vec<u8> = name.into_iter().filter(|&b| !text::is_c_space(b)).collect();
+        let rx = text::awk_f(awk_num(&rx), 0);
+        let tx = text::awk_f(awk_num(&tx), 0);
+        if !name.is_empty() && text::is_digits(rx.as_bytes()) && text::is_digits(tx.as_bytes()) {
+            let mut network = b"{\"interface\":\"".to_vec();
+            network.extend_from_slice(&name);
+            network.extend_from_slice(format!("\",\"rxBytes\":{rx},\"txBytes\":{tx}}}").as_bytes());
+            reading.network = network;
         }
     }
     Sample { reading, baseline }
@@ -322,6 +301,11 @@ mod tests {
         fs::remove_file(dir.0.join("net/route")).unwrap();
         let result = sample(&dir.0, None);
         assert_eq!(result.reading.network, b"null");
+        assert_eq!(
+            (result.reading.mem_total_kb, result.reading.mem_used_kb),
+            (b"100".to_vec(), 60),
+            "the other tables are still read"
+        );
         let baseline = result
             .baseline
             .expect("lines before the failure were written");

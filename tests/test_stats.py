@@ -208,6 +208,27 @@ class FakeTreeTest(TreeCase):
         self.assertEqual(late["sampleTimeMs"], first["sampleTimeMs"] + 1980, "a call 1.98 s later is a new sample")
         self.assertEqual(late["processes"][0]["name"], "busy")
 
+    def test_a_missing_table_blanks_only_its_own_readings(self):
+        # A kernel built without IPv4 networking has no /proc/net/route, for
+        # example: processor and memory must not go blank with the network.
+        network = {"interface": "wlan0", "rxBytes": 12345678901, "txBytes": 98765}
+        rows = (
+            ("stat", (None, 4000000, 16000000, network)),
+            ("meminfo", (50, 0, 0, network)),
+            ("net/route", (50, 4000000, 16000000, None)),
+            ("net/dev", (50, 4000000, 16000000, None)),
+        )
+        for table, expected in rows:
+            with self.subTest(table):
+                tree = Tree(self.base / table.replace("/", "-"))
+                tree.run("--bar")
+                tree.advance(1, 3)
+                (tree.proc / table).unlink()
+                sample, _ = tree.run("--bar")
+                self.assertEqual(
+                    (sample["cpu"], sample["memUsedKb"], sample["memTotalKb"], sample["network"]), expected
+                )
+
     def test_first_rankings_after_a_bar_stretch_cover_a_short_window(self):
         # The popup opens after a stretch of bar-only samples: the CPU ranking must show
         # the last moment, not the whole stretch since the last full sample.
@@ -300,8 +321,34 @@ class FakeTreeTest(TreeCase):
         tree.hwmon(4, "zenpower", [("Tdie", -600, 90000)])
         sample, _ = tree.run("--bar")
         self.assertIsInstance(sample["cpuTemp"], int, "a negative reading is a number, not a failed sample")
-        self.assertLessEqual(sample["cpuTemp"], 0)
-        self.assertEqual(sample["cpuTempCrit"], 90)
+        self.assertEqual((sample["cpuTemp"], sample["cpuTempCrit"]), (-1, 90))
+
+    def test_sensor_files_are_decimal_millidegrees_rounded_to_the_nearest_degree(self):
+        # (file text, whole degrees): halves round up, below zero too, and a
+        # leading zero is not octal (045000 once read as 19 °C).
+        rows = (
+            ("62600", 63),
+            ("62500", 63),
+            ("62499", 62),
+            ("045000", 45),
+            ("-600", -1),
+            ("-1400", -1),
+            ("-1500", -1),
+            ("-1600", -2),
+            ("-2000", -2),
+            ("-045000", -45),
+            ("-500", 0),
+            ("0", 0),
+        )
+        for text, expected in rows:
+            with self.subTest(text):
+                tree = Tree(self.base / f"sensor{text}")
+                tree.hwmon(1, "k10temp", [("Tctl", text, "075000")])
+                files = amd_files(10, 1, 2, discrete=True)
+                tree.gpu("0000:05:00.0", "amdgpu", files=files, hwmon=[("edge", text, "075000")])
+                sample, _ = tree.run("--bar")
+                self.assertEqual((sample["cpuTemp"], sample["cpuTempCrit"]), (expected, 75))
+                self.assertEqual(only(sample)["thermals"], [{"temperature": expected, "critical": 75, "label": "Edge"}])
 
     def test_suspended_nvidia_gpu_is_never_woken(self):
         log, _ = self.tree.nvidia(status="suspended")
