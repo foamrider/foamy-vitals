@@ -1,10 +1,10 @@
 """Byte-for-byte comparison of two stats helpers on the same fake trees.
 
-  FOAMY_VITALS_REFERENCE='["/path/to/old/stats.sh"]' python3 -I tests/compare_stats.py [-v]
+  FOAMY_VITALS_REFERENCE='["bash", "/path/to/ref/stats.sh"]' python3 -I tests/compare_stats.py [-v]
 
 Runs every scenario below twice, once with the reference helper (an argv
-prefix as a JSON list, e.g. stats.sh from a 1.1.0 checkout, which also needs
-its intel_stats.py beside it) and once with
+prefix as a JSON list: #2's stats.sh, which also needs its intel_stats.py
+beside it) and once with
 FOAMY_HELPER (default: this checkout's helper), each on a fresh fake tree, and
 requires identical stdout bytes, exit codes, state files (cpu.*, procs.*,
 cache.*, gpus.*, current; gpu-names as a set of lines; intel-<ID>.json with
@@ -13,8 +13,11 @@ FOAMY_VITALS_REFERENCE it skips. Engine percentages depend on the real clock,
 so the Intel scenarios keep to readings that don't (no baseline, a capped
 engine, errors).
 
-The multi-GPU reference is #2's stats.sh with its intel_stats.py beside it:
-  git show <#2 head>:stats.sh > ref/stats.sh; git show <#2 head>:intel_stats.py > ref/intel_stats.py
+#2 is the multi-GPU pull request. It was not merged, so fetch its head,
+dfce0b9, first. git show writes the files without the executable bit, hence
+bash in the prefix:
+  git fetch origin pull/2/head
+  git show dfce0b9:stats.sh > ref/stats.sh; git show dfce0b9:intel_stats.py > ref/intel_stats.py
 """
 
 import json

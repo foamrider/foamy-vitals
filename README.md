@@ -195,7 +195,7 @@ for t in tests/*.test.js tests/*.test.cjs; do node "$t"; done
 python3 -I tests/test_stats.py          # helper JSON, bar mode, NVIDIA power, state directory
 python3 -I tests/test_intel_stats.py    # Intel DRM fdinfo readings
 FOAMY_HELPER='["bin/aarch64/foamy-vitals-helper", "stats"]' python3 -I tests/test_stats.py  # aarch64 via qemu
-FOAMY_VITALS_REFERENCE='["<dir>/stats.sh"]' python3 -I tests/compare_stats.py  # same bytes as #2's stats.sh (intel_stats.py beside it)
+FOAMY_VITALS_REFERENCE='["bash", "<dir>/stats.sh"]' python3 -I tests/compare_stats.py  # same bytes as #2's stats.sh (intel_stats.py beside it; its docstring says how to fetch them)
 python3 tests/runtime.py                 # offscreen on 4.5 (needs foamy-kit)
 python3 tests/failure-runtime.py         # failed, malformed and unavailable helper, recovery; failed or empty df; btop launch; unparsable, empty or unreadable uptime and load
 python3 "$FOAMY_KIT/preview/i18n_runtime.py" .  # catalogs, live no/ar/en switching (the kit's check)
