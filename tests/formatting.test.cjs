@@ -54,5 +54,19 @@ test('GPU sensor labels are catalog keys, an unnamed sensor with its number', ()
   assert.equal(labels.temperatureDetail({temperature: 50, critical: 90, label: ''}), '');
   assert.equal(labels.temperatureDetail({temperature: NaN, critical: 90, label: 'Sensor 3'}), '');
   assert.ok(asked.includes('Sensor %1'), asked.join(', '));
+  // Labels the Intel xe driver writes itself: each is asked for by its catalog key.
+  for (const [label, key, shown] of [
+    ['pkg', 'Package', 'Package'],
+    ['vram', 'VRAM', 'VRAM'],
+    ['mctrl', 'Memory controller', 'Memory controller'],
+    ['pcie', 'PCIe', 'PCIe'],
+    ['vram_ch_2', 'VRAM channel %1', 'VRAM channel 2'],
+  ]) {
+    const from = asked.length;
+    assert.equal(labels.temperatureDetail({temperature: 50, critical: 90, label}), shown, label);
+    assert.deepEqual(asked.slice(from), [key], label);
+  }
   for (const key of asked) assert.ok(Object.hasOwn(en, key), `catalog key: ${key}`);
+  // Any other driver label has no catalog entry and is shown as it is.
+  assert.equal(labels.temperatureDetail({temperature: 50, critical: 90, label: 'tile0'}), 'tile0');
 });
