@@ -159,8 +159,6 @@ PanelKeyCatcher {
     if (editingSettings) {
       settingsPage.resetScroll()
       Qt.callLater(settingsPage.focusBack)
-    } else {
-      Qt.callLater(view.forceActiveFocus)
     }
   }
 
