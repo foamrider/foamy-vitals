@@ -1,3 +1,6 @@
+// The popup body is created in this file's context and reads its ids
+// (prefs, root): bound, so qmllint checks those reads.
+pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -184,6 +187,7 @@ Panel {
         saving: root.saving
         settingsError: root.settingsError
         retryable: prefs.canRetry
+        queue: prefs
         launchError: root.launchError
         onCloseRequestedByView: root.editingSettings ? root.closeSettings() : root.close()
         onSettingsRequested: root.openSettings()

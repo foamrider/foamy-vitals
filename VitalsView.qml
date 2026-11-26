@@ -32,6 +32,9 @@ PanelKeyCatcher {
   property string settingsError: ""
   property bool retryable: false
   property string launchError: ""
+  // The queue the Panel saves through (none in the preview): a dropdown
+  // linked to it gives way by itself when it refuses the dropdown's key.
+  property FoamyPrefsQueue queue: null
 
   signal closeRequestedByView
   signal settingsRequested
@@ -156,8 +159,6 @@ PanelKeyCatcher {
     if (editingSettings) {
       settingsPage.resetScroll()
       Qt.callLater(settingsPage.focusBack)
-    } else {
-      Qt.callLater(view.forceActiveFocus)
     }
   }
 
@@ -804,6 +805,8 @@ PanelKeyCatcher {
         compact: true
         label: FoamyI18n.t("Show in the bar")
         value: String(r.preference("barDisplay"))
+        queue: view.queue
+        queueKey: "barDisplay"
         options: Prefs.field(Schema.fields, "barDisplay").options.map(function (v) {
           return {
             value: v,
@@ -895,7 +898,8 @@ PanelKeyCatcher {
     }
     Item {
       width: parent.width
-      implicitHeight: cardValue.implicitHeight
+      // Tall enough for a detail that wraps below the reading's baseline.
+      implicitHeight: Math.max(cardValue.implicitHeight, cardDetail.y + cardDetail.implicitHeight)
       Label {
         id: cardValue
         anchors.left: parent.left
@@ -903,14 +907,22 @@ PanelKeyCatcher {
         font.pixelSize: FoamyStyle.font.display
         color: card.warning ? r.urgent : view.foreground
       }
-      // Secondary detail beside the reading, aligned on its baseline.
+      // Secondary detail beside the reading, its first line on the
+      // reading's baseline. A long one ("VRAM channel 1 · Limit unknown")
+      // wraps instead of cutting what comes last. Two lines at most: a
+      // sensor label comes from the driver at any length, and the card
+      // must not grow with it.
       Caption {
+        id: cardDetail
         anchors.left: cardValue.right
         anchors.leftMargin: FoamyStyle.gap
         anchors.right: parent.right
         anchors.baseline: cardValue.baseline
         text: card.detail
         horizontalAlignment: Text.AlignRight
+        wrapMode: Text.Wrap
+        maximumLineCount: 2
+        elide: Text.ElideRight
         color: card.warning ? r.urgent : view.dim
       }
     }

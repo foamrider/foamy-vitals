@@ -25,23 +25,6 @@ Panel.qml: missing-property: Member "fontFamily" not found on type "QObject" | r
 Panel.qml: missing-property: Member "position" not found on type "QObject" | readonly property bool vertical: bar && (bar.position === "left" || bar.position === "right")
 Panel.qml: missing-property: Member "position" not found on type "QObject" | readonly property bool vertical: bar && (bar.position === "left" || bar.position === "right")
 Panel.qml: missing-property: Member "urgent" not found on type "QObject" | readonly property color barUrgent: readings.warningColor(barSurface, bar ? bar.urgent : Commons.Color.urgent)
-Panel.qml: unqualified: Unqualified access | editingSettings: root.editingSettings
-Panel.qml: unqualified: Unqualified access | launchError: root.launchError
-Panel.qml: unqualified: Unqualified access | live: root.opened
-Panel.qml: unqualified: Unqualified access | onBtopRequested: root.openBtop()
-Panel.qml: unqualified: Unqualified access | onCloseRequestedByView: root.editingSettings ? root.closeSettings() : root.close()
-Panel.qml: unqualified: Unqualified access | onCloseRequestedByView: root.editingSettings ? root.closeSettings() : root.close()
-Panel.qml: unqualified: Unqualified access | onCloseRequestedByView: root.editingSettings ? root.closeSettings() : root.close()
-Panel.qml: unqualified: Unqualified access | onRefreshRequested: root.refresh()
-Panel.qml: unqualified: Unqualified access | onRetryRequested: prefs.retry()
-Panel.qml: unqualified: Unqualified access | onSettingsClosed: root.closeSettings()
-Panel.qml: unqualified: Unqualified access | onSettingsRequested: root.openSettings()
-Panel.qml: unqualified: Unqualified access | retryable: prefs.canRetry
-Panel.qml: unqualified: Unqualified access | root.save(key, value)
-Panel.qml: unqualified: Unqualified access | root.switchPanel(direction)
-Panel.qml: unqualified: Unqualified access | saving: root.saving
-Panel.qml: unqualified: Unqualified access | settings: prefs.effectiveSettings
-Panel.qml: unqualified: Unqualified access | settingsError: root.settingsError
 VitalsBarLabel.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: Style.font.body
 VitalsBarLabel.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: Style.font.body
 VitalsBarLabel.qml: missing-property: Member "family" not found on type "QObject" | property string fontFamily: Style.font.family

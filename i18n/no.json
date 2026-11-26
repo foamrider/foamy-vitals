@@ -78,6 +78,7 @@
   "Couldn't save the setting.": "Kunne ikke lagre innstillingen.",
   "That value isn't allowed.": "Den verdien er ikke tillatt.",
   "Settings can't be saved: this widget has no bar entry.": "Innstillingene kan ikke lagres: denne modulen finnes ikke i linjen.",
+  "The saved list in shell.json isn't valid, so it wasn't replaced.": "Den lagrede listen i shell.json er ikke gyldig, så den ble ikke erstattet.",
   "Undo": "Angre",
   "Redo": "Gjør om",
   "Cut": "Klipp ut",
