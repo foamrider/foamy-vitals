@@ -11,9 +11,11 @@
 //!   without process rankings; used while every popup is closed.
 //!
 //! Anything else prints `{"ok":false,"code":"INVALID_ARGUMENT","error":…}`
-//! and exits 2 (`stats.sh` ignored unknown arguments). A helper bug prints
-//! `{"ok":false,"code":"INTERNAL",…}` and exits 101. Otherwise the exit is 0
-//! and stdout is exactly one line, the sample:
+//! and exits 2 (`stats.sh` ignored unknown arguments). A helper bug (a
+//! panic) prints `{"ok":false,"code":"INTERNAL",…}` in place of the sample
+//! and exits 101; one in the Intel scan thread while or after the sample is
+//! written waits for the whole line and adds no second reply. Otherwise the
+//! exit is 0 and stdout is exactly one line, the sample:
 //!
 //! ```text
 //! {"mode":"full"|"bar","sampleTimeMs":N,"cpu":N|null,"cores":[N|null,…],
@@ -219,45 +221,32 @@ impl Mode {
     }
 }
 
-fn fail(failure: &Failure) -> ExitCode {
-    let _ = json::print_line(&json::error_reply(failure));
-    ExitCode::from(failure.exit_code)
-}
-
 fn main() -> ExitCode {
-    // json::run's panic reply (INTERNAL, exit 101, no core dump); the raw sample line can't use it.
-    let previous = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        previous(info);
-        let _ = json::print_line(&json::error_reply(&Failure::coded(
-            "INTERNAL",
-            "internal error",
-        )));
-        std::process::exit(101);
-    }));
     // A wait for the state lock counts against it, so the children get
     // what is left and the helper still replies before the wrapper's kill.
     foamy_helper::process::set_run_budget(RUN_BUDGET);
-    let args: Vec<OsString> = env::args_os().skip(1).collect();
-    let mode = match args.iter().map(|arg| arg.as_bytes()).collect::<Vec<_>>()[..] {
-        [b"stats"] => Mode::Full,
-        [b"stats", b"--bar"] => Mode::Bar,
-        _ => {
-            return fail(
-                &Failure::coded(
-                    "INVALID_ARGUMENT",
-                    "usage: foamy-vitals-helper stats [--bar]",
-                )
-                .with_exit_code(2),
-            );
-        }
-    };
-    let line = sample(mode);
-    let mut stdout = io::stdout().lock();
-    match stdout.write_all(&line).and_then(|()| stdout.flush()) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(_) => ExitCode::from(1),
-    }
+    // The sample line goes out under the kit's reply lock and panic hook:
+    // a panic (in the Intel scan thread too) never cuts the line or adds a
+    // second reply, and ends in an INTERNAL reply or 101 with the children's
+    // process groups killed.
+    json::run_bytes(
+        || {
+            let args: Vec<OsString> = env::args_os().skip(1).collect();
+            let mode = match args.iter().map(|arg| arg.as_bytes()).collect::<Vec<_>>()[..] {
+                [b"stats"] => Mode::Full,
+                [b"stats", b"--bar"] => Mode::Bar,
+                _ => {
+                    return Err(Failure::coded(
+                        "INVALID_ARGUMENT",
+                        "usage: foamy-vitals-helper stats [--bar]",
+                    )
+                    .with_exit_code(2));
+                }
+            };
+            Ok(sample(mode))
+        },
+        json::error_reply,
+    )
 }
 
 fn env_path(name: &str, default: &str) -> PathBuf {

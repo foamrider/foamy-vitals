@@ -12,9 +12,9 @@ How the lists are made:
 
 ## `foamy-vitals-helper`
 
-- `bin/aarch64/foamy-vitals-helper`: sha256 `34521a3cf45de795b9405e9948091b013b40d0297f5e862d1cb23164ee0d40fa`
-- `bin/x86_64/foamy-vitals-helper`: sha256 `7912b61501ef7549c9f19d0202f351e2fcaaff44b712f51e94ec8fc46f4f15fe`
-- `native/native.pin`: source `7dcad14a3f8f2875df630fe266e75cc4803443f1c1f7cbbda13edeca4cf3bf69`, toolchain 1.99.1
+- `bin/aarch64/foamy-vitals-helper`: sha256 `6070606c57b25787d82647a4868f17d3ebb4261c910da2bb1c9938556b6c3c42`
+- `bin/x86_64/foamy-vitals-helper`: sha256 `947fd0b5a594313bc667b07b86dcac213e1d2126b32e5411f5998b6706568b9b`
+- `native/native.pin`: source `ccf41e6c20e2edbf18525e4446b19587e0dab0f262e9985fc151f13ec7657671`, toolchain 1.99.1
 
 ### Crates linked into `foamy-vitals-helper`
 
