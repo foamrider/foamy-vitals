@@ -219,6 +219,21 @@ ShellRoot {
     check(view.gpuChartIds[0] === "0000:c1:00.0" && view.gpuChartIds.indexOf("0000:05:00.0") > 0,
           "the current GPU's line comes before a vanished one (" + JSON.stringify(view.gpuChartIds) + ")")
     check(view.cursor.index === -1, "no GPU rows left: the cursor resets (" + view.cursor.index + ")")
+    // A GPU whose hottest sensor has no known limit: the GPU temperature
+    // card names the sensor and says so. Both parts must show, inside the
+    // card's value row and so above its meter, not over it. (Offscreen
+    // items report visible false, so only the text and its box are asked.)
+    shell.inject({ gpus: [
+      { id: "0000:00:02.0", vendor: "intel", driver: "xe", name: null, type: "integrated", asleep: false, busy: 5,
+        vramUsed: null, vramTotal: null, memoryPrivate: 1048576, frequencyMHz: 1250,
+        thermals: [{ temperature: 71, critical: null, label: "vram_ch_1" }], error: "" }
+    ] })
+    var sensorDetail = shell.withText(view, "VRAM channel 1 · Limit unknown")
+    check(sensorDetail !== null && !sensorDetail.truncated
+          && sensorDetail.y + sensorDetail.height <= sensorDetail.parent.height + 0.5,
+          "the GPU temperature card shows its whole detail line above the meter ("
+          + (sensorDetail ? "cut " + sensorDetail.truncated + ", lines " + sensorDetail.lineCount
+             + ", bottom " + (sensorDetail.y + sensorDetail.height).toFixed(1) + " of " + sensorDetail.parent.height.toFixed(1) : "not found") + ")")
     var twoGpus = [
       { id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "integrated", asleep: false, busy: 12,
         vramUsed: 536870912, vramTotal: 4294967296, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" },

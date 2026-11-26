@@ -900,7 +900,8 @@ PanelKeyCatcher {
     }
     Item {
       width: parent.width
-      implicitHeight: cardValue.implicitHeight
+      // Tall enough for a detail that wraps below the reading's baseline.
+      implicitHeight: Math.max(cardValue.implicitHeight, cardDetail.y + cardDetail.implicitHeight)
       Label {
         id: cardValue
         anchors.left: parent.left
@@ -908,14 +909,19 @@ PanelKeyCatcher {
         font.pixelSize: FoamyStyle.font.display
         color: card.warning ? r.urgent : view.foreground
       }
-      // Secondary detail beside the reading, aligned on its baseline.
+      // Secondary detail beside the reading, its first line on the
+      // reading's baseline. A long one ("VRAM channel 1 · Limit unknown")
+      // wraps instead of cutting what comes last.
       Caption {
+        id: cardDetail
         anchors.left: cardValue.right
         anchors.leftMargin: FoamyStyle.gap
         anchors.right: parent.right
         anchors.baseline: cardValue.baseline
         text: card.detail
         horizontalAlignment: Text.AlignRight
+        wrapMode: Text.Wrap
+        elide: Text.ElideNone
         color: card.warning ? r.urgent : view.dim
       }
     }
