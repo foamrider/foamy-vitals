@@ -6,7 +6,9 @@ the foamy.vitals IPC target (called with `qs ipc`), closed popups take
 bar-only samples, an open popup takes full ones, the popup body is built on
 first open and its lists and charts stop following samples while hidden, the
 single keyboard cursor walks the dashboard, `s`/Esc enter and leave Settings,
-saves go inline, and Arabic mirrors the popup.
+saves go inline, a popup closed on Settings and opened again closes on a real
+Esc (the popups draw into a simulated screen, so their window has the keys),
+and Arabic mirrors the popup.
 
 Uses the foamy-kit harness (temp HOME/XDG, no Wayland/Hyprland, no host
 scripts): FOAMY_KIT=/path/to/foamy-kit (default ~/GitHub/Personal/foamy-kit).
@@ -32,6 +34,7 @@ PLUGIN = Path(__file__).resolve().parents[1]
 
 SHELL = r"""
 import QtQuick
+import QtTest
 import Quickshell
 import qs.Commons
 import "harness"
@@ -45,9 +48,18 @@ ShellRoot {
   property var frozenRows: null
   property int switched: 0
   function check(ok, what) { console.log((ok ? "FOAMY OK " : "FOAMY FAIL ") + what) }
-  // PanelKeyCatcher (host code) turns keys into these signals; drive them
-  // directly, since offscreen windows get no keyboard focus.
+  // PanelKeyCatcher (host code) turns keys into these signals; most steps
+  // drive them directly. step6 presses a real Esc.
   function down(view) { view.moveRequested(0, 1) }
+  // Whether the item that has the keys in panel's popup window is
+  // `ancestor` or inside it.
+  function keysIn(panel, ancestor) {
+    var body = panel.popup.bodyItem
+    var window = body ? body.Window.window : null
+    for (var at = window ? window.activeFocusItem : null; at; at = at.parent)
+      if (at === ancestor) return true
+    return false
+  }
   // The first FoamyNumberField under item (the CPU usage warning).
   function named(item, name) {
     if (!item) return null
@@ -72,7 +84,7 @@ ShellRoot {
     return null
   }
   // The text of the kit field's error line (a Text shown while its `message`
-  // is set), or "". The offscreen popup itself isn't visible, so don't ask.
+  // is set), or "".
   function alertText(item) {
     if (!item) return ""
     if (item.message !== undefined && item.text !== undefined && item.message !== "") return String(item.text)
@@ -116,9 +128,12 @@ ShellRoot {
     }
   }
   FloatingWindow {
-    visible: true; implicitWidth: 300; implicitHeight: 60
+    visible: true; implicitWidth: 1920; implicitHeight: 1080
+    // The screen the popups draw into, so an open popup has this window's keys.
+    ScreenSim {}
     Vitals.Panel { id: a; bar: bar; moduleName: "foamy.vitals"; settings: ({ cpuWarning: 1 }); width: 100; height: 32 }
     Vitals.Panel { id: b; bar: bar; moduleName: "foamy.vitals"; settings: ({ cpuWarning: 1 }); x: 140; width: 100; height: 32 }
+    Item { TestEvent { id: ev } }
   }
   FoamyWait { id: wait }
   readonly property var s: Vitals.VitalsService
@@ -221,8 +236,7 @@ ShellRoot {
     check(view.cursor.index === -1, "no GPU rows left: the cursor resets (" + view.cursor.index + ")")
     // A GPU whose hottest sensor has no known limit: the GPU temperature
     // card names the sensor and says so. Both parts must show, inside the
-    // card's value row and so above its meter, not over it. (Offscreen
-    // items report visible false, so only the text and its box are asked.)
+    // card's value row and so above its meter, not over it.
     shell.inject({ gpus: [
       { id: "0000:00:02.0", vendor: "intel", driver: "xe", name: null, type: "integrated", asleep: false, busy: 5,
         vramUsed: null, vramTotal: null, memoryPrivate: 1048576, frequencyMHz: 1250,
@@ -339,14 +353,14 @@ ShellRoot {
     a.openSettings()
     check(a.opened && a.editingSettings, "openSettings() on a closed popup lands on Settings")
     // The popup closes while the settings page holds the keys; step6 checks
-    // that the dashboard gets them back when it opens again.
-    wait.waitFor(function() { return !a.popup.bodyItem.focus }, 10000, function() {
+    // that Esc closes it when it opens again.
+    wait.waitFor(function() { return shell.keysIn(a, a.popup.bodyItem.settingsPage) }, 10000, function() {
       a.close()
       check(!a.editingSettings, "closing resets to the dashboard")
       // openSettings() above asked for a full sample; under load it is
       // still running here, and its rankings would land after the reset below.
       wait.waitFor(function() { return !s.statsProcess.running }, 15000, step4, "the last full sample ends")
-    }, "Settings takes the keys from the dashboard")
+    }, "the settings page has the keys")
   }
   function step4() {
     var s = shell.s
@@ -380,15 +394,19 @@ ShellRoot {
     check(header && body.LayoutMirroring.enabled, "RTL: the popup body is mirrored")
     var at = header.settingsButton.mapToItem(body, 0, 0)
     check(at.x < body.width / 2, "RTL: Settings sits at the leading (left) edge (" + Math.round(at.x) + ")")
-    // This popup closed on Settings in step3. On open the host focuses the
-    // popup body: the dashboard must hold the keys, not the hidden settings
-    // page, or the first Esc goes to that page's Back and does nothing.
-    wait.waitFor(function() { return body.focus }, 10000, function() {
-      // Here main() calls `qs ipc call foamy.vitals settings`.
+    // This popup closed on Settings in step3. On open the host gives the
+    // popup body the keys. Were they still on the hidden settings page, the
+    // first Esc would go to its Back and do nothing.
+    wait.waitFor(function() { return shell.keysIn(a, body) }, 10000, function() {
+      ev.keyClick(Qt.Key_Escape, Qt.NoModifier, -1)
+      check(!a.opened, "Esc closes the popup that was closed on Settings (keys on the hidden settings page: "
+            + shell.keysIn(a, body.settingsPage) + ")")
+      // Here main() calls `qs ipc call foamy.vitals settings`, which must
+      // open a closed popup: close it also when the Esc above did not.
       a.close()
       console.log("FOAMY IPC READY")
       wait.waitFor(function() { return a.opened || b.opened }, 15000, step7, "the IPC call opens a popup")
-    }, "the dashboard has the keys again after the popup closed on Settings")
+    }, "the reopened popup's body has the keys")
   }
   function step7() {
     var leader = a.member.isLeader ? a : b
