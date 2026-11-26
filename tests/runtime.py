@@ -350,6 +350,23 @@ ShellRoot {
     barChoice.select("cpu")
     check(bar.saved.length === savesBeforePick && b.prefs.error !== "" && barChoice.shownValue === savedChoice,
           "a refused pick shows the saved choice again at once (shows " + barChoice.shownValue + ", saved " + savedChoice + ", error " + JSON.stringify(b.prefs.error) + ")")
+    // A typed number refused the same way gives way too, on every number
+    // row (each has its own link to the queue): the row shows the saved
+    // number again at once, not the refused one beside the error.
+    var numberKeys = ["cpuWarning", "memoryWarning", "gpuWarning", "vramWarning", "cpuTemperatureMargin", "gpuTemperatureMargin"]
+    numberKeys.forEach(function(key) {
+      var row = shell.numberRow(page, key)
+      var savedNumber = row.field.text
+      // One below the saved number (above it at the bottom of the range):
+      // in range and changed, so the row commits it.
+      var typed = row.value > row.from ? row.value - 1 : row.value + 1
+      row.field.text = String(typed)
+      row.field.textEdited()
+      row.field.accepted()
+      check(bar.saved.length === savesBeforePick && row.field.text === savedNumber,
+            "a refused number on the " + key + " row shows the saved number again at once (typed " + typed + ", shows "
+            + row.field.text + ", saved " + savedNumber + ", error " + JSON.stringify(b.prefs.error) + ")")
+    })
     b.moduleName = "foamy.vitals"
     b.save("cpuWarning", 80)
     var saved = bar.saved[bar.saved.length - 1]
