@@ -14,7 +14,7 @@ How the lists are made:
 
 - `bin/aarch64/foamy-vitals-helper`: sha256 `6070606c57b25787d82647a4868f17d3ebb4261c910da2bb1c9938556b6c3c42`
 - `bin/x86_64/foamy-vitals-helper`: sha256 `947fd0b5a594313bc667b07b86dcac213e1d2126b32e5411f5998b6706568b9b`
-- `native/native.pin`: source `ccf41e6c20e2edbf18525e4446b19587e0dab0f262e9985fc151f13ec7657671`, toolchain 1.99.1
+- `native/native.pin`: source `3b331d3422b7e610588ef2bf7f3fa400186f4573949cb9be36eda64147faa341`, toolchain 1.99.1
 
 ### Crates linked into `foamy-vitals-helper`
 
