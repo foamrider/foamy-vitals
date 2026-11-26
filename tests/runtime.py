@@ -350,6 +350,15 @@ ShellRoot {
     barChoice.select("cpu")
     check(bar.saved.length === savesBeforePick && b.prefs.error !== "" && barChoice.shownValue === savedChoice,
           "a refused pick shows the saved choice again at once (shows " + barChoice.shownValue + ", saved " + savedChoice + ", error " + JSON.stringify(b.prefs.error) + ")")
+    // A typed number refused the same way gives way too: the row shows the
+    // saved number again at once, not the refused one beside the error.
+    var refusedRow = shell.numberRow(page, "gpuWarning")
+    var savedNumber = refusedRow.field.text
+    refusedRow.field.text = "55"
+    refusedRow.field.textEdited()
+    refusedRow.field.accepted()
+    check(refusedRow.value !== 55 && bar.saved.length === savesBeforePick && refusedRow.field.text === savedNumber,
+          "a refused number shows the saved number again at once (shows " + refusedRow.field.text + ", saved " + savedNumber + ", error " + JSON.stringify(b.prefs.error) + ")")
     b.moduleName = "foamy.vitals"
     b.save("cpuWarning", 80)
     var saved = bar.saved[bar.saved.length - 1]

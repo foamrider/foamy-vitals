@@ -32,8 +32,8 @@ PanelKeyCatcher {
   property string settingsError: ""
   property bool retryable: false
   property string launchError: ""
-  // The queue the Panel saves through (none in the preview): a dropdown
-  // linked to it gives way by itself when it refuses the dropdown's key.
+  // The queue the Panel saves through (none in the preview): the bar
+  // dropdown and each number row give way when it refuses their key.
   property FoamyPrefsQueue queue: null
 
   signal closeRequestedByView
@@ -832,15 +832,19 @@ PanelKeyCatcher {
       description: FoamyI18n.t("Warns at or above these percentages.")
       NumberRow {
         key: "cpuWarning"
+        queue: view.queue
       }
       NumberRow {
         key: "memoryWarning"
+        queue: view.queue
       }
       NumberRow {
         key: "gpuWarning"
+        queue: view.queue
       }
       NumberRow {
         key: "vramWarning"
+        queue: view.queue
       }
     }
     FoamySettingsSection {
@@ -849,9 +853,11 @@ PanelKeyCatcher {
       description: FoamyI18n.t("Warn this many °C below the hardware limit.")
       NumberRow {
         key: "cpuTemperatureMargin"
+        queue: view.queue
       }
       NumberRow {
         key: "gpuTemperatureMargin"
+        queue: view.queue
       }
     }
   }
@@ -1294,6 +1300,8 @@ PanelKeyCatcher {
   component NumberRow: FoamyNumberField {
     id: numberRow
     property string key: ""
+    // The queue `key` is saved through (the view's).
+    property FoamyPrefsQueue queue: null
     readonly property var schemaField: Prefs.field(Schema.fields, key)
     width: parent.width
     compact: true
@@ -1306,6 +1314,17 @@ PanelKeyCatcher {
     field.Accessible.name: FoamyI18n.t(schemaField.group || "") + " " + FoamyI18n.t(schemaField.label)
     onCommitted: function (v) {
       view.saveRequested(key, v)
+    }
+    // A save of this key that the queue refuses leaves `value` as it was:
+    // saveFailed() shows the saved number again, not the refused one. A
+    // refusal at once (a widget with no bar entry) comes inside this
+    // field's own commit, where the kit field takes the call.
+    Connections {
+      target: numberRow.queue
+      function onFailed(failedKey) {
+        if (failedKey === numberRow.key)
+          numberRow.saveFailed()
+      }
     }
   }
 }
