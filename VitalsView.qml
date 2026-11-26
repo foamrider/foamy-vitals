@@ -32,6 +32,9 @@ PanelKeyCatcher {
   property string settingsError: ""
   property bool retryable: false
   property string launchError: ""
+  // The queue the Panel saves through (none in the preview): a dropdown
+  // linked to it gives way by itself when it refuses the dropdown's key.
+  property FoamyPrefsQueue queue: null
 
   signal closeRequestedByView
   signal settingsRequested
@@ -804,6 +807,8 @@ PanelKeyCatcher {
         compact: true
         label: FoamyI18n.t("Show in the bar")
         value: String(r.preference("barDisplay"))
+        queue: view.queue
+        queueKey: "barDisplay"
         options: Prefs.field(Schema.fields, "barDisplay").options.map(function (v) {
           return {
             value: v,

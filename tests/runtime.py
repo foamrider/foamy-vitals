@@ -298,6 +298,16 @@ ShellRoot {
     check(b.popup.bodyItem.editingSettings && page.implicitHeight > 0, "settings page in place of the dashboard")
     var barChoice = shell.named(page, "barDisplay")
     check(barChoice !== null && Math.abs(barChoice.height - cpuField.height) <= 1, "the dropdown row is as tall as a number row (" + (barChoice ? barChoice.height : -1) + " vs " + cpuField.height + ")")
+    // Without a bar entry the queue refuses every save. A refused pick
+    // must give way at once, not stay on show beside the error for the
+    // dropdown's 10 s pick hold.
+    var savedChoice = barChoice.value
+    var savesBeforePick = bar.saved.length
+    b.moduleName = ""
+    barChoice.select("cpu")
+    check(bar.saved.length === savesBeforePick && b.prefs.error !== "" && barChoice.shownValue === savedChoice,
+          "a refused pick shows the saved choice again at once (shows " + barChoice.shownValue + ", saved " + savedChoice + ", error " + JSON.stringify(b.prefs.error) + ")")
+    b.moduleName = "foamy.vitals"
     b.save("cpuWarning", 80)
     var saved = bar.saved[bar.saved.length - 1]
     check(saved && saved.id === "foamy.vitals" && saved.settings.cpuWarning === 80, "inline save of the full entry")
