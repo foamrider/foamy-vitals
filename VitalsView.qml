@@ -909,7 +909,9 @@ PanelKeyCatcher {
       }
       // Secondary detail beside the reading, its first line on the
       // reading's baseline. A long one ("VRAM channel 1 · Limit unknown")
-      // wraps instead of cutting what comes last.
+      // wraps instead of cutting what comes last. Two lines at most: a
+      // sensor label comes from the driver at any length, and the card
+      // must not grow with it.
       Caption {
         id: cardDetail
         anchors.left: cardValue.right
@@ -919,7 +921,8 @@ PanelKeyCatcher {
         text: card.detail
         horizontalAlignment: Text.AlignRight
         wrapMode: Text.Wrap
-        elide: Text.ElideNone
+        maximumLineCount: 2
+        elide: Text.ElideRight
         color: card.warning ? r.urgent : view.dim
       }
     }

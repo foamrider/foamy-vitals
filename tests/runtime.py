@@ -248,6 +248,20 @@ ShellRoot {
           "the GPU temperature card shows its whole detail line above the meter ("
           + (sensorDetail ? "cut " + sensorDetail.truncated + ", lines " + sensorDetail.lineCount
              + ", bottom " + (sensorDetail.y + sensorDetail.height).toFixed(1) + " of " + sensorDetail.parent.height.toFixed(1) : "not found") + ")")
+    // A label the view does not know is shown as the driver wrote it, at
+    // any length: it stops after two lines, so the card grows no more than
+    // for the two-line detail above.
+    var twoLineRow = sensorDetail ? sensorDetail.parent.height : 0
+    var longLabel = "Hotspot of the second compute tile, in the words of some later driver release"
+    shell.inject({ gpus: [
+      { id: "0000:00:02.0", vendor: "intel", driver: "xe", name: null, type: "integrated", asleep: false, busy: 5,
+        vramUsed: null, vramTotal: null, memoryPrivate: 1048576, frequencyMHz: 1250,
+        thermals: [{ temperature: 71, critical: 100, label: longLabel }], error: "" }
+    ] })
+    var longDetail = shell.withText(view, longLabel)
+    check(longDetail !== null && longDetail.lineCount <= 2 && longDetail.parent.height <= twoLineRow + 0.5,
+          "a long sensor label stops after two lines (" + (longDetail ? "lines " + longDetail.lineCount
+          + ", row " + longDetail.parent.height.toFixed(1) + " of " + twoLineRow.toFixed(1) : "not found") + ")")
     var twoGpus = [
       { id: "0000:c1:00.0", vendor: "amd", driver: "amdgpu", name: null, type: "integrated", asleep: false, busy: 12,
         vramUsed: 536870912, vramTotal: 4294967296, memoryPrivate: null, frequencyMHz: null, thermals: [], error: "" },
