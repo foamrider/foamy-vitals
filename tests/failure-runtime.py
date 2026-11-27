@@ -65,16 +65,18 @@ exit 1
     "omarchy-launch-or-focus-tui": '#!/bin/sh\nprintf "%s\\n" "$*" >>"$FOAMY_OUT/launched"\n',
 }
 
-# Past every warning threshold, with two GPUs (so the Graphics table shows)
-# and a GPU row error. The fake puts the time in place of "@NOW@".
+# Past every default warning limit (Preferences.js): CPU, RAM, VRAM and
+# GPU busy at 95 % or more, each temperature within 15 °C of its critical
+# one. Two GPUs, so the Graphics table shows, and a GPU row error. The fake
+# puts the time in place of "@NOW@".
 WARNING_SAMPLE = {
     "mode": "full",
     "sampleTimeMs": "@NOW@",
     "cpu": 97,
     "cores": [97, 96],
-    "memUsedKb": 4000000,
+    "memUsedKb": 31000000,
     "memTotalKb": 32000000,
-    "cpuTemp": 60,
+    "cpuTemp": 90,
     "cpuTempCrit": 100,
     "gpus": [
         {
@@ -85,11 +87,11 @@ WARNING_SAMPLE = {
             "type": "discrete",
             "asleep": False,
             "busy": 99,
-            "vramUsed": 1073741824,
+            "vramUsed": 16642998272,
             "vramTotal": 17179869184,
             "memoryPrivate": None,
             "frequencyMHz": None,
-            "thermals": [{"temperature": 50, "critical": 110, "label": "Edge"}],
+            "thermals": [{"temperature": 100, "critical": 110, "label": "Edge"}],
             "error": "",
         },
         {
@@ -291,31 +293,92 @@ ShellRoot {
     return shell.find(view, function(item) { return item.modelData !== undefined && item.modelData.id === "0000:03:00.0" && item.fill !== undefined })
   }
   function warningOpen() {
+    // Wait for the full sample the open starts as well: the helper's mode
+    // changes only once it has ended.
+    shell.seen = shell.exits
     a.open()
     wait.waitFor(function() {
       var view = a.popup.bodyItem
       var row = view ? shell.gpuRow(view) : null
-      return row !== null && shell.shownText(row, view.percent(99)) !== null
+      return shell.sampled() && row !== null && shell.shownText(row, view.percent(99)) !== null
     }, 15000, warningShown, "the popup shows the warning sample")
+  }
+  // `item` is in the warning state (not a plain colour) and reads on
+  // `surface`; its colour as drawn ("#rrggbb": a stored colour value would
+  // follow the property).
+  function warns(item, surface, what) {
+    var view = a.popup.bodyItem
+    if (!item) {
+      check(false, what + " is shown")
+      return ""
+    }
+    var drawn = String(item.color)
+    check(drawn !== String(view.foreground) && drawn !== String(view.dim), what + " is in the warning state (" + drawn + ")")
+    shell.reads(item, surface, what)
+    return drawn
   }
   function reads(item, surface, what) {
     var ratio = item ? FoamyPalette.contrastRatio(item.color, surface) : 0
     check(ratio >= 4.5, what + " reads (" + (item ? item.color + ", " + ratio.toFixed(2) + ":1" : "not shown") + ")")
   }
+  // The texts of the busy GPU's row that warn: busy, temperature and VRAM.
+  function rowTexts(view, row) {
+    return [
+      ["busy", shell.shownText(row, view.percent(99))],
+      ["temperature", shell.shownText(row, view.degrees(100))],
+      ["VRAM", shell.shownText(row, view.pair(16642998272 / 1073741824, 17179869184 / 1073741824))]
+    ]
+  }
+  property var rowAtRest: []
   function warningShown() {
     var view = a.popup.bodyItem
     var card = a.popup.cardItem.color
+    // The theme is in effect: the error red and the warning colour (the
+    // theme's urgent colour with the default "Use theme warning colors")
+    // do not read on the popup raw.
     var raw = FoamyPalette.contrastRatio(FoamyPalette.error, card)
     check(raw < 4.5, "the theme's raw red is under 4.5:1 on the popup (" + raw.toFixed(2) + ":1)")
+    var rawWarning = FoamyPalette.contrastRatio(FoamyPalette.urgent, card)
+    check(rawWarning < 4.5, "the theme's raw warning colour is under 4.5:1 on the popup (" + rawWarning.toFixed(2) + ":1)")
     shell.reads(shell.shownText(view, shell.gpuErrorText), card, "the GPU row error on the popup")
-    shell.reads(shell.shownText(view, view.percent(97)), card, "the CPU card's warning value on the popup")
-    // A GPU row takes the cursor: its warning must read on the row's
-    // cursor fill as well.
+    // The cards that warn (with two GPUs the GPU cards are hidden): each
+    // card's label, glyph, value and detail.
+    ;["CPU", "RAM", FoamyI18n.t("CPU temperature")].forEach(function(label) {
+      var tile = shell.find(view, function(item) { return item.label === label && item.glyph !== undefined && item.meterValue !== undefined })
+      if (!tile) {
+        check(false, "the " + label + " card is shown")
+        return
+      }
+      shell.warns(shell.shownText(tile, tile.label), card, "the " + label + " card's label")
+      shell.warns(shell.shownText(tile, tile.glyph), card, "the " + label + " card's glyph")
+      shell.warns(shell.shownText(tile, tile.value), card, "the " + label + " card's value")
+      shell.warns(shell.shownText(tile, tile.detail), card, "the " + label + " card's detail")
+    })
+    // A GPU row takes the cursor. At rest it draws nothing over the popup.
     var row = shell.gpuRow(view)
-    shell.reads(row ? shell.shownText(row, view.percent(99)) : null, row ? Qt.tint(card, row.fill) : card, "the GPU row's busy warning under the cursor")
+    check(!row.hasCursor, "the GPU row has no cursor at rest")
+    shell.rowAtRest = shell.rowTexts(view, row).map(function(entry) {
+      return shell.warns(entry[1], Qt.tint(card, row.color), "the GPU row's " + entry[0] + " warning at rest")
+    })
+    view.cursor.hover(row.stop)
+    // Until the row's fill has settled at its cursor fill.
+    wait.waitFor(function() { return row.hasCursor && row.color.a > 0 && Qt.colorEqual(row.color, row.fill) }, 5000, rowUnderCursor, "the cursor reaches the GPU row")
+  }
+  function rowUnderCursor() {
+    var view = a.popup.bodyItem
+    var card = a.popup.cardItem.color
+    var row = shell.gpuRow(view)
+    shell.rowTexts(view, row).forEach(function(entry, i) {
+      var colour = shell.warns(entry[1], Qt.tint(card, row.color), "the GPU row's " + entry[0] + " warning under the cursor")
+      check(colour !== "" && colour === shell.rowAtRest[i], "the GPU row's " + entry[0] + " warning keeps its colour under the cursor (" + shell.rowAtRest[i] + " at rest, " + colour + ")")
+    })
     a.close()
-    shell.sampleIn("missing")
-    wait.waitFor(sampled, 15000, step3, "the missing-helper sample ends")
+    // A tick of the open popup may have started another sample: the mode
+    // changes once none runs.
+    wait.waitFor(function() { return !s.statsProcess.running }, 15000, function() {
+      shell.sampleIn("missing")
+      wait.waitFor(sampled, 15000, step3, "the missing-helper sample ends")
+    }, "the popup's samples end")
   }
   function step3() {
     check(s.helperUnavailable && s.telemetryError === "This plugin's helper isn't available for this CPU.",
