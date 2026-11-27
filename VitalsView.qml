@@ -410,7 +410,7 @@ PanelKeyCatcher {
           width: content.inner
           visible: text !== ""
           text: FoamyI18n.t(VitalsService.telemetryError || view.launchError)
-          color: Commons.Color.urgent
+          color: FoamyPalette.onSurface(FoamyPalette.error)
           font.pixelSize: FoamyStyle.font.bodySmall
           wrapMode: Text.WordWrap
           elide: Text.ElideNone
@@ -421,7 +421,7 @@ PanelKeyCatcher {
           width: content.inner
           visible: r.gpuError !== ""
           text: FoamyI18n.t(r.gpuError === "Intel GPU readings unavailable. Retrying…" ? r.gpuError : "NVIDIA readings unavailable. Check nvidia-smi.")
-          color: r.urgent
+          color: FoamyPalette.onSurface(FoamyPalette.error)
           wrapMode: Text.WordWrap
         }
         Caption {

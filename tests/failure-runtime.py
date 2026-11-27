@@ -69,6 +69,7 @@ import Quickshell
 import Quickshell.Io
 import "harness"
 import "plugin" as Vitals
+import "plugin/kit"
 
 ShellRoot {
   id: shell
@@ -78,6 +79,17 @@ ShellRoot {
   readonly property string out: Quickshell.env("FOAMY_OUT")
   function check(ok, what) { console.log((ok ? "FOAMY OK " : "FOAMY FAIL ") + what) }
   function text(file) { file.reload(); return file.text() }
+  // The first item under `item` (depth first) for which pick(item) holds.
+  function find(item, pick) {
+    if (!item) return null
+    if (pick(item)) return item
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) {
+      var hit = find(kids[i], pick)
+      if (hit) return hit
+    }
+    return null
+  }
   // Run one sample in `mode` once the previous one has finished.
   function sampleIn(mode) {
     modeFile.setText(mode)
@@ -236,6 +248,12 @@ ShellRoot {
   function pressB() {
     // `b` on the open dashboard launches btop.
     var view = a.popup.bodyItem
+    // The error line says the helper is missing, readable on the popup
+    // (main() picks a theme whose red reads 2.70:1 there).
+    var said = FoamyI18n.t(s.telemetryError)
+    var line = shell.find(view, function(item) { return item.text === said && item.color !== undefined })
+    var ratio = line ? FoamyPalette.contrastRatio(line.color, FoamyPalette.background) : 0
+    check(ratio >= 4.5, "the error line reads on the popup (" + (line ? line.color + ", " + ratio.toFixed(2) + ":1" : "not shown") + ")")
     view.cursor.emitTextKey(view, "b")
     wait.waitFor(function() { return shell.text(launchedFile) !== "" && !s.diskProcess.running }, 15000, step5, "btop is launched")
   }
@@ -316,7 +334,10 @@ ShellRoot {
 
 
 def main():
-    run = harness.Run("4.5", SHELL, plugin=PLUGIN, prefix="foamy-vitals-failure-", fakebin=FAKEBIN)
+    # A dark theme with a dim red (2.70:1 on the popup): the error line must
+    # lighten until it reads.
+    theme = KIT / "tests/fixtures/themes/dim-red.toml"
+    run = harness.Run("4.5", SHELL, plugin=PLUGIN, theme=theme, prefix="foamy-vitals-failure-", fakebin=FAKEBIN)
     run.run(timeout=120)
     oks = run.log.count("FOAMY OK")
     # Every host command the Panel runs has a stand-in above.
