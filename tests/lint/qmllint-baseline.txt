@@ -39,26 +39,23 @@ VitalsView.qml: id-shadows-member: Note: Id defined here | id: cursor
 VitalsView.qml: id-shadows-member: Note: Id defined here | id: flick
 VitalsView.qml: id-shadows-member: Note: Id defined here | id: settingsPage
 VitalsView.qml: unqualified: Unqualified access | color: Qt.alpha(view.foreground, 0.12)
-VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
-VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
-VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
-VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
-VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
-VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.dim
-VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.foreground
-VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgentInk : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgentInk : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgentInk : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgentInk : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgentInk : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgentInk : view.dim
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgentInk : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: card.warning ? r.urgentInk : view.foreground
 VitalsView.qml: unqualified: Unqualified access | color: legend.dotColor
 VitalsView.qml: unqualified: Unqualified access | color: parent.subdued ? view.dim : view.foreground
 VitalsView.qml: unqualified: Unqualified access | color: parent.subdued ? view.dim : view.foreground
-VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.busyWarning ? r.urgent : view.foreground
-VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.busyWarning ? r.urgent : view.foreground
-VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.busyWarning ? r.urgent : view.foreground
-VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.hot ? r.urgent : view.foreground
-VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.hot ? r.urgent : view.foreground
-VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.hot ? r.urgent : view.foreground
-VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.vramWarning ? r.urgent : view.foreground
-VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.vramWarning ? r.urgent : view.foreground
-VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.vramWarning ? r.urgent : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.busyWarning ? row.urgentInk : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.busyWarning ? row.urgentInk : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.hot ? row.urgentInk : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.hot ? row.urgentInk : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.vramWarning ? row.urgentInk : view.foreground
+VitalsView.qml: unqualified: Unqualified access | color: row.asleep ? view.dim : row.modelData.vramWarning ? row.urgentInk : view.foreground
 VitalsView.qml: unqualified: Unqualified access | color: view.coreLoad(modelData) >= r.preference("cpuWarning") ? r.urgent : view.cpuColor
 VitalsView.qml: unqualified: Unqualified access | color: view.coreLoad(modelData) >= r.preference("cpuWarning") ? r.urgent : view.cpuColor
 VitalsView.qml: unqualified: Unqualified access | color: view.coreLoad(modelData) >= r.preference("cpuWarning") ? r.urgent : view.cpuColor
@@ -92,6 +89,7 @@ VitalsView.qml: unqualified: Unqualified access | property color fillColor: view
 VitalsView.qml: unqualified: Unqualified access | readonly property bool onBar: !!r.barGpu && r.barGpu.id === modelData.id
 VitalsView.qml: unqualified: Unqualified access | readonly property bool onBar: !!r.barGpu && r.barGpu.id === modelData.id
 VitalsView.qml: unqualified: Unqualified access | readonly property bool pinned: r.pinnedGpu === modelData.id
+VitalsView.qml: unqualified: Unqualified access | readonly property color urgentInk: FoamyPalette.onSurface(r.urgent, Qt.tint(FoamyPalette.background, row.fill))
 VitalsView.qml: unqualified: Unqualified access | readonly property int stop: view.graphicsStart + index
 VitalsView.qml: unqualified: Unqualified access | readonly property string name: Gpus.displayName(modelData, r.gpuRows, false)
 VitalsView.qml: unqualified: Unqualified access | section: cpuSection

@@ -95,4 +95,7 @@ QtObject {
     return surface.hslLightness > 0.5 ? Qt.darker(FoamyPalette.error, 1.35) : FoamyPalette.error
   }
   readonly property color urgent: warningColor(Commons.Color.popups.background, Commons.Color.urgent)
+  // Warning text and glyphs in the popup: the same colour, made readable
+  // there (meters and the core strip keep `urgent`).
+  readonly property color urgentInk: FoamyPalette.onSurface(urgent)
 }
