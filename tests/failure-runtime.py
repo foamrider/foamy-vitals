@@ -4,7 +4,7 @@
 Fake commands stand in for the boundaries: `timeout` passes through to the
 real one except for the stats helper, whose outcome a mode file picks (a
 nonzero exit, output that is not a sample, exit 127 as on a CPU without a
-helper, or a slow sample); `df` fails for every mount or for one, or lists no
+helper, a slow sample, or WARNING_SAMPLE); `df` fails for every mount or for one, or lists no
 local disk; `omarchy-cmd-present` and `omarchy-launch-or-focus-tui`
 answer from and write to the run's out directory, so btop is never started.
 The uptime and load files are pointed at the out directory too, to feed
@@ -13,6 +13,7 @@ them text that /proc never has, or a file that is not there.
   python3 tests/failure-runtime.py      (FOAMY_KIT, FOAMY_HOST_45 as in runtime.py)
 """
 
+import json
 import os
 import shutil
 import sys
@@ -36,6 +37,7 @@ case " $* " in
   fail) exit 1 ;;
   garbage) echo 'not a sample'; exit 0 ;;
   missing) exit 127 ;;
+  warning) sed 's/"@NOW@"/'"$(date +%s%3N)"'/' "$FOAMY_OUT/warning-sample"; exit 0 ;;
   esac ;;
 esac
 exec {TIMEOUT} "$@"
@@ -61,6 +63,53 @@ exit 1
     "hostnamectl": "#!/bin/sh\necho laptop\n",
     "omarchy-cmd-present": '#!/bin/sh\n[ "$1" = btop ] && [ -e "$FOAMY_OUT/btop-present" ]\n',
     "omarchy-launch-or-focus-tui": '#!/bin/sh\nprintf "%s\\n" "$*" >>"$FOAMY_OUT/launched"\n',
+}
+
+# Past every warning threshold, with two GPUs (so the Graphics table shows)
+# and a GPU row error. The fake puts the time in place of "@NOW@".
+WARNING_SAMPLE = {
+    "mode": "full",
+    "sampleTimeMs": "@NOW@",
+    "cpu": 97,
+    "cores": [97, 96],
+    "memUsedKb": 4000000,
+    "memTotalKb": 32000000,
+    "cpuTemp": 60,
+    "cpuTempCrit": 100,
+    "gpus": [
+        {
+            "id": "0000:03:00.0",
+            "vendor": "amd",
+            "driver": "amdgpu",
+            "name": "Radeon RX 7800 XT",
+            "type": "discrete",
+            "asleep": False,
+            "busy": 99,
+            "vramUsed": 1073741824,
+            "vramTotal": 17179869184,
+            "memoryPrivate": None,
+            "frequencyMHz": None,
+            "thermals": [{"temperature": 50, "critical": 110, "label": "Edge"}],
+            "error": "",
+        },
+        {
+            "id": "0000:01:00.0",
+            "vendor": "nvidia",
+            "driver": "nvidia",
+            "name": "GeForce RTX 4070",
+            "type": "discrete",
+            "asleep": False,
+            "busy": None,
+            "vramUsed": None,
+            "vramTotal": None,
+            "memoryPrivate": None,
+            "frequencyMHz": None,
+            "thermals": [],
+            "error": "nvidia-smi failed",
+        },
+    ],
+    "processes": [],
+    "memoryProcesses": [],
 }
 
 SHELL = r"""
@@ -224,6 +273,47 @@ ShellRoot {
     // The reply may be the helper's cached full line, so the mode is not checked.
     check(s.telemetryError === "" && typeof s.stats.sampleTimeMs === "number" && Array.isArray(s.stats.cores),
           "the next good sample clears the error (" + s.telemetryError + ")")
+    shell.sampleIn("warning")
+    wait.waitFor(sampled, 15000, warningOpen, "the warning sample ends")
+  }
+  // Warnings and the GPU row error, in the popup. main() picks a theme
+  // whose red reads 2.70:1 on the popup: each text must lighten to read on
+  // what it is drawn on.
+  readonly property string gpuErrorText: FoamyI18n.t("NVIDIA readings unavailable. Check nvidia-smi.")
+  // (Offscreen the popup's window is not shown, so `visible` is false
+  // everywhere in it.)
+  function shownText(view, text) {
+    return shell.find(view, function(item) { return item.text === text && item.color !== undefined })
+  }
+  // The busy GPU's row in the Graphics table (the hidden GPU card shows
+  // the same reading).
+  function gpuRow(view) {
+    return shell.find(view, function(item) { return item.modelData !== undefined && item.modelData.id === "0000:03:00.0" && item.fill !== undefined })
+  }
+  function warningOpen() {
+    a.open()
+    wait.waitFor(function() {
+      var view = a.popup.bodyItem
+      var row = view ? shell.gpuRow(view) : null
+      return row !== null && shell.shownText(row, view.percent(99)) !== null
+    }, 15000, warningShown, "the popup shows the warning sample")
+  }
+  function reads(item, surface, what) {
+    var ratio = item ? FoamyPalette.contrastRatio(item.color, surface) : 0
+    check(ratio >= 4.5, what + " reads (" + (item ? item.color + ", " + ratio.toFixed(2) + ":1" : "not shown") + ")")
+  }
+  function warningShown() {
+    var view = a.popup.bodyItem
+    var card = a.popup.cardItem.color
+    var raw = FoamyPalette.contrastRatio(FoamyPalette.error, card)
+    check(raw < 4.5, "the theme's raw red is under 4.5:1 on the popup (" + raw.toFixed(2) + ":1)")
+    shell.reads(shell.shownText(view, shell.gpuErrorText), card, "the GPU row error on the popup")
+    shell.reads(shell.shownText(view, view.percent(97)), card, "the CPU card's warning value on the popup")
+    // A GPU row takes the cursor: its warning must read on the row's
+    // cursor fill as well.
+    var row = shell.gpuRow(view)
+    shell.reads(row ? shell.shownText(row, view.percent(99)) : null, row ? Qt.tint(card, row.fill) : card, "the GPU row's busy warning under the cursor")
+    a.close()
     shell.sampleIn("missing")
     wait.waitFor(sampled, 15000, step3, "the missing-helper sample ends")
   }
@@ -252,7 +342,7 @@ ShellRoot {
     // (main() picks a theme whose red reads 2.70:1 there).
     var said = FoamyI18n.t(s.telemetryError)
     var line = shell.find(view, function(item) { return item.text === said && item.color !== undefined })
-    var ratio = line ? FoamyPalette.contrastRatio(line.color, FoamyPalette.background) : 0
+    var ratio = line ? FoamyPalette.contrastRatio(line.color, a.popup.cardItem.color) : 0
     check(ratio >= 4.5, "the error line reads on the popup (" + (line ? line.color + ", " + ratio.toFixed(2) + ":1" : "not shown") + ")")
     view.cursor.emitTextKey(view, "b")
     wait.waitFor(function() { return shell.text(launchedFile) !== "" && !s.diskProcess.running }, 15000, step5, "btop is launched")
@@ -338,6 +428,7 @@ def main():
     # lighten until it reads.
     theme = KIT / "tests/fixtures/themes/dim-red.toml"
     run = harness.Run("4.5", SHELL, plugin=PLUGIN, theme=theme, prefix="foamy-vitals-failure-", fakebin=FAKEBIN)
+    (run.out / "warning-sample").write_text(json.dumps(WARNING_SAMPLE) + "\n")
     run.run(timeout=120)
     oks = run.log.count("FOAMY OK")
     # Every host command the Panel runs has a stand-in above.

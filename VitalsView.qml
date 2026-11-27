@@ -890,7 +890,7 @@ PanelKeyCatcher {
       width: parent.width
       Caption {
         text: card.label
-        color: card.warning ? r.urgent : view.dim
+        color: card.warning ? r.urgentInk : view.dim
         Layout.fillWidth: true
       }
       OpticalGlyph {
@@ -899,7 +899,7 @@ PanelKeyCatcher {
         text: card.glyph
         fontFamily: FoamyStyle.monoFamily
         fontSize: FoamyStyle.font.bodySmall
-        color: card.warning ? r.urgent : view.dim
+        color: card.warning ? r.urgentInk : view.dim
       }
     }
     Item {
@@ -911,7 +911,7 @@ PanelKeyCatcher {
         anchors.left: parent.left
         text: card.value
         font.pixelSize: FoamyStyle.font.display
-        color: card.warning ? r.urgent : view.foreground
+        color: card.warning ? r.urgentInk : view.foreground
       }
       // Secondary detail beside the reading, its first line on the
       // reading's baseline. A long one ("VRAM channel 1 · Limit unknown")
@@ -929,7 +929,7 @@ PanelKeyCatcher {
         wrapMode: Text.Wrap
         maximumLineCount: 2
         elide: Text.ElideRight
-        color: card.warning ? r.urgent : view.dim
+        color: card.warning ? r.urgentInk : view.dim
       }
     }
     Meter {
@@ -1184,6 +1184,9 @@ PanelKeyCatcher {
     readonly property bool asleep: modelData.asleep === true
     readonly property bool intel: modelData.vendor === "intel"
     readonly property string action: pinned ? FoamyI18n.t("Click to unpin") : FoamyI18n.t("Click to pin to bar")
+    // Measured on the row's cursor fill over the popup, so a warning keeps
+    // one colour at rest and under the cursor.
+    readonly property color urgentInk: FoamyPalette.onSurface(r.urgent, Qt.tint(FoamyPalette.background, row.fill))
     function value(key) {
       return VitalsService.reading(modelData, key)
     }
@@ -1266,7 +1269,7 @@ PanelKeyCatcher {
         }
         Label {
           text: row.asleep ? FoamyI18n.t("Sleeping") : view.percent(row.value("busy"))
-          color: row.asleep ? view.dim : row.modelData.busyWarning ? r.urgent : view.foreground
+          color: row.asleep ? view.dim : row.modelData.busyWarning ? row.urgentInk : view.foreground
         }
       }
       Label {
@@ -1274,14 +1277,14 @@ PanelKeyCatcher {
         anchors.verticalCenter: parent.verticalCenter
         horizontalAlignment: Text.AlignRight
         text: row.asleep ? FoamyI18n.t("Sleeping") : view.degrees(row.modelData.thermal.temperature)
-        color: row.asleep ? view.dim : row.modelData.hot ? r.urgent : view.foreground
+        color: row.asleep ? view.dim : row.modelData.hot ? row.urgentInk : view.foreground
       }
       Label {
         width: row.section ? row.section.columnWidth(3) : 0
         anchors.verticalCenter: parent.verticalCenter
         horizontalAlignment: Text.AlignRight
         text: row.asleep ? FoamyI18n.t("Sleeping") : row.intel ? view.memoryAmount(row.value("memoryPrivate") / 1024) : view.pair(row.value("vramUsed") / 1073741824, row.value("vramTotal") / 1073741824)
-        color: row.asleep ? view.dim : row.modelData.vramWarning ? r.urgent : view.foreground
+        color: row.asleep ? view.dim : row.modelData.vramWarning ? row.urgentInk : view.foreground
       }
     }
     PanelToolTip {
