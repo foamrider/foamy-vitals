@@ -12,9 +12,9 @@ How the lists are made:
 
 ## `foamy-vitals-helper`
 
-- `bin/aarch64/foamy-vitals-helper`: sha256 `6070606c57b25787d82647a4868f17d3ebb4261c910da2bb1c9938556b6c3c42`
-- `bin/x86_64/foamy-vitals-helper`: sha256 `947fd0b5a594313bc667b07b86dcac213e1d2126b32e5411f5998b6706568b9b`
-- `native/native.pin`: source `3b331d3422b7e610588ef2bf7f3fa400186f4573949cb9be36eda64147faa341`, toolchain 1.99.1
+- `bin/aarch64/foamy-vitals-helper`: sha256 `ba56a251af368d6c436055a22d4b952961e2a4a63e739238b71d9c8b0a8e7d22`
+- `bin/x86_64/foamy-vitals-helper`: sha256 `e1d1e1b4a8fa4b975ff7f77f3ab8b2826c5e4b0a7e3df3e11962c41d0d5b99c2`
+- `native/native.pin`: source `a15bcd16afe3f42f4643c2abb1ec059b5480398fd6783bd50526aeff3158eed6`, toolchain 1.99.1
 
 ### Crates linked into `foamy-vitals-helper`
 
@@ -34,7 +34,7 @@ First-party crates (not third-party code, listed for completeness):
 
 | Crate | Version | Source | License | Arches | Notices |
 |---|---|---|---|---|---|
-| foamy-helper | 0.1.2 | `kit/rust/foamy-helper/` (foamy-kit, vendored) | MIT | both | [N4](#n4) |
+| foamy-helper | 0.1.3 | `kit/rust/foamy-helper/` (foamy-kit, vendored) | MIT | both | [N4](#n4) |
 | foamy-vitals-helper | 0.1.0 | `native/` (this plugin) | MIT | both | `LICENSE` |
 
 ### Toolchain code linked into `foamy-vitals-helper`
@@ -311,7 +311,7 @@ Copyright 2014 The Rust Project Developers. See the COPYRIGHT
 
 ### N4
 
-Shipped by: foamy-helper 0.1.2 (foamy-kit's LICENSE).
+Shipped by: foamy-helper 0.1.3 (foamy-kit's LICENSE).
 
 ```text
 MIT License
