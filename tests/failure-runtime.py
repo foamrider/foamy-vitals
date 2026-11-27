@@ -372,6 +372,21 @@ ShellRoot {
       var colour = shell.warns(entry[1], Qt.tint(card, row.color), "the GPU row's " + entry[0] + " warning under the cursor")
       check(colour !== "" && colour === shell.rowAtRest[i], "the GPU row's " + entry[0] + " warning keeps its colour under the cursor (" + shell.rowAtRest[i] + " at rest, " + colour + ")")
     })
+    // The keys' cursor on the row (away and back): its accent border, the
+    // same fill, so each warning keeps its colour.
+    view.moveRequested(0, 1)
+    view.moveRequested(0, -1)
+    wait.waitFor(function() { return row.hasCursor && Qt.colorEqual(row.color, row.fill) }, 5000, rowUnderKeys, "the keys' cursor is back on the GPU row")
+  }
+  function rowUnderKeys() {
+    var view = a.popup.bodyItem
+    var card = a.popup.cardItem.color
+    var row = shell.gpuRow(view)
+    check(row.byKeys && Qt.colorEqual(row.borderSpec.color, row.accent) && row.borderTop >= 1, "the keys' cursor on the GPU row draws its accent border")
+    shell.rowTexts(view, row).forEach(function(entry, i) {
+      var colour = shell.warns(entry[1], Qt.tint(card, row.color), "the GPU row's " + entry[0] + " warning under the keys' cursor")
+      check(colour !== "" && colour === shell.rowAtRest[i], "the GPU row's " + entry[0] + " warning keeps its colour under the keys' cursor (" + shell.rowAtRest[i] + " at rest, " + colour + ")")
+    })
     a.close()
     // A tick of the open popup may have started another sample: the mode
     // changes once none runs.
