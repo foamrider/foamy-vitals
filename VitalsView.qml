@@ -164,6 +164,8 @@ PanelKeyCatcher {
 
   onMoveRequested: function (dx, dy) {
     if (dy === 0 && cursor.index === coresStop && cores.length) {
+      // h/l pick a thread on the strip: the keys have the cursor there.
+      cursor.byKeys = true
       hoveredCore = Math.max(0, Math.min(cores.length - 1, (hoveredCore < 0 ? 0 : hoveredCore + dx)))
       return
     }
@@ -362,6 +364,7 @@ PanelKeyCatcher {
         iconName: "activity"
         title: FoamyI18n.t("Vitals")
         settingsHasCursor: cursor.at(0)
+        cursorByKeys: cursor.byKeys
         onSettingsClicked: view.settingsRequested()
         onSettingsHovered: function (hovered) {
           if (hovered)
@@ -494,6 +497,7 @@ PanelKeyCatcher {
 
         GraphicsSection {
           id: graphics
+          cursorByKeys: cursor.byKeys
           Repeater {
             id: gpuRows
             model: r.multiGpu ? r.gpuRows : []
@@ -598,6 +602,7 @@ PanelKeyCatcher {
 
           ProcessSection {
             id: cpuSection
+            cursorByKeys: cursor.byKeys
             width: details.columnWidth
             title: FoamyI18n.t("Top CPU processes")
             entries: view.processes
@@ -674,6 +679,7 @@ PanelKeyCatcher {
 
           ProcessSection {
             id: memorySection
+            cursorByKeys: cursor.byKeys
             width: details.columnWidth
             title: FoamyI18n.t("Top memory processes")
             entries: view.memoryProcesses
@@ -700,6 +706,7 @@ PanelKeyCatcher {
               width: parent.width
               height: Style.space(18) + FoamyStyle.gap
               hasCursor: cursor.at(view.coresStop) && view.coresStop >= 0
+              byKeys: cursor.byKeys
               Row {
                 id: coreRow
                 anchors.fill: parent
@@ -774,6 +781,7 @@ PanelKeyCatcher {
           tooltipText: FoamyI18n.t("Open btop")
           foreground: view.dim
           hasCursor: cursor.at(view.btopStop)
+          cursorByKeys: cursor.byKeys
           onHoveredChanged: if (hovered)
             cursor.hover(view.btopStop)
           onClicked: view.btopRequested()
@@ -1077,6 +1085,9 @@ PanelKeyCatcher {
 
   component ProcessSection: Column {
     id: section
+    // The keys moved the cursor last (FoamyCursor.byKeys): the rows draw
+    // its accent border.
+    property bool cursorByKeys: false
     property string title: ""
     property var entries: []
     property bool memoryMode: false
@@ -1107,6 +1118,7 @@ PanelKeyCatcher {
     x: -FoamyStyle.gap
     height: Math.max(processName.implicitHeight, processValue.implicitHeight) + FoamyStyle.gapSmall * 2
     hasCursor: cursor.at(stop)
+    byKeys: !!section && section.cursorByKeys
     onHovered: cursor.hover(stop)
     onClicked: view.btopRequested()
     Label {
@@ -1135,6 +1147,8 @@ PanelKeyCatcher {
   // Every GPU in one table, shown in place of the GPU tiles once there are two.
   component GraphicsSection: Column {
     id: section
+    // As ProcessSection's.
+    property bool cursorByKeys: false
     // Name, busy, temperature and VRAM columns, as fractions of the row.
     readonly property var columns: [0.40, 0.24, 0.13, 0.23]
     function columnWidth(i) {
@@ -1194,6 +1208,7 @@ PanelKeyCatcher {
     x: -FoamyStyle.gap
     height: nameCell.implicitHeight + FoamyStyle.gapSmall * 2
     hasCursor: cursor.at(stop)
+    byKeys: !!section && section.cursorByKeys
     onHovered: cursor.hover(stop)
     onClicked: view.togglePin(modelData.id)
     Accessible.role: Accessible.Button

@@ -51,6 +51,24 @@ ShellRoot {
   // PanelKeyCatcher (host code) turns keys into these signals; most steps
   // drive them directly. step6 presses a real Esc.
   function down(view) { view.moveRequested(0, 1) }
+  // The items that draw the keys' cursor: a row's or the cores strip's
+  // accent border, btop's or Settings' border (the pointer's cursor draws
+  // none of them).
+  function keysLooks(item, found) {
+    found = found || []
+    if (!item) return found
+    if (item.borderSpec !== undefined && item.byKeys !== undefined) {
+      if (item.hasCursor && item.borderTop >= 1 && Qt.colorEqual(item.borderSpec.color, item.accent)) found.push(item)
+    } else if (item.cursorByKeys !== undefined && item.border !== undefined && item.border.width > 0) found.push(item)
+    var kids = item.children || []
+    for (var i = 0; i < kids.length; i++) keysLooks(kids[i], found)
+    return found
+  }
+  // Exactly `item` draws the keys' cursor in `view`.
+  function keysOn(view, item) {
+    var found = keysLooks(view)
+    return found.length === 1 && found[0] === item
+  }
   // Whether the item that has the keys in panel's popup window is
   // `ancestor` or inside it.
   function keysIn(panel, ancestor) {
@@ -206,8 +224,10 @@ ShellRoot {
     shell.inject(Object.assign({ cpu: 0, gpus: twoGpusFor(536870912) }, calm))
     shell.down(view)
     check(view.cursor.index === 0, "Down: cursor on Settings")
+    check(shell.keysOn(view, view.band.settingsButton), "the keys' cursor: Settings draws its border")
     shell.down(view)
     check(view.cursor.index === 1 && view.cursor.index === view.graphicsStart, "next: first GPU row")
+    check(shell.keysOn(view, view.stopItem(1)), "the keys' cursor: the GPU row draws its border")
     var pinSaves = bar.saved.length
     view.activateRequested()
     var pinSaved = bar.saved[bar.saved.length - 1]
@@ -219,6 +239,7 @@ ShellRoot {
           "Enter on the pinned row unpins it")
     view.activateRequested()
     view.cursor.hover(2)
+    check(shell.keysLooks(view).length === 0, "the pointer on the next GPU row: no keys' border")
     view.activateRequested()
     check(bar.saved[bar.saved.length - 1].settings.pinnedGpu === "0000:05:00.0", "Enter on another row moves the pin")
     view.cursor.hover(1)
@@ -280,12 +301,22 @@ ShellRoot {
     shell.down(view)
     shell.down(view)
     check(view.cursor.index === view.cpuStart, "next: first CPU process row")
+    check(shell.keysOn(view, view.stopItem(view.cpuStart)), "the keys' cursor: the process row draws its border")
+    for (var m = 0; m < 40 && view.cursor.index !== view.memoryStart; m++) shell.down(view)
+    check(view.cursor.index === view.memoryStart && view.memoryProcesses.length > 0, "Down walks to the first memory process row (" + view.cursor.index + ")")
+    check(shell.keysOn(view, view.stopItem(view.memoryStart)), "the keys' cursor: the memory process row draws its border")
     for (var i = 0; i < 40; i++) shell.down(view)
     check(view.cursor.index === view.btopStop, "Down walks to btop at the end (" + view.cursor.index + ")")
+    check(shell.keysOn(view, view.stopItem(view.btopStop)), "the keys' cursor: btop draws its border")
     check(view.flick.contentY > 0 || view.flick.contentHeight <= view.flick.height, "keyboard cursor scrolls into view")
     view.moveRequested(0, -1)
     check(view.cursor.index === view.coresStop, "Up from btop: the cores strip")
+    check(shell.keysOn(view, view.stopItem(view.coresStop)), "the keys' cursor: the cores strip draws its border")
+    // The pointer on the strip, then Right: the keys have it again.
+    view.cursor.hover(view.coresStop)
+    check(shell.keysLooks(view).length === 0, "the pointer on the cores strip: no keys' border")
     view.moveRequested(1, 0)
+    check(shell.keysOn(view, view.stopItem(view.coresStop)), "Right on the strip: the keys' border again")
     view.moveRequested(1, 0)
     check(view.hoveredCore === 2, "Right picks a thread on the cores strip")
     view.tabRequested(1)
