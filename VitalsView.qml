@@ -364,6 +364,7 @@ PanelKeyCatcher {
         iconName: "activity"
         title: FoamyI18n.t("Vitals")
         settingsHasCursor: cursor.at(0)
+        cursorByKeys: cursor.byKeys
         onSettingsClicked: view.settingsRequested()
         onSettingsHovered: function (hovered) {
           if (hovered)

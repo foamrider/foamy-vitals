@@ -373,7 +373,9 @@ ShellRoot {
       check(colour !== "" && colour === shell.rowAtRest[i], "the GPU row's " + entry[0] + " warning keeps its colour under the cursor (" + shell.rowAtRest[i] + " at rest, " + colour + ")")
     })
     // The keys' cursor on the row (away and back): its accent border, the
-    // same fill, so each warning keeps its colour.
+    // same fill, so each warning keeps its colour. The plugin draws no fill
+    // of its own for the keys: the colour checks guard against a kit change
+    // that would give the keys' cursor another fill.
     view.moveRequested(0, 1)
     view.moveRequested(0, -1)
     wait.waitFor(function() { return row.hasCursor && Qt.colorEqual(row.color, row.fill) }, 5000, rowUnderKeys, "the keys' cursor is back on the GPU row")

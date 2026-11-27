@@ -52,7 +52,8 @@ ShellRoot {
   // drive them directly. step6 presses a real Esc.
   function down(view) { view.moveRequested(0, 1) }
   // The items that draw the keys' cursor: a row's or the cores strip's
-  // accent border, btop's border (the pointer's cursor draws neither).
+  // accent border, btop's or Settings' border (the pointer's cursor draws
+  // none of them).
   function keysLooks(item, found) {
     found = found || []
     if (!item) return found
@@ -223,6 +224,7 @@ ShellRoot {
     shell.inject(Object.assign({ cpu: 0, gpus: twoGpusFor(536870912) }, calm))
     shell.down(view)
     check(view.cursor.index === 0, "Down: cursor on Settings")
+    check(shell.keysOn(view, view.band.settingsButton), "the keys' cursor: Settings draws its border")
     shell.down(view)
     check(view.cursor.index === 1 && view.cursor.index === view.graphicsStart, "next: first GPU row")
     check(shell.keysOn(view, view.stopItem(1)), "the keys' cursor: the GPU row draws its border")
@@ -300,6 +302,9 @@ ShellRoot {
     shell.down(view)
     check(view.cursor.index === view.cpuStart, "next: first CPU process row")
     check(shell.keysOn(view, view.stopItem(view.cpuStart)), "the keys' cursor: the process row draws its border")
+    for (var m = 0; m < 40 && view.cursor.index !== view.memoryStart; m++) shell.down(view)
+    check(view.cursor.index === view.memoryStart && view.memoryProcesses.length > 0, "Down walks to the first memory process row (" + view.cursor.index + ")")
+    check(shell.keysOn(view, view.stopItem(view.memoryStart)), "the keys' cursor: the memory process row draws its border")
     for (var i = 0; i < 40; i++) shell.down(view)
     check(view.cursor.index === view.btopStop, "Down walks to btop at the end (" + view.cursor.index + ")")
     check(shell.keysOn(view, view.stopItem(view.btopStop)), "the keys' cursor: btop draws its border")
